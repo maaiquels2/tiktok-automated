@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gate · Fábrica TikTok</title>
+<style>
+  :root {
+    --purple: #7047eb;
+    --purple-hover: #6038d6;
+    --pink: #f54e93;
+    --bg: #f6f5fa;
+    --panel: #ffffff;
+    --border: #e5e1ed;
+    --text: #252034;
+    --muted: #706b7e;
+    --soft: #f2edff;
+    --go: #237252;
+    --go-bg: #e8f5ee;
+    --rework: #9a6b12;
+    --rework-bg: #fff8df;
+    --kill: #a5362e;
+    --kill-bg: #fff0ef;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: Inter, "Segoe UI", Arial, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    display: grid;
+    place-items: center;
+    padding: 24px;
+  }
+  .card {
+    width: min(420px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 17px;
+    padding: 22px 20px 18px;
+    box-shadow: 0 12px 40px #22133418;
+    position: relative;
+    overflow: hidden;
+  }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .logo {
+    width: 34px; height: 34px; border-radius: 10px;
+    display: grid; place-items: center; color: #fff; font-weight: 750; font-size: 15px;
+    background: linear-gradient(135deg, var(--purple), var(--pink));
+  }
+  .logo.spin::after {
+    content: "";
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff;
+    display: block;
+    animation: spin 0.9s linear infinite;
+  }
+  .logo.done { font-size: 16px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  h1 { margin: 0; font-size: 16px; font-weight: 750; }
+  .sub { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+  .status-pill {
+    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    padding: 5px 9px; border-radius: 6px; background: #eeebf7; color: #645578;
+  }
+  .status-pill.evaluating { background: var(--soft); color: var(--purple); }
+  .status-pill.go { background: var(--go-bg); color: var(--go); }
+  .status-pill.rework { background: var(--rework-bg); color: var(--rework); }
+  .status-pill.kill { background: var(--kill-bg); color: var(--kill); }
+
+  .score-wrap { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; margin-bottom: 16px; }
+  .bar-track { height: 8px; border-radius: 999px; background: #efeaf6; overflow: hidden; border: 1px solid var(--border); }
+  .bar-fill {
+    height: 100%; width: 0%; border-radius: inherit;
+    background: linear-gradient(90deg, var(--purple), var(--pink));
+    transition: width .4s cubic-bezier(.2,.8,.2,1);
+  }
+  .score-num { font-size: 28px; font-weight: 750; line-height: 1; font-variant-numeric: tabular-nums; }
+  .score-num span { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+  .criteria { display: grid; gap: 8px; margin-bottom: 16px; }
+  .row {
+    display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+    padding: 10px 12px; border-radius: 10px; background: #fcfbfe; border: 1px solid transparent;
+    opacity: .4; transform: translateY(4px); transition: .3s ease;
+  }
+  .row.active { opacity: 1; transform: none; border-color: #d8cafa; background: var(--soft); }
+  .row.done { opacity: 1; transform: none; border-color: var(--border); background: #fff; }
+  .row.fail { border-color: #e6b5b0; background: #fff8f7; }
+  .label { font-size: 13px; font-weight: 600; }
+  .dots { display: flex; gap: 4px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #dbd5e5; }
+  .dot.on { background: var(--purple); }
+  .dot.mid { background: #e0a429; }
+  .dot.bad { background: #c45a52; }
+
+  .verdict {
+    border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+    background: #fcfbfe; display: grid; gap: 6px;
+  }
+  .verdict-title { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 750; }
+  .verdict-big {
+    font-size: 26px; font-weight: 800; letter-spacing: .02em;
+    opacity: 0; transform: scale(.94); transition: .45s cubic-bezier(.2,.9,.2,1);
+  }
+  .verdict-big.show { opacity: 1; transform: none; }
+  .verdict-big.go { color: var(--go); }
+  .verdict-big.rework { color: var(--rework); }
+  .verdict-big.kill { color: var(--kill); }
+  .verdict-msg { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+  .file { margin-top: 12px; font-size: 11px; color: var(--muted); word-break: break-all; }
+  .controls { margin-top: 12px; display: flex; gap: 8px; }
+  button {
+    flex: 1; border: 1px solid var(--border); background: #fff; color: var(--text);
+    border-radius: 9px; padding: 10px 12px; font-weight: 650; cursor: pointer; font: inherit;
+  }
+  button:hover { background: #f5f1ff; border-color: #c8b9ef; }
+  button.primary { background: var(--purple); border-color: var(--purple); color: #fff; }
+  button.primary:hover { background: var(--purple-hover); border-color: var(--purple-hover); }
+
+  .scan {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--purple), transparent);
+    opacity: .45; animation: drop 2s linear infinite; pointer-events: none;
+  }
+  @keyframes drop { from { top: 0; opacity: 0; } 15% { opacity: .5; } to { top: 100%; opacity: 0; } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="scan" id="scan"></div>
+    <div class="top">
+      <div class="brand">
+        <div class="logo spin" id="logo"></div>
+        <div>
+          <h1>Gate · Critico</h1>
+          <p class="sub" id="subtitle">Lendo o vídeo…</p>
+        </div>
+      </div>
+      <div class="status-pill evaluating" id="pill">AVALIANDO</div>
+    </div>
+    <div class="score-wrap">
+      <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+      <div class="score-num"><span id="score">0</span><span>/14</span></div>
+    </div>
+    <div class="criteria" id="criteria"></div>
+    <div class="verdict">
+      <div class="verdict-title">Veredito</div>
+      <div class="verdict-big" id="verdictBig">—</div>
+      <div class="verdict-msg" id="verdictMsg">Mesmos critérios da skill TikTok Shop video gate.</div>
+    </div>
+    <div class="file" id="fileLabel">arquivo: aguardando</div>
+    <div class="controls">
+      <button type="button" id="replay">Rever</button>
+      <button type="button" class="primary" id="again">Rodar de novo</button>
+    </div>
+  </div>
+<script src="result.js"></script>
+<script>
+const LABELS = [
+  "Áudio contínuo","Cortes conectados","Legendas","Hook 0–3s",
+  "Prova do produto","CTA final","Clareza / conversão"
+];
+function parseData() {
+  const q = new URLSearchParams(location.search).get("data");
+  if (q) {
+    try { return JSON.parse(decodeURIComponent(escape(atob(q)))); } catch (e) {}
+    try { return JSON.parse(atob(q)); } catch (e) {}
+  }
+  if (window.GATE_RESULT) return window.GATE_RESULT;
+  return { file: "demo.mp4", scores: [0,1,0,1,2,2,1], note: "REWORK — eco no áudio; legendas demais." };
+}
+function verdictFrom(scores) {
+  const total = scores.reduce((a,b)=>a+b,0);
+  const autoFail = scores[0] === 0;
+  let kind, label;
+  if (total <= 5) { kind = "kill"; label = "KILL"; }
+  else if (total <= 10 || autoFail) { kind = "rework"; label = "REWORK"; }
+  else { kind = "go"; label = "GO"; }
+  return { total, kind, label };
+}
+const root = document.getElementById("criteria");
+LABELS.forEach((name, i) => {
+  const row = document.createElement("div");
+  row.className = "row"; row.id = "row-" + i;
+  row.innerHTML = `<div class="label">${name}</div><div class="dots" id="dots-${i}"></div>`;
+  root.appendChild(row);
+  const dots = document.getElementById("dots-" + i);
+  for (let d = 0; d < 3; d++) { const s = document.createElement("span"); s.className = "dot"; dots.appendChild(s); }
+});
+function setDots(i, score) {
+  const dots = [...document.getElementById("dots-" + i).children];
+  dots.forEach(d => d.className = "dot");
+  if (score >= 2) dots.forEach(d => d.classList.add("on"));
+  else if (score === 1) { dots[0].classList.add("on"); dots[1].classList.add("mid"); }
+  else dots[0].classList.add("bad");
+}
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+async function run() {
+  const data = parseData();
+  const { total, kind, label } = verdictFrom(data.scores);
+  document.getElementById("fileLabel").textContent = "arquivo: " + (data.file || "—");
+  document.getElementById("subtitle").textContent = "Lendo o vídeo…";
+  const pill = document.getElementById("pill");
+  pill.textContent = "AVALIANDO"; pill.className = "status-pill evaluating";
+  const big = document.getElementById("verdictBig");
+  big.className = "verdict-big"; big.textContent = "—";
+  document.getElementById("verdictMsg").textContent = "Critérios alinhados à Fábrica TikTok · Critico de Vendas.";
+  const logo = document.getElementById("logo");
+  logo.className = "logo spin"; logo.textContent = "";
+  document.getElementById("scan").style.display = "block";
+  document.getElementById("score").textContent = "0";
+  document.getElementById("bar").style.width = "0%";
+  LABELS.forEach((_, i) => {
+    document.getElementById("row-" + i).className = "row";
+    [...document.getElementById("dots-" + i).children].forEach(d => d.className = "dot");
+  });
+  let running = 0;
+  for (let i = 0; i < LABELS.length; i++) {
+    const row = document.getElementById("row-" + i);
+    row.classList.add("active");
+    document.getElementById("subtitle").textContent = "Checando: " + LABELS[i];
+    await wait(480);
+    const s = data.scores[i] | 0;
+    setDots(i, s);
+    row.classList.remove("active");
+    row.classList.add("done");
+    if (s === 0) row.classList.add("fail");
+    running += s;
+    document.getElementById("score").textContent = String(running);
+    document.getElementById("bar").style.width = ((running / 14) * 100).toFixed(1) + "%";
+    await wait(240);
+  }
+  document.getElementById("subtitle").textContent = "Avaliação concluída";
+  document.getElementById("scan").style.display = "none";
+  logo.className = "logo done";
+  logo.textContent = kind === "go" ? "✓" : kind === "rework" ? "!" : "×";
+  pill.textContent = label;
+  pill.className = "status-pill " + kind;
+  big.textContent = label + " · " + total + "/14";
+  big.className = "verdict-big show " + kind;
+  document.getElementById("verdictMsg").textContent = data.note || (
+    kind === "go" ? "Pode postar." : kind === "rework" ? "Não posta — precisa de correção." : "Descartar ou regravar."
+  );
+}
+document.getElementById("replay").onclick = run;
+document.getElementById("again").onclick = run;
+run();
+</script>
+</body>
+</html>

@@ -6,6 +6,7 @@ process without Playwright, CDP, DOM access or scripted interaction.
 import asyncio
 import atexit
 import os
+import socket
 import json
 import subprocess
 import threading
@@ -15,7 +16,8 @@ from werkzeug.utils import secure_filename
 from concurrent.futures import TimeoutError
 
 URLS = {'flow':'https://labs.google/fx/tools/flow', 'grok':'https://grok.com/imagine',
-        'studio':'https://www.tiktok.com/tiktokstudio/upload'}
+        'studio':'https://www.tiktok.com/tiktokstudio/upload',
+        'studio_content':'https://www.tiktok.com/tiktokstudio/content'}
 
 
 def installed_browser():
@@ -65,6 +67,42 @@ def existing_chrome_profile():
             raise RuntimeError('Não encontrei um perfil do Chrome identificado como Micaela. Defina FABRICA_MICAELA_PROFILE com o diretório do perfil, por exemplo Profile 6.')
         raise RuntimeError('Encontrei mais de um perfil possível da Micaela. Defina FABRICA_MICAELA_PROFILE com o diretório exato do perfil.')
     return root, matches[0]
+
+
+
+def chrome_profile_busy(chrome_root):
+    """True if Chrome appears to hold the User Data lock (must be closed for Playwright)."""
+    root = Path(chrome_root)
+    for name in ('SingletonLock', 'lockfile'):
+        if (root / name).exists():
+            return True
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ['tasklist', '/FI', 'IMAGENAME eq chrome.exe', '/FO', 'CSV', '/NH'],
+            stderr=subprocess.DEVNULL, text=True, encoding='utf-8', errors='ignore'
+        )
+        if 'chrome.exe' in out.casefold():
+            return True
+    except Exception:
+        pass
+    return False
+
+
+
+def wait_cdp_ready(port, timeout=25):
+    """Wait until Chrome remote debugging port accepts TCP."""
+    import time
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                return True
+        except OSError as exc:
+            last = exc
+            time.sleep(0.35)
+    raise RuntimeError(f"Chrome nao abriu a porta de depuracao {port}. Detalhe: {last}")
 
 
 class BrowserAssistant:
@@ -200,6 +238,157 @@ class BrowserAssistant:
             raise RuntimeError(f'O Windows não conseguiu abrir o perfil dedicado (erro {code}). Verifique as permissões da pasta browser_profiles e tente novamente.') from exc
         except Exception as exc:
             raise RuntimeError('Não foi possível abrir o serviço. Verifique a conexão, feche outras janelas do perfil dedicado e confirme a instalação do Chrome ou Edge e do Playwright (instalar.ps1).') from exc
+
+
+    def fetch_studio_metrics(self, campaign_id, video_url=None, caption_hint=None):
+        """Open dedicated Playwright profile, scrape Studio content+analytics."""
+        if self.closed:
+            raise RuntimeError('O assistente foi encerrado. Reinicie o aplicativo.')
+        if not self.lock.acquire(blocking=False):
+            raise RuntimeError('Um navegador esta abrindo. Aguarde e tente novamente.')
+        try:
+            task = asyncio.run_coroutine_threadsafe(
+                self._fetch_studio_metrics(campaign_id, video_url, caption_hint), self.loop
+            )
+            try:
+                return task.result(timeout=180)
+            except TimeoutError as exc:
+                task.cancel()
+                raise RuntimeError('A coleta de metricas demorou demais. Feche a janela do Studio e tente de novo.') from exc
+        finally:
+            self.lock.release()
+
+    async def _fetch_studio_metrics(self, campaign_id, video_url=None, caption_hint=None):
+        """Open real Chrome (Micaela) with remote debugging, then scrape via CDP."""
+        from services.studio_metrics import collect_metrics, CONTENT_URL
+        executable = installed_browser()
+        chrome_root, chrome_profile = existing_chrome_profile()
+        profile_key = "tiktok-micaela-metrics"
+        cdp_port = int(os.environ.get("FABRICA_METRICS_CDP_PORT") or "9333")
+
+        native = self.native.get("tiktok-micaela-existing")
+        if native and native.poll() is None:
+            raise RuntimeError(
+                "O Chrome da Micaela (aberto pela fabrica) ainda esta rodando. "
+                "Feche essa janela do Studio/Chrome completamente e tente Coletar metricas de novo."
+            )
+
+        # Reuse an already-launched metrics Chrome if still up
+        proc = self.native.get(profile_key)
+        browser = self.contexts.get(profile_key)  # store CDP browser here
+        need_launch = True
+        if proc and proc.poll() is None and browser is not None:
+            need_launch = False
+        elif chrome_profile_busy(chrome_root) and not (proc and proc.poll() is None):
+            raise RuntimeError(
+                "O Chrome ainda esta aberto (ou travou o perfil). Feche TODAS as janelas do Google Chrome "
+                f"(perfil {chrome_profile}) e tente novamente. A coleta precisa abrir o Chrome com depuracao."
+            )
+
+        if self.playwright is None:
+            from playwright.async_api import async_playwright
+            self.playwright = await async_playwright().start()
+
+        if need_launch:
+            # Kill stale CDP browser handle
+            old = self.contexts.pop(profile_key, None)
+            if old is not None:
+                try:
+                    await old.close()
+                except Exception:
+                    pass
+            from services.studio_metrics import video_id_from_url, ANALYTICS_URL
+            open_url = CONTENT_URL
+            vid0 = video_id_from_url(video_url)
+            if vid0:
+                open_url = ANALYTICS_URL.format(vid=vid0)
+            args = [
+                executable,
+                f"--user-data-dir={chrome_root}",
+                f"--profile-directory={chrome_profile}",
+                f"--remote-debugging-port={cdp_port}",
+                "--remote-allow-origins=*",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--new-window",
+                open_url,
+            ]
+            self.native[profile_key] = subprocess.Popen(
+                args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            await asyncio.sleep(1.2)
+            if self.native[profile_key].poll() not in (None, 0):
+                raise RuntimeError(
+                    "Nao foi possivel abrir o Chrome da Micaela para metricas. "
+                    "Feche o Chrome e tente de novo."
+                )
+            try:
+                await asyncio.to_thread(wait_cdp_ready, cdp_port, 30)
+            except Exception as exc:
+                raise RuntimeError(
+                    "O Chrome abriu, mas a porta de depuracao nao respondeu. "
+                    "Feche o Chrome e tente Coletar metricas de novo."
+                ) from exc
+            try:
+                browser = await self.playwright.chromium.connect_over_cdp(
+                    f"http://127.0.0.1:{cdp_port}"
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Nao conectei no Chrome da Micaela via CDP (:{cdp_port}). Detalhe: {exc}"
+                ) from exc
+            self.contexts[profile_key] = browser
+
+        browser = self.contexts[profile_key]
+        contexts = browser.contexts
+        if not contexts:
+            raise RuntimeError("Chrome conectado, mas sem contexto de abas. Feche e tente de novo.")
+        context = contexts[0]
+        from services.studio_metrics import video_id_from_url as _vid_from
+        want = (_vid_from(video_url) or "").casefold()
+        # Prefer the analytics tab for this video, then any Studio tab, else new page
+        page = None
+        ranked = []
+        for p in context.pages:
+            if p.is_closed():
+                continue
+            try:
+                u = (p.url or "").casefold()
+            except Exception:
+                u = ""
+            score = 0
+            if want and want in u and "analytics" in u:
+                score = 3
+            elif "tiktokstudio/analytics" in u:
+                score = 2
+            elif "tiktokstudio" in u or "tiktok.com" in u:
+                score = 1
+            if score:
+                ranked.append((score, p))
+        if ranked:
+            ranked.sort(key=lambda x: -x[0])
+            page = ranked[0][1]
+        if page is None:
+            page = await context.new_page()
+        await page.bring_to_front()
+        try:
+            metrics = await collect_metrics(page, video_url=video_url, caption_hint=caption_hint)
+        except Exception as first_exc:
+            page2 = await context.new_page()
+            await page2.bring_to_front()
+            try:
+                metrics = await collect_metrics(page2, video_url=video_url, caption_hint=caption_hint)
+            except Exception as second_exc:
+                raise RuntimeError(str(second_exc) or str(first_exc)) from second_exc
+        return dict(
+            message=f"Metricas coletadas do TikTok Studio (Chrome {chrome_profile} via CDP).",
+            metrics=metrics,
+            url=metrics.get("raw", {}).get("analytics_url") if isinstance(metrics.get("raw"), dict) else CONTENT_URL,
+            profile=chrome_profile,
+            mode="playwright_cdp_micaela",
+            campaign_id=campaign_id,
+        )
+
 
     async def _close(self):
         for context in list(self.contexts.values()):

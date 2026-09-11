@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { ReactFlow, Background, Controls, Handle, Position, useNodesState, useReactFlow, ReactFlowProvider } from '@xyflow/react';
-import { UserRound, Shirt, Image, Check, Clapperboard, Type, Upload, RotateCcw, LockKeyhole } from 'lucide-react';
+import { UserRound, Shirt, Image, Check, Clapperboard, Type, Upload, RotateCcw, LockKeyhole, LineChart } from 'lucide-react';
 import { nextStage, stageInfo } from './api';
-const icons={user:UserRound,shirt:Shirt,image:Image,check:Check,video:Clapperboard,text:Type,upload:Upload};
+const icons={user:UserRound,shirt:Shirt,image:Image,check:Check,video:Clapperboard,text:Type,upload:Upload,chart:LineChart};
 const defaultPositions=Object.fromEntries(stageInfo.map((s,i)=>[s.id,{x:(i%4)*255,y:Math.floor(i/4)*225}]));
 function StageNode({data,selected}) {
   const Icon=icons[data.icon];

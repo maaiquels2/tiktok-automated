@@ -19,6 +19,7 @@ export const stageInfo = [
   {id:'video', title:'Criar vídeo', subtitle:'Movimento a partir da imagem', icon:'video'},
   {id:'video_approval', title:'Aprovar vídeo', subtitle:'Imagem, áudio e duração', icon:'check'},
   {id:'studio', title:'TikTok Studio', subtitle:'Preparar e publicar manualmente', icon:'upload'},
+  {id:'performance', title:'Performance', subtitle:'Metricas, insights e Critico', icon:'chart'},
 ];
 export function nextStage(c) {
   if (!c.assets.some(a=>a.kind==='reference')) return 'model';

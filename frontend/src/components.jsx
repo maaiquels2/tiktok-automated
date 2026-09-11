@@ -121,8 +121,11 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
   const [order,setOrder]=useState(()=>videos.map(v=>v.id));
   const [seconds,setSeconds]=useState({});
   const [slot,setSlot]=useState(slotOptions[0]||'Mix');
-  const [duration,setDuration]=useState(15);
+  const [duration,setDuration]=useState(22);
   const [working,setWorking]=useState(false);
+  const [autoBrief,setAutoBrief]=useState('');
+  const [autoGate,setAutoGate]=useState(null);
+  const [autoNote,setAutoNote]=useState('');
   useEffect(()=>{
     setOrder(prev=>{
       const ids=videos.map(v=>v.id);
@@ -142,6 +145,45 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
   function toggle(id){
     setOrder(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
   }
+  function buildAutoCutBrief(){
+    const lines=[
+      'AUTO-CUT TikTok Shop — rode a skill Auto-cut TikTok Shop takes',
+      `Campanha: ${c.name||c.id} (id ${c.id})`,
+      `Produto: ${c.product||'—'} · Cores: ${c.color||'—'}`,
+      `Slot destino sugerido: ${slot} · duracao livre (pode >15s), priorizar continuidade`,
+      '',
+      'Takes (ordem preferida):'
+    ];
+    ordered.forEach((v,i)=>{
+      const label=v.slot||v.metadata?.color||`Video #${v.id}`;
+      const path=v.local_path||v.path||`(asset id ${v.id} — anexe o MP4 no chat do Critico)`;
+      const sec=seconds[v.id]?` · pedaco ~${seconds[v.id]}s do inicio`:'';
+      lines.push(`${i+1}) ${label}${sec}`);
+      lines.push(`   path: ${path}`);
+    });
+    lines.push('');
+    lines.push('Pedido: assista cada take, KEEP/DROP com timecodes, monte hook→prova→objecao→CTA sem corte seco, passe ao Editor de Mix, rode o gate GO/REWORK/KILL e devolva o MP4 final.');
+    lines.push('Regras: sem eco/overlap; sem frase cortada; legendas minimas (beneficio+CTA) ou nenhuma; match cut / dissolve 0.2-0.25s.');
+    return lines.join('\n');
+  }
+  async function runAutoCut(){
+    if(ordered.length<1){onError?.('Selecione ao menos 1 video.');return}
+    const brief=buildAutoCutBrief();
+    setAutoBrief(brief);
+    setAutoGate({
+      fileName:`auto-cut - ${ordered.length} takes`,
+      scores:[1,1,1,1,1,1,1],
+      note:'Pipeline preparado. Cole o brief no Critico de Vendas (ou anexe os MP4s la). Ele assiste, corta com o Editor e devolve GO/REWORK/KILL.'
+    });
+    setAutoNote(`Auto-cut pronto: ${ordered.length} take(s). Copie o brief e cole no chat do Critico de Vendas — ou anexe os mesmos MP4s la com a frase "roda o auto-cut".`);
+    try{
+      await fetch(`/api/campaigns/${c.id}/autocut`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({version:c.version, brief, clips:ordered.map(v=>({asset_id:v.id, slot:v.slot||v.metadata?.color, local_path:v.local_path||null, seconds:seconds[v.id]?Number(seconds[v.id]):null})), slot})
+      });
+    }catch(_){ /* endpoint opcional */ }
+  }
   async function runMix(){
     if(ordered.length<2){onError?.('Selecione pelo menos 2 videos.');return}
     setWorking(true);
@@ -150,14 +192,14 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
         asset_id:v.id,
         seconds: seconds[v.id] ? Number(seconds[v.id]) : undefined,
       }));
-      await onMix({clips, slot, duration:Number(duration)||15});
+      await onMix({clips, slot, duration:Number(duration)||22});
     }catch(e){onError?.(e.message||String(e))}
     finally{setWorking(false)}
   }
-  if(!videos.length) return <div className="notice">Anexe ao menos 2 MP4s (por cor) para misturar.</div>;
+  if(!videos.length) return <div className="notice">Anexe ao menos 2 MP4s (por cor) para misturar ou usar Auto-cut.</div>;
   return <section className="video-mixer">
     <div className="section-title"><h3>Misturar videos</h3></div>
-    <p className="help">Ordene os clips, defina quantos segundos pegar de cada um (ou deixe vazio para dividir ~15s) e gere um MP4 unico 9:16.</p>
+    <p className="help">Ordene os clips. <strong>Auto-cut</strong> prepara o pacote pro Critico (assiste, KEEP/DROP, Editor costura, gate). <strong>Gerar mix</strong> e o FFmpeg local rapido sem critica visual.</p>
     <div className="mixer-list">
       {videos.map(v=>{
         const on=order.includes(v.id);
@@ -174,10 +216,16 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
     </div>
     <div className="mixer-controls">
       <label>Salvar no slot<select value={slot} disabled={busy||immutable||working} onChange={e=>setSlot(e.target.value)}>{slotOptions.map(s=><option key={s} value={s}>{s}</option>)}</select></label>
-      <label>Duracao total (s)<input type="number" min="10" max="60" step="0.5" value={duration} disabled={busy||immutable||working} onChange={e=>setDuration(e.target.value)}/></label>
+      <label>Duracao mix local (s)<input type="number" min="10" max="60" step="0.5" value={duration} disabled={busy||immutable||working} onChange={e=>setDuration(e.target.value)}/></label>
     </div>
-    <button className="primary full" disabled={busy||immutable||working||ordered.length<2} onClick={runMix}>{working?'Misturando…':'Gerar mix MP4'}</button>
-    {ordered.length>=2&&<p className="help">Ordem: {ordered.map(v=>v.slot||v.id).join(' · ')}</p>}
+    <div className="mixer-actions">
+      <button type="button" className="primary" disabled={busy||immutable||working||ordered.length<1} onClick={runAutoCut}>Auto-cut (Critico)</button>
+      <button type="button" disabled={busy||immutable||working||ordered.length<2} onClick={runMix}>{working?'Misturando…':'Gerar mix MP4 local'}</button>
+    </div>
+    {ordered.length>=1&&<p className="help">Ordem: {ordered.map(v=>v.slot||v.id).join(' · ')}</p>}
+    {autoNote&&<p className="notice success">{autoNote}</p>}
+    {autoBrief&&<div className="autocut-brief"><div className="section-title"><strong>Brief pro Critico</strong><CopyButton text={autoBrief} label="Copiar brief" onError={onError}/></div><pre>{autoBrief}</pre></div>}
+    {autoGate&&<GateCriticoPanel fileName={autoGate.fileName} scores={autoGate.scores} note={autoGate.note} autoStart/>}
   </section>;
 }
 
@@ -279,16 +327,138 @@ export function VideoTimelinePreview({asset,variant,c}){
   </section>;
 }
 
-export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript}){
+
+const GATE_LABELS=["Áudio contínuo","Cortes conectados","Legendas","Hook 0–3s","Prova do produto","CTA final","Clareza / conversão"];
+function gateVerdict(scores){
+  const total=scores.reduce((a,b)=>a+b,0);
+  const autoFail=scores[0]===0;
+  if(total<=5)return{total,kind:"kill",label:"KILL"};
+  if(total<=10||autoFail)return{total,kind:"rework",label:"REWORK"};
+  return{total,kind:"go",label:"GO"};
+}
+function _gateText(v){return (v||"").toString().trim()}
+/** Heurística local leve (sem assistir o MP4). Scores 0–2; Critico agente faz o gate visual real. */
+export function estimateGateScores({duration,prompts={},caption="",hasVideo=false}={}){
+  const hook=_gateText(prompts.hook),dev=_gateText(prompts.development),cta=_gateText(prompts.cta),cap=_gateText(caption);
+  const scores=[1,1,1,1,1,1,1];
+  if(!hasVideo){return{scores:[0,0,0,0,0,0,0],note:"Sem MP4 anexado — anexe o vídeo da cor antes do gate."};}
+  if(hook.length<8)scores[3]=0; else if(/\?|cansa|olha|presta/i.test(hook)&&hook.length<90)scores[3]=2; else scores[3]=1;
+  if(dev.length<20)scores[4]=0; else if(/bolso|caimento|transpar|leve|movimento|poliamida/i.test(dev))scores[4]=2; else scores[4]=1;
+  if(/toc[ae]|salva|coment|produto marcado|compra/i.test(cta+" "+cap))scores[5]=2; else if(cta.length>6)scores[5]=1; else scores[5]=0;
+  const captionHeavy=/BOLSO|NÃO TRANSPARENTA|NAO TRANSPARENTA|TOCA NO PRODUTO/i.test(cap)&&cap.length>40;
+  scores[2]=captionHeavy?0:(cap.trim()?1:2);
+  const clarityBits=[/bolso|caimento|transpar|leve/i.test(dev+hook), /toc[ae]|produto marcado/i.test(cta+cap)];
+  scores[6]=clarityBits.filter(Boolean).length===2?2:clarityBits.some(Boolean)?1:0;
+  scores[0]=1; scores[1]=1;
+  if(duration&&(duration<8||duration>45))scores[1]=0;
+  const v=gateVerdict(scores);
+  const note=v.label==="GO"
+    ? "Heurística local ok — confirme áudio/cortes no Critico de Vendas."
+    : "Heurística local: "+v.label+" · "+v.total+"/14. Áudio e cortes reais só com o agente Critico assistindo o MP4.";
+  return{scores,note};
+}
+
+export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
+  const rootRef=useRef(null);
+  const [running,setRunning]=useState(false);
+  const [idx,setIdx]=useState(-1);
+  const [shown,setShown]=useState(Array(GATE_LABELS.length).fill(null));
+  const [live,setLive]=useState(0);
+  const [done,setDone]=useState(false);
+  const [tick,setTick]=useState(0);
+  const [isFs,setIsFs]=useState(false);
+  const result=gateVerdict(scores||[]);
+  useEffect(()=>{
+    const onFs=()=>setIsFs(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange',onFs);
+    return()=>document.removeEventListener('fullscreenchange',onFs);
+  },[]);
+  async function toggleFullscreen(){
+    const el=rootRef.current;
+    if(!el)return;
+    try{
+      if(!document.fullscreenElement){await el.requestFullscreen();setTick(t=>t+1);}
+      else{await document.exitFullscreen();}
+    }catch(e){console.error(e);alert('Nao foi possivel abrir fullscreen neste navegador.');}
+  }
+  useEffect(()=>{
+    if(!autoStart||!scores?.length)return;
+    let cancelled=false;
+    async function play(){
+      setRunning(true);setDone(false);setShown(Array(GATE_LABELS.length).fill(null));setLive(0);setIdx(-1);
+      let sum=0;
+      for(let i=0;i<GATE_LABELS.length;i++){
+        if(cancelled)return;
+        setIdx(i);
+        await new Promise(r=>setTimeout(r,420));
+        if(cancelled)return;
+        const s=scores[i]|0; sum+=s;
+        setShown(prev=>{const n=[...prev];n[i]=s;return n;});
+        setLive(sum);
+        await new Promise(r=>setTimeout(r,220));
+      }
+      if(cancelled)return;
+      setIdx(-1);setRunning(false);setDone(true);
+      onDone&&onDone({...gateVerdict(scores),note});
+    }
+    play();
+    return()=>{cancelled=true};
+  },[JSON.stringify(scores),fileName,autoStart,tick]);
+  const dots=(score)=>{
+    if(score==null)return[0,0,0];
+    if(score>=2)return[2,2,2];
+    if(score===1)return[2,1,0];
+    return[-1,0,0];
+  };
+  return <section ref={rootRef} className={"gate-critico"+(isFs?" is-fullscreen":"")} aria-label="Gate Critico de video">
+    <div className="gate-top">
+      <div className="gate-brand">
+        <span className={"gate-logo"+(running?" spin":" done")}>{done?(result.kind==="go"?"✓":result.kind==="rework"?"!":"×"):""}</span>
+        <div>
+          <strong>Gate · Critico</strong>
+          <p className="help">{running?"Avaliando critérios…":done?"Avaliação concluída":"Pronto para avaliar"}</p>
+        </div>
+      </div>
+      <span className={"status-pill"+(done?" "+result.kind:(running?" evaluating":""))}>{done?result.label:(running?"AVALIANDO":"GATE")}</span>
+    </div>
+    <div className="gate-score-wrap">
+      <div className="gate-bar"><i style={{width:((live/14)*100).toFixed(1)+"%"}}/></div>
+      <div className="score-num">{live}<span>/14</span></div>
+    </div>
+    <div className="gate-criteria">
+      {GATE_LABELS.map((label,i)=>{
+        const s=shown[i];
+        const cls="gate-row"+(idx===i?" active":"")+(s!=null?" done":"")+(s===0?" fail":"");
+        return <div className={cls} key={label}>
+          <span className="label">{label}</span>
+          <span className="dots">{dots(s).map((d,j)=><i key={j} className={"dot"+(d===2?" on":d===1?" mid":d===-1?" bad":"")}/>)}</span>
+        </div>;
+      })}
+    </div>
+    <div className={"gate-verdict "+(done?result.kind:"")}>
+      <div className="eyebrow">Veredito</div>
+      <div className={"gate-verdict-big"+(done?" show":"")}>{done?`${result.label} · ${result.total}/14`:"—"}</div>
+      <p>{done?(note||""):"Animação alinhada à Fábrica TikTok · skill TikTok Shop video gate."}</p>
+    </div>
+    <small className="help file">{fileName?`arquivo: ${fileName}`:"arquivo: —"}</small>
+    <div className="gate-actions">
+      <button type="button" disabled={!scores?.length||running} onClick={()=>setTick(t=>t+1)}>Rever animação</button>
+      <button type="button" className="button" onClick={toggleFullscreen}>{isFs?"Sair do fullscreen":"Abrir card fullscreen"}</button>
+    </div>
+  </section>;
+}
+
+
+export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics}){
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
   const insightsMap=(c.checklist&&c.checklist.insights)||{};
   const videos=c.assets.filter(a=>a.kind==='video');
   const hasUrl=videos.some(v=>v.url||v.href||v.id);
-  const show=c.status==='ready_to_publish'||c.status==='published'||hasUrl;
   const [active,setActive]=useState(variants[0]?.color||'');
   const [metrics,setMetrics]=useState({});
   const [criticoNote,setCriticoNote]=useState('');
+  const [gateRun,setGateRun]=useState(null);
   useEffect(()=>{
     const key=active||'default';
     const prev=perfMap[key]||perfMap[active]||{};
@@ -298,12 +468,11 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
       orders:prev.orders??'',notes:prev.notes??''
     });
   },[active,c.version]);
-  if(!show)return null;
   const variant=variants.find(v=>v.color===active)||variants[0];
   const key=variant?.color||'default';
   const card=insightsMap[key]||insightsMap['default'];
   const video=videos.find(v=>(v.slot||v.metadata?.color)===variant?.color)||videos[0];
-  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} step={step} value={metrics[name]??''} disabled={busy||immutable}
+  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} step={step} value={metrics[name]??''} disabled={busy}
     onChange={e=>setMetrics(m=>({...m,[name]:e.target.value}))}/></label>;
   const num=v=>v===''||v==null?undefined:Number(v);
   const save=()=>onSavePerformance&&onSavePerformance({color:variant?.color,metrics:{
@@ -319,7 +488,7 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
       {field('views_24h','Views 24h')}{field('views_7d','Views 7d')}{field('watch_pct','Watch %','0.1')}
       {field('likes','Likes')}{field('comments','Comentários')}{field('saves','Saves')}{field('shares','Shares')}{field('orders','Pedidos')}
       {field('notes','Notas')}
-      <button type="button" className="primary" disabled={busy||immutable||!onSavePerformance} onClick={save}>Salvar métricas</button>
+      <button type="button" className="primary" disabled={busy||!onSavePerformance} onClick={save}>Salvar métricas</button>
       <button type="button" disabled={busy||!onGenerateInsights} onClick={()=>onGenerateInsights({color:variant?.color})}>Gerar insights</button>
     </div>
     {card?<>
@@ -338,16 +507,41 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
       </div>
       <div className="insight-psych"><strong>Psicologia</strong><ul>{(card.psychology||[]).map((p,i)=><li key={i}>{p}</li>)}</ul></div>
     </>:<div className="notice">Salve métricas (opcional) e clique em <strong>Gerar insights</strong>.</div>}
+        <div className="studio-metrics-box">
+      <div className="studio-metrics-head">
+        <strong>Métricas do Studio</strong>
+        <span className="help">Puxa views e % do TikTok Studio com o Chrome da Micaela.</span>
+      </div>
+      <div className="studio-metrics-actions">
+        <button type="button" className="primary" disabled={busy||!onFetchStudioMetrics} onClick={()=>onFetchStudioMetrics&&onFetchStudioMetrics(active||variants[0]?.color)}>Coletar métricas</button>
+        <button type="button" className="button" disabled={busy||!onOpenStudio} onClick={()=>onOpenStudio&&onOpenStudio()}>Abrir Studio</button>
+      </div>
+      <p className="studio-metrics-tip">Feche o Chrome antes de coletar.</p>
+    </div>
     <div className="critico-box">
+      <button type="button" className="primary" disabled={busy} onClick={()=>{
+        const prompts=(variant?.prompts)||c.prompts||{};
+        const est=estimateGateScores({
+          duration:video?.metadata?.duration,
+          prompts,
+          caption:(variant?.prompts&&variant.prompts.caption)||c.prompts?.caption||'',
+          hasVideo:!!video
+        });
+        setGateRun({fileName:video?.original_name||video?.local_path||'video.mp4',...est});
+        setCriticoNote(video?.local_path
+          ?`Gate local rodou. Para áudio/cortes de verdade, mande o MP4 ao Critico de Vendas: ${video.local_path}`
+          :'Gate local rodou (heurística de roteiro). Anexe o MP4 e/ou envie ao Critico de Vendas para gate visual.');
+      }}>Rodar Gate - Critico</button>
       <button type="button" disabled={busy||!onGenerateInsights} onClick={()=>{
         onGenerateInsights({color:variant?.color});
         setCriticoNote(video?.local_path
-          ?`Análise local gerada. Para revisão visual profunda, use o agente Critico de Vendas com o MP4: ${video.local_path}`
-          :'Análise local gerada. Para revisão visual profunda, use o agente Critico de Vendas com o arquivo MP4 da cor.');
-      }}>Analisar vídeo (Critico)</button>
+          ?`Insights de texto gerados. Gate visual: use Rodar Gate ou o agente Critico com ${video.local_path}`
+          :'Insights de texto gerados. Use Rodar Gate - Critico para o card animado.');
+      }}>Gerar insights (texto)</button>
+      {gateRun&&<GateCriticoPanel fileName={gateRun.fileName} scores={gateRun.scores} note={gateRun.note} autoStart/>}
       {criticoNote&&<p className="notice">{criticoNote}</p>}
       {video?.local_path&&<CopyButton text={video.local_path} label="Copiar caminho do MP4" onError={onError}/>}
-      <small className="help">Heurística local no app — não envia ao agente automaticamente.</small>
+      <small className="help">Gate no visual da Fábrica. Áudio/cortes reais = agente Critico assistindo o MP4 (skill TikTok Shop video gate).</small>
     </div>
   </section>;
 }

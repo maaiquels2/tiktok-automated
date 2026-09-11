@@ -62,4 +62,76 @@
 .score-num{font-size:28px;font-weight:700;line-height:1.1;margin:4px 0}
 .insight-actions ul,.insight-psych ul{margin:6px 0 0;padding-left:18px}
 button.linkish{background:none;border:none;color:inherit;text-align:left;padding:0;cursor:pointer;text-decoration:underline;font:inherit}
+
+.studio-metrics-box{
+  display:flex;flex-direction:column;gap:10px;
+  margin-top:4px;padding:12px 14px;
+  border-radius:12px;
+  background:rgba(112,71,235,.06);
+  border:1px solid rgba(112,71,235,.18);
+}
+.studio-metrics-head{display:flex;flex-direction:column;gap:2px}
+.studio-metrics-head strong{font-size:14px;color:#4c348f}
+.studio-metrics-head .help{margin:0;color:#706b7e;font-size:12px;line-height:1.45}
+.studio-metrics-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.studio-metrics-actions .primary,
+.studio-metrics-actions .button{margin:0}
+.studio-metrics-tip{margin:0;font-size:11px;line-height:1.4;color:#8b7f96}
+
 .critico-box{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:12px;background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.12)}
+
+.build-badge{margin-left:8px;font-size:11px;font-weight:700;letter-spacing:.04em;padding:4px 8px;border-radius:6px;background:#7047eb;color:#fff}
+
+
+/* Gate · Critico (Fábrica TikTok) */
+.gate-critico{margin-top:12px;padding:14px;border:1px solid var(--border);border-radius:12px;background:#fcfbfe}
+.gate-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.gate-brand{display:flex;align-items:center;gap:10px}
+.gate-brand strong{display:block;font-size:14px}
+.gate-brand .help{margin:2px 0 0}
+.gate-logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:750;background:linear-gradient(135deg,#7047eb,#f54e93);flex-shrink:0}
+.gate-logo.spin{animation:spin 1s linear infinite}
+.gate-logo.spin::after{content:"";width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff}
+.gate-score-wrap{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;margin-bottom:12px}
+.gate-bar{height:8px;border-radius:999px;background:#efeaf6;border:1px solid var(--border);overflow:hidden}
+.gate-bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,#7047eb,#f54e93);transition:width .35s ease}
+.gate-criteria{display:grid;gap:6px;margin-bottom:12px}
+.gate-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px 10px;border-radius:9px;background:#fff;border:1px solid transparent;opacity:.45;transition:.25s ease}
+.gate-row.active{opacity:1;border-color:#d8cafa;background:#f2edff}
+.gate-row.done{opacity:1;border-color:var(--border)}
+.gate-row.fail{border-color:#e6b5b0;background:#fff8f7}
+.gate-row .label{font-size:13px;font-weight:600}
+.gate-row .dots{display:flex;gap:4px}
+.gate-row .dot{width:8px;height:8px;border-radius:50%;background:#dbd5e5;display:inline-block}
+.gate-row .dot.on{background:#7047eb}
+.gate-row .dot.mid{background:#e0a429}
+.gate-row .dot.bad{background:#c45a52}
+.gate-verdict{border:1px solid var(--border);border-radius:10px;padding:12px;background:#fff}
+.gate-verdict-big{font-size:22px;font-weight:800;opacity:0;transform:scale(.96);transition:.4s ease;color:#706b7e}
+.gate-verdict-big.show{opacity:1;transform:none}
+.gate-verdict.go .gate-verdict-big{color:#237252}
+.gate-verdict.rework .gate-verdict-big{color:#9a6b12}
+.gate-verdict.kill .gate-verdict-big{color:#a5362e}
+.status-pill.go{background:#e8f5ee;color:#237252}
+.status-pill.rework{background:#fff8df;color:#9a6b12}
+.status-pill.kill{background:#fff0ef;color:#a5362e}
+.status-pill.evaluating{background:#f2edff;color:#7047eb}
+.gate-verdict p{margin:6px 0 0;font-size:13px;color:var(--muted);line-height:1.45}
+.gate-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.gate-actions .button,.gate-actions button{flex:1;min-width:120px;text-align:center}
+.gate-critico .file{display:block;margin-top:8px;word-break:break-all}
+.critico-box{gap:10px}
+
+
+/* Auto-cut na Fabrica */
+.mixer-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.mixer-actions button{flex:1;min-width:140px}
+.autocut-brief{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:#fcfbfe}
+.autocut-brief pre{white-space:pre-wrap;font-size:12px;line-height:1.45;color:#665a72;max-height:220px;overflow:auto;margin:8px 0 0;font-family:ui-monospace,Consolas,monospace}
+
+.gate-critico:fullscreen, .gate-critico.is-fullscreen{
+  box-sizing:border-box;width:100%;height:100%;padding:28px 32px;overflow:auto;
+  background:#f6f5fa;display:flex;flex-direction:column;gap:16px;
+}
+.gate-critico:fullscreen .gate-criteria, .gate-critico.is-fullscreen .gate-criteria{font-size:16px}
+.gate-critico:fullscreen .gate-verdict-big, .gate-critico.is-fullscreen .gate-verdict-big{font-size:42px}

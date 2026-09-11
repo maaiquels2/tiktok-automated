@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
 FIELDS = ['name','model_name','outfit','color','product','audience','benefit','angle','tone','style','details','movements','generator']
 PROMPTS = ['image','video','hook','development','cta','caption']
-NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio']
+NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
 
 class Invalid(Exception):
     def __init__(self, message, status=400):
@@ -304,6 +304,23 @@ def create_app(config=None):
     @app.get('/creator')
     def index():
         return send_from_directory(app.config['FRONTEND_DIR'],'index.html')
+
+
+    @app.get('/gate/')
+    @app.get('/gate/index.html')
+    def gate_page():
+        """Legacy bookmark: gate lives in-app (Performance). Avoid hard 404."""
+        return (
+            '<!doctype html><meta charset="utf-8"/><title>Gate Critico</title>'
+            '<body style="font-family:system-ui;padding:40px;max-width:520px">'
+            '<h1>Gate Critico</h1>'
+            '<p>O card fullscreen agora abre <strong>dentro da Fabrica</strong> '
+            '(etapa Performance → Rodar Gate → Abrir card fullscreen).</p>'
+            '<p><a href="/">Voltar para a Fabrica TikTok</a></p>'
+            '</body>',
+            200,
+            {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'},
+        )
 
     @app.get('/assets/<path:filename>')
     def static_asset(filename):
@@ -806,7 +823,7 @@ def create_app(config=None):
         """Merge user-entered metrics into checklist.performance[color]."""
         data=body()
         c=start(cid,data)
-        editable(c)
+        # Metrics allowed on published campaigns (learning loop).
         color=(data.get('color') or '').strip()
         metrics=data.get('metrics')
         if not isinstance(metrics,dict):
@@ -847,13 +864,97 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+
+    @app.post('/api/campaigns/<int:cid>/performance/fetch')
+    def fetch_performance(cid):
+        """Playwright: Studio content -> analytics cards -> checklist.performance[color]."""
+        data = body()
+        c = start(cid, data)
+        color = (data.get('color') or '').strip() or (image_slots_for(c)[0] if image_slots_for(c) else 'default')
+        # prefer published url for this color
+        checklist = json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'), str) else (c.get('checklist') or {})
+        if not isinstance(checklist, dict):
+            checklist = {}
+        slots = checklist.get('slots') if isinstance(checklist.get('slots'), dict) else {}
+        slot_info = slots.get(color) or slots.get(color or 'default') or {}
+        video_url = ''
+        if isinstance(slot_info, dict):
+            video_url = slot_info.get('url') or slot_info.get('tiktok_url') or slot_info.get('published_url') or ''
+        if not video_url:
+            video_url = c.get('published_url') or ''
+        if not video_url and isinstance(checklist.get('published'), dict):
+            video_url = checklist['published'].get('url') or checklist['published'].get('link') or ''
+        if not video_url and isinstance(checklist.get('published'), str):
+            video_url = checklist.get('published') or ''
+        # last resort: any tiktok.com/video/ in checklist JSON
+        if not video_url:
+            import re as _re
+            blob = json.dumps(checklist, ensure_ascii=False)
+            m = _re.search(r'https?://(?:www\.)?tiktok\.com/[^\s"\']+/video/\d+', blob)
+            if m:
+                video_url = m.group(0)
+        caption_hint = ''
+        for v in (detail(cid).get('variants') or []):
+            if (v.get('color') or '') == color:
+                caption_hint = (v.get('prompts') or {}).get('caption') or ''
+                break
+        if not caption_hint:
+            caption_hint = (detail(cid).get('prompts') or {}).get('caption') or c.get('product') or ''
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+            assistant = app.extensions['browser_assistant']
+        try:
+            result = assistant.fetch_studio_metrics(cid, video_url=video_url or None, caption_hint=caption_hint or None)
+        except RuntimeError as exc:
+            raise Invalid(str(exc), 503) from exc
+        metrics = result.get('metrics') or {}
+        # merge into performance like save_performance
+        perf = checklist.get('performance') if isinstance(checklist.get('performance'), dict) else {}
+        prev = perf.get(color) if isinstance(perf.get(color), dict) else {}
+        cleaned = {k: metrics[k] for k in (
+            'views_24h','views_7d','watch_pct','likes','comments','saves','shares','orders','notes'
+        ) if k in metrics and metrics[k] is not None}
+        if not cleaned and not (isinstance(metrics.get('raw'), dict) and metrics['raw']):
+            raise Invalid(
+                'A pagina do Studio abriu, mas nenhum numero foi lido. '
+                'Confira se os cards de analytics apareceram e tente de novo.',
+                503,
+            )
+        entry = {**prev, **cleaned, 'updated_at': __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z',
+                 'source': 'tiktok_studio_playwright'}
+        if isinstance(metrics.get('raw'), dict):
+            entry['tiktok_video_id'] = metrics['raw'].get('tiktok_video_id')
+            entry['analytics_url'] = metrics['raw'].get('analytics_url')
+            # fold avg/followers into notes if missing
+            if not entry.get('notes'):
+                bits=[]
+                raw=metrics['raw']
+                if raw.get('avg_watch_raw'): bits.append(f"avg={raw['avg_watch_raw']}")
+                if raw.get('new_followers') is not None: bits.append(f"followers+={raw['new_followers']}")
+                if raw.get('analytics_url'): bits.append(raw['analytics_url'])
+                if bits: entry['notes']=' | '.join(bits); cleaned['notes']=entry['notes']
+        perf[color] = entry
+        # alias keys so UI always finds the row
+        for alias in {color, color or 'default', 'default', 'Produto', ''}:
+            if alias != color:
+                perf[alias] = entry
+        checklist['performance'] = perf
+        db().execute('UPDATE campaigns SET checklist=? WHERE id=?', (json.dumps(checklist, ensure_ascii=False), cid))
+        touch(cid)
+        db().commit()
+        out = detail(cid)
+        out['_fetch'] = {'message': result.get('message'), 'metrics': cleaned, 'analytics_url': entry.get('analytics_url')}
+        return jsonify(out)
+
     @app.post('/api/campaigns/<int:cid>/insights')
     def save_insights(cid):
         """Run local analyzer; save checklist.insights[color or all]."""
         from services.insights import analyze_variant
         data=body()
         c=start(cid,data)
-        editable(c)
+        pass  # insights ok when published
         color=(data.get('color') or '').strip()
         slots=image_slots_for(c)
         checklist=json.loads(c['checklist'] or '{}')
@@ -958,6 +1059,27 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+
+
+    @app.post('/api/campaigns/<int:cid>/autocut')
+    def autocut_job(cid):
+        """Salva brief Auto-cut para o Critico (local-first; nao chama agente)."""
+        data = body()
+        c = get_campaign(cid)
+        work = Path(app.root_path) / 'work' / 'autocut'
+        work.mkdir(parents=True, exist_ok=True)
+        payload = {
+            'campaign_id': cid,
+            'campaign_name': c['name'],
+            'created_at': __import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat() + 'Z',
+            'slot': data.get('slot') or 'Mix',
+            'brief': data.get('brief') or '',
+            'clips': data.get('clips') or [],
+        }
+        out = work / f'campaign-{cid}-latest.json'
+        out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        (work / f'campaign-{cid}-latest.txt').write_text(payload['brief'], encoding='utf-8')
+        return jsonify({'ok': True, 'path': str(out), 'txt': str(work / f'campaign-{cid}-latest.txt')})
 
     @app.post('/api/campaigns/<int:cid>/videos/mix')
     def mix_videos(cid):
@@ -1101,14 +1223,25 @@ def create_app(config=None):
         elif target=='video_approved':
             need_asset(cid,'image',True)
             rows=need_asset(cid,'video')
+            # Duration/resolution are advisory only — do not block approval.
             expected=(1080,1920) if c['generator']=='flow' else (720,1280)
             if not isinstance(rows,list):
                 rows=[rows]
+            warnings=[]
             for a in rows:
                 meta=json.loads(a['metadata']) if isinstance(a['metadata'],str) else a['metadata']
-                if (meta.get('width'),meta.get('height'))!=expected or not 14.5<=meta.get('duration',0)<=15.5:
-                    label=a.get('slot') or 'vídeo'
-                    raise Invalid(f'O vídeo {label} deve ter 15 segundos e {expected[0]} × {expected[1]} pixels. Exporte novamente antes de aprovar.',409)
+                label=a.get('slot') or 'video'
+                dur=meta.get('duration') or 0
+                wh=(meta.get('width'),meta.get('height'))
+                if wh!=expected or not 14.5<=dur<=15.5:
+                    warnings.append(f"{label}: {dur}s {wh[0]}x{wh[1]} (alvo 15s {expected[0]}x{expected[1]})")
+            if warnings:
+                # stash soft note on checklist without failing
+                checklist=json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'),str) else (c.get('checklist') or {})
+                if not isinstance(checklist,dict):
+                    checklist={}
+                checklist['video_soft_warnings']=warnings
+                db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
                 db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
         elif target in {'ready_to_publish','published'}:
             need_asset(cid,'video',True)
@@ -1169,10 +1302,12 @@ def create_app(config=None):
         if data.get('confirmed') is not True:
             raise Invalid('Confirme a abertura do serviço no perfil dedicado.',409)
         service,stage=data.get('service'),data.get('stage')
-        if service not in {'flow','grok','studio'} or stage not in {'image','video','publish'}:
+        if service not in {'flow','grok','studio'} or stage not in {'image','video','publish','performance','studio'}:
             raise Invalid('Serviço ou etapa inválidos.')
         if service=='studio':
-            if stage!='publish' or c['status'] not in {'ready_to_publish','published'}:
+            if stage in {'studio','performance'}:
+                stage='publish'
+            if stage!='publish' or c['status'] not in {'ready_to_publish','published','video_approved'}:
                 raise Invalid('Prepare a publicação após aprovar o vídeo.',409)
             need_asset(cid,'video',True)
         else:
