@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2 } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, states, statusLabels, stageInfo, nextStage } from './api';
+import { api, states, statusLabels, stageInfo, nextStage, studioAudit } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel} from './components';
 
 export default function App(){
   const [campaigns,setCampaigns]=useState([]),[c,setC]=useState(null),[references,setReferences]=useState([]);
   const [selected,setSelected]=useState('model'),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
+  const [studioAuditReport,setStudioAuditReport]=useState(null);
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
   const [renaming,setRenaming]=useState(false),[renameDraft,setRenameDraft]=useState('');
   const lock=useRef(false),noticeTimer=useRef();
@@ -133,6 +134,18 @@ export default function App(){
     return run(()=>api(`/campaigns/${c.id}/insights`,{method:'POST',body:{...payload,version:c.version}}),'Insights gerados.','studio');
   }
   function gotoScript(){choose('script')}
+  async function auditStudioPosts(){
+    if(lock.current)return false;
+    lock.current=true;setBusy(true);setError('');
+    try{
+      const result=await studioAudit({limit:8,viewers_top:3});
+      setStudioAuditReport(result);
+      flash(result?.message||'Auditoria dos publicados pronta.');
+      setSelected('performance');
+      return true;
+    }catch(e){setError(e.message);return false}
+    finally{lock.current=false;setBusy(false)}
+  }
   function fetchStudioMetrics(color){
     return run(()=>api(`/campaigns/${c.id}/performance/fetch`,{method:'POST',body:{color,version:c.version}}),'Metricas coletadas do Studio.','performance');
   }
@@ -190,7 +203,7 @@ export default function App(){
             onGenerateInsights={generateInsights}
             onGotoScript={gotoScript}
             onOpenStudio={()=>openService('studio','publish')}
-            onFetchStudioMetrics={fetchStudioMetrics}
+            onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport}
           onReuse={id=>confirm('Reutilizar esta referência?','A mesma imagem será copiada para esta campanha. Esta ação reinicia a produção e as aprovações seguintes.',()=>run(()=>post('/reference',{asset_id:Number(id)}),'Referência reutilizada.','look'),'Usar referência')}/>:<div className="notice">Crie uma campanha, use a referência fixa da modelo e revise imagem e vídeo antes de preparar a publicação.</div>}
       </aside>
     </main>
@@ -203,7 +216,7 @@ export default function App(){
   </>;
 }
 
-function Panel({c,selected,busy,references,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse}){
+function Panel({c,selected,busy,references,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport}){
   const reference=c.assets.find(a=>a.kind==='reference'),image=c.assets.find(a=>a.kind==='image'),video=c.assets.find(a=>a.kind==='video');
   const [reuse,setReuse]=useState(''),[checks,setChecks]=useState(c.checklist||{}),[publishedUrl,setPublishedUrl]=useState(c.published_url||'');
   const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
@@ -220,7 +233,7 @@ function Panel({c,selected,busy,references,onDirty,onError,onSaveBrief,onSaveTex
   if(selected==='performance')return <>
     <div className="notice"><strong>Performance e Critico.</strong> Cole metricas do TikTok, gere insights de hook/desenvolvimento/CTA e analise o video — disponivel em qualquer campanha.</div>
     {c.assets.some(a=>a.kind==='video')&&<VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}
-    <PerformancePanel c={c} busy={busy} immutable={immutable} onError={onError} onSavePerformance={onSavePerformance} onGenerateInsights={onGenerateInsights} onRefreshVariant={onRefreshVariant} onGotoScript={onGotoScript} onOpenStudio={onOpenStudio} onFetchStudioMetrics={onFetchStudioMetrics}/>
+    <PerformancePanel c={c} busy={busy} immutable={immutable} onError={onError} onSavePerformance={onSavePerformance} onGenerateInsights={onGenerateInsights} onRefreshVariant={onRefreshVariant} onGotoScript={onGotoScript} onOpenStudio={onOpenStudio} onFetchStudioMetrics={onFetchStudioMetrics} onAuditStudioPosts={onAuditStudioPosts} studioAuditReport={studioAuditReport}/>
     {!c.assets.some(a=>a.kind==='video')&&<p className="help">Sem MP4 ainda: insights pelo roteiro ja funcionam; o preview aparece apos anexar o video.</p>}
   </>;
   return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant}/>}{index>=6&&<div className="notice">Metricas e Critico: abra a etapa <strong>Performance</strong> (canvas, barra de etapas ou botao no topo).</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;

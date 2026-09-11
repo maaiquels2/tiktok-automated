@@ -924,13 +924,20 @@ def create_app(config=None):
             )
         entry = {**prev, **cleaned, 'updated_at': __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z',
                  'source': 'tiktok_studio_playwright'}
-        if isinstance(metrics.get('raw'), dict):
-            entry['tiktok_video_id'] = metrics['raw'].get('tiktok_video_id')
-            entry['analytics_url'] = metrics['raw'].get('analytics_url')
-            # fold avg/followers into notes if missing
-            if not entry.get('notes'):
+        if isinstance(metrics.get('raw'), dict) or metrics.get('smart_actions') is not None:
+            raw = metrics.get('raw') if isinstance(metrics.get('raw'), dict) else {}
+            entry['tiktok_video_id'] = raw.get('tiktok_video_id')
+            entry['analytics_url'] = raw.get('analytics_url')
+            entry['traffic_source'] = metrics.get('traffic_source') or raw.get('traffic_source') or []
+            entry['search_queries'] = metrics.get('search_queries') or raw.get('search_queries') or []
+            entry['viewers'] = metrics.get('viewers') or raw.get('viewers') or {}
+            entry['smart_actions'] = metrics.get('smart_actions') or raw.get('smart_actions') or []
+            entry['raw'] = raw
+            if metrics.get('notes'):
+                entry['notes'] = metrics['notes']
+                cleaned['notes'] = metrics['notes']
+            elif not entry.get('notes') and raw:
                 bits=[]
-                raw=metrics['raw']
                 if raw.get('avg_watch_raw'): bits.append(f"avg={raw['avg_watch_raw']}")
                 if raw.get('new_followers') is not None: bits.append(f"followers+={raw['new_followers']}")
                 if raw.get('analytics_url'): bits.append(raw['analytics_url'])
@@ -1294,6 +1301,46 @@ def create_app(config=None):
         response=send_file(bundle,mimetype='application/zip',as_attachment=True,download_name=f'campanha-{cid:04d}.zip')
         response.call_on_close(bundle.close)
         return response
+
+    
+    @app.post('/api/studio/audit')
+    def studio_audit():
+        """Batch-audit recent TikTok Studio posts (pre-framework learning)."""
+        data = body()
+        try:
+            limit = max(1, min(int(data.get('limit', 8)), 15))
+        except (TypeError, ValueError):
+            limit = 8
+        try:
+            viewers_top = max(0, min(int(data.get('viewers_top', 3)), limit))
+        except (TypeError, ValueError):
+            viewers_top = 3
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+            assistant = app.extensions['browser_assistant']
+        try:
+            result = assistant.audit_studio_posts(limit=limit, viewers_top=viewers_top)
+        except RuntimeError as exc:
+            raise Invalid(str(exc), 503) from exc
+        report = result.get('report') or {}
+        out_path = app.config['DATA_DIR'] / 'studio_audit_latest.json'
+        payload = {
+            'message': result.get('message'),
+            'created_at': __import__('datetime').datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'report': report,
+        }
+        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        return jsonify(payload)
+
+    @app.get('/api/studio/audit/latest')
+    def studio_audit_latest():
+        out_path = app.config['DATA_DIR'] / 'studio_audit_latest.json'
+        if not out_path.is_file():
+            return jsonify({'report': None, 'message': 'Nenhuma auditoria ainda.'})
+        return jsonify(json.loads(out_path.read_text(encoding='utf-8')))
+
 
     @app.post('/api/campaigns/<int:cid>/browser')
     def open_browser(cid):

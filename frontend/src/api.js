@@ -26,3 +26,5 @@ export function nextStage(c) {
   if (!c.prompts.image) return 'look';
   return {briefing:'image',image_ready:'image_approval',image_approved:'script',script_ready:'video',video_ready:'video_approval',video_approved:'studio',ready_to_publish:'studio',published:'studio'}[c.status];
 }
+export const studioAudit=(body={limit:8,viewers_top:3})=>api('/studio/audit',{method:'POST',body});
+export const studioAuditLatest=()=>api('/studio/audit/latest');

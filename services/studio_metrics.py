@@ -222,6 +222,258 @@ async def scrape_from_page_text(page) -> dict:
     return {k: v for k, v in metrics.items() if v is not None and v != ""}
 
 
+
+async def scrape_named_analytics_lists(page) -> dict:
+    """Parse AnalyticsCard blocks like Traffic source / Search queries into {label: pct}."""
+    out = {"traffic_source": [], "search_queries": []}
+    wrappers = page.locator('[data-tt="components_AnalyticsCard_CardWrapper"]')
+    try:
+        n = await wrappers.count()
+    except Exception:
+        return out
+    for i in range(n):
+        card = wrappers.nth(i)
+        try:
+            title = _normalize_label(
+                await card.locator('[data-tt="components_AnalyticsCard_TUXText"]').first.inner_text(timeout=1500)
+            )
+        except Exception:
+            continue
+        rows = []
+        row_loc = card.locator(".css-1sbbaxc")
+        try:
+            rc = await row_loc.count()
+        except Exception:
+            rc = 0
+        for j in range(rc):
+            row = row_loc.nth(j)
+            try:
+                spans = row.locator(".TUXText")
+                if await spans.count() < 2:
+                    continue
+                label = (await spans.nth(0).inner_text(timeout=800)).strip()
+                pct_raw = (await spans.nth(1).inner_text(timeout=800)).strip()
+                # CountryPercentLabel nests another span
+                if not pct_raw or pct_raw == label:
+                    try:
+                        pct_raw = (await row.locator('[data-tt="components_CountryPercentLabel_TUXText"]').first.inner_text(timeout=500)).strip()
+                    except Exception:
+                        pass
+                pct = _parse_number(pct_raw.replace("<", ""))
+                if label:
+                    rows.append({"label": label, "pct": pct, "pct_raw": pct_raw})
+            except Exception:
+                continue
+        if "traffic source" in title or "fonte de trafego" in title or "fonte de tráfego" in title:
+            out["traffic_source"] = rows
+        elif ("search quer" in title) or ("consultas de pesquisa" in title) or ("search queries" in title):
+            out["search_queries"] = rows
+        elif title.startswith("search"):
+            out["search_queries"] = rows
+    return out
+
+
+async def scrape_viewers_page(page, video_id: str) -> dict:
+    """Open analytics/<id>/viewers and pull audience essentials."""
+    url = f"https://www.tiktok.com/tiktokstudio/analytics/{video_id}/viewers"
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    except Exception:
+        return {}
+    await page.wait_for_timeout(2200)
+    data = {
+        "total_viewers": None,
+        "new_viewers_pct": None,
+        "returning_viewers_pct": None,
+        "non_followers_pct": None,
+        "followers_pct": None,
+        "gender": [],
+        "age": [],
+        "locations": [],
+    }
+    # Total viewers big number
+    try:
+        await page.locator('[data-tt="VideoViewerPage_VideoViewCard_TUXText"]').first.wait_for(timeout=20000)
+        texts = await page.locator('[data-tt="VideoViewerPage_VideoViewCard_TUXText"]').all_inner_texts()
+        for tx in texts:
+            n = _parse_number(tx)
+            if n is not None and n >= 1 and "Total" not in tx:
+                # prefer the large total
+                if data["total_viewers"] is None or n > data["total_viewers"]:
+                    data["total_viewers"] = n
+    except Exception:
+        pass
+
+    # Age / Locations reuse list scraper pattern inside titled cards
+    wrappers = page.locator('[data-tt="components_AnalyticsCard_CardWrapper"]')
+    try:
+        n = await wrappers.count()
+    except Exception:
+        n = 0
+    for i in range(n):
+        card = wrappers.nth(i)
+        try:
+            title = _normalize_label(
+                await card.locator('[data-tt="components_AnalyticsCard_TUXText"]').first.inner_text(timeout=1200)
+            )
+        except Exception:
+            # Gender card title
+            try:
+                title = _normalize_label(await card.inner_text(timeout=800))
+                title = title.split("\n")[0]
+            except Exception:
+                continue
+        rows = []
+        row_loc = card.locator(".css-1sbbaxc")
+        try:
+            rc = await row_loc.count()
+        except Exception:
+            rc = 0
+        for j in range(min(rc, 12)):
+            row = row_loc.nth(j)
+            try:
+                spans = row.locator(".TUXText")
+                if await spans.count() < 2:
+                    continue
+                label = (await spans.nth(0).inner_text(timeout=600)).strip()
+                pct_raw = (await spans.nth(1).inner_text(timeout=600)).strip()
+                try:
+                    nested = await row.locator('[data-tt="components_CountryPercentLabel_TUXText"]').first.inner_text(timeout=300)
+                    if nested:
+                        pct_raw = nested.strip()
+                except Exception:
+                    pass
+                rows.append({"label": label, "pct": _parse_number(pct_raw.replace("<", "")), "pct_raw": pct_raw})
+            except Exception:
+                continue
+        if title == "age" or title.startswith("idade"):
+            data["age"] = rows
+        elif title.startswith("location") or "local" in title:
+            data["locations"] = rows
+        elif "gender" in title or "genero" in title or "gênero" in title:
+            # gender uses semi-ring labels
+            pass
+
+    # Gender labels
+    try:
+        gender_rows = page.locator(".semi-ring-distribution-labels")
+        gc = await gender_rows.count()
+        gens = []
+        for i in range(gc):
+            g = gender_rows.nth(i)
+            texts = await g.locator(".TUXText").all_inner_texts()
+            if len(texts) >= 2:
+                gens.append({"label": texts[0].strip(), "pct": _parse_number(texts[1]), "pct_raw": texts[1].strip()})
+        if gens:
+            data["gender"] = gens
+    except Exception:
+        pass
+
+    # Viewer types: New/Returning and Non-followers/Followers — take first two SingleBarChart percent pairs
+    try:
+        charts = page.locator('[data-tt="components_SingleBarChart_FlexColumn"]')
+        cc = await charts.count()
+        pairs = []
+        for i in range(min(cc, 2)):
+            texts = await charts.nth(i).locator('[data-tt="components_SingleBarChart_TUXText"]').all_inner_texts()
+            nums = [_parse_number(x) for x in texts if _parse_number(x) is not None]
+            if len(nums) >= 2:
+                pairs.append((nums[0], nums[1]))
+        if len(pairs) >= 1:
+            data["new_viewers_pct"], data["returning_viewers_pct"] = pairs[0]
+        if len(pairs) >= 2:
+            data["non_followers_pct"], data["followers_pct"] = pairs[1]
+    except Exception:
+        pass
+    return {k: v for k, v in data.items() if v not in (None, [], "")}
+
+
+def build_insight_notes(raw: dict) -> str:
+    """Compact human notes for the Performance form + weekly learning."""
+    bits = []
+    if raw.get("avg_watch_raw"):
+        bits.append(f"avg={raw['avg_watch_raw']}")
+    if raw.get("total_play_raw"):
+        bits.append(f"play={raw['total_play_raw']}")
+    if raw.get("new_followers") is not None:
+        bits.append(f"followers+={raw['new_followers']}")
+    traffic = raw.get("traffic_source") or []
+    if traffic:
+        top = ", ".join(f"{r['label']} {r.get('pct_raw') or (str(r.get('pct'))+'%' if r.get('pct') is not None else '')}" for r in traffic[:4])
+        bits.append(f"traffic: {top}")
+    queries = raw.get("search_queries") or []
+    if queries:
+        topq = ", ".join(f"{r['label']} ({r.get('pct_raw') or ''})" for r in queries[:5])
+        bits.append(f"search: {topq}")
+    viewers = raw.get("viewers") or {}
+    if viewers.get("total_viewers") is not None:
+        bits.append(f"viewers={viewers['total_viewers']}")
+    if viewers.get("new_viewers_pct") is not None:
+        bits.append(f"new={viewers['new_viewers_pct']}%")
+    gender = viewers.get("gender") or []
+    if gender:
+        bits.append("gender " + ", ".join(f"{g['label']} {g.get('pct_raw') or g.get('pct')}" for g in gender[:2]))
+    age = viewers.get("age") or []
+    if age:
+        bits.append("age " + ", ".join(f"{a['label']} {a.get('pct_raw') or a.get('pct')}" for a in age[:3]))
+    if raw.get("analytics_url"):
+        bits.append(raw["analytics_url"])
+    return " | ".join(bits)
+
+
+def smart_actions_from_raw(raw: dict) -> list:
+    """Actionable weekly tips from traffic + search + retention signals."""
+    tips = []
+    traffic = { (r.get("label") or "").casefold(): r for r in (raw.get("traffic_source") or []) }
+    search_pct = (traffic.get("search") or {}).get("pct")
+    fyp_pct = (traffic.get("for you") or {}).get("pct")
+    other_pct = (traffic.get("other") or {}).get("pct")
+    queries = raw.get("search_queries") or []
+    watch = raw.get("watch_pct")
+    avg_s = raw.get("avg_watch_s")
+
+    if search_pct is not None and search_pct >= 15:
+        tips.append(
+            f"Search traz {search_pct}% das views — reforçe no hook/legenda os termos que já convertem."
+        )
+    if queries:
+        terms = ", ".join(q["label"] for q in queries[:3])
+        tips.append(f"Consultas quentes: {terms}. Use no título falado 0–2s e na legenda.")
+    if fyp_pct is not None and fyp_pct < 25 and (search_pct or 0) >= 15:
+        tips.append(
+            "FYP ainda baixo vs Search: teste gancho mais visual/pattern-interrupt nos 1ºs 1s (retenção cedo)."
+        )
+    if other_pct is not None and other_pct >= 50:
+        tips.append(
+            "Fonte Other dominante — revise se o vídeo depende de compartilhamento externo; fortaleça CTA interno Shop."
+        )
+    if watch is not None and watch <= 2:
+        tips.append(
+            f"Conclusão {watch}% — encurte intro e mostre o produto/benefício antes de 2s."
+        )
+    if avg_s is not None and avg_s < 3:
+        tips.append(
+            f"Avg watch {avg_s}s — primeiros frames precisam do produto + problema na cara."
+        )
+    viewers = raw.get("viewers") or {}
+    gender = viewers.get("gender") or []
+    if gender:
+        top = max(gender, key=lambda g: g.get("pct") or 0)
+        if (top.get("pct") or 0) >= 60:
+            tips.append(
+                f"Audiência {top.get('label')} ~{top.get('pct')}% — alinhe modelo, copy e prova social a esse perfil."
+            )
+    age = viewers.get("age") or []
+    if age:
+        top_age = max(age, key=lambda a: a.get("pct") or 0)
+        tips.append(
+            f"Faixa etária líder {top_age.get('label')} ({top_age.get('pct_raw') or top_age.get('pct')}) — ajuste linguagem/referências."
+        )
+    if not tips:
+        tips.append("Colete de novo em 48h para ver se Search/FYP mudou após o ajuste de hook.")
+    return tips
+
+
 async def scrape_analytics_page(page) -> dict:
     """Merge VideoInfoCard engagement + VideoMetricsCard overview (+ text fallback)."""
     info = await scrape_info_card(page)
@@ -236,7 +488,9 @@ async def scrape_analytics_page(page) -> dict:
         extra = await scrape_from_page_text(page)
         for k, v in extra.items():
             metrics.setdefault(k, v)
-    # drop non-form helpers from top-level later; keep caption in raw only via caller
+    lists = await scrape_named_analytics_lists(page)
+    metrics["traffic_source"] = lists.get("traffic_source") or []
+    metrics["search_queries"] = lists.get("search_queries") or []
     return metrics
 
 
@@ -294,6 +548,180 @@ async def scrape_list_row_for_video(page, video_id: str) -> dict:
     if len(nums) >= 3:
         out["comments"] = nums[2]
     return out
+
+
+
+async def list_content_posts(page, limit: int = 12) -> list:
+    """List recent posts from tiktokstudio/content (id, caption, href, list views if present)."""
+    await page.goto(CONTENT_URL, wait_until="domcontentloaded", timeout=90000)
+    await page.wait_for_timeout(2500)
+    try:
+        await page.wait_for_selector('a[data-tt="components_PostInfoCell_a"]', timeout=45000)
+    except Exception as exc:
+        raise RuntimeError(
+            "Nao abri a lista de publicacoes do Studio. Confirme o login na janela micaela-cdp."
+        ) from exc
+    links = page.locator('a[data-tt="components_PostInfoCell_a"]')
+    count = await links.count()
+    posts = []
+    seen = set()
+    for i in range(min(count, max(limit * 2, limit))):
+        a = links.nth(i)
+        href = await a.get_attribute("href") or ""
+        vid = video_id_from_url(href)
+        if not vid or vid in seen:
+            continue
+        seen.add(vid)
+        try:
+            caption = (await a.inner_text(timeout=1500)).strip()
+        except Exception:
+            caption = ""
+        list_metrics = {}
+        try:
+            list_metrics = await scrape_list_row_for_video(page, vid)
+        except Exception:
+            pass
+        posts.append({
+            "tiktok_video_id": vid,
+            "caption": caption[:180],
+            "href": href,
+            "published_url": f"https://www.tiktok.com/@dicasdamiicaela/video/{vid}",
+            "list_metrics": list_metrics,
+        })
+        if len(posts) >= limit:
+            break
+    return posts
+
+
+async def audit_one_video(page, video_id: str, *, with_viewers: bool = False) -> dict:
+    """Deep scrape one video overview (+ optional viewers)."""
+    analytics_url = ANALYTICS_URL.format(vid=video_id)
+    await page.goto(analytics_url, wait_until="domcontentloaded", timeout=90000)
+    await page.wait_for_timeout(2200)
+    try:
+        await page.wait_for_selector(
+            '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], span.absolute-value, [data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]',
+            timeout=45000,
+        )
+    except Exception:
+        await page.wait_for_timeout(2000)
+    metrics = await scrape_analytics_page(page)
+    caption = metrics.pop("caption", None)
+    raw = {**metrics, "tiktok_video_id": video_id, "analytics_url": analytics_url}
+    if caption:
+        raw["caption"] = caption
+    if with_viewers:
+        try:
+            viewers = await scrape_viewers_page(page, video_id)
+            if viewers:
+                raw["viewers"] = viewers
+        except Exception:
+            pass
+    raw["smart_actions"] = smart_actions_from_raw(raw)
+    raw["notes"] = build_insight_notes(raw)
+    return {
+        "tiktok_video_id": video_id,
+        "views_7d": raw.get("views_7d"),
+        "watch_pct": raw.get("watch_pct"),
+        "likes": raw.get("likes"),
+        "comments": raw.get("comments"),
+        "shares": raw.get("shares"),
+        "saves": raw.get("saves"),
+        "avg_watch_raw": raw.get("avg_watch_raw"),
+        "avg_watch_s": raw.get("avg_watch_s"),
+        "new_followers": raw.get("new_followers"),
+        "traffic_source": raw.get("traffic_source") or [],
+        "search_queries": raw.get("search_queries") or [],
+        "viewers": raw.get("viewers") or {},
+        "smart_actions": raw.get("smart_actions") or [],
+        "notes": raw.get("notes") or "",
+        "caption": raw.get("caption") or "",
+        "analytics_url": analytics_url,
+        "published_url": f"https://www.tiktok.com/@dicasdamiicaela/video/{video_id}",
+        "raw": raw,
+    }
+
+
+def rank_audit_rows(rows: list) -> dict:
+    """Compare audited videos: what looks like it worked."""
+    scored = []
+    for r in rows:
+        views = r.get("views_7d") or 0
+        watch = r.get("watch_pct") or 0
+        likes = r.get("likes") or 0
+        search = 0
+        fyp = 0
+        for t in r.get("traffic_source") or []:
+            lab = (t.get("label") or "").casefold()
+            if lab == "search":
+                search = t.get("pct") or 0
+            if lab == "for you":
+                fyp = t.get("pct") or 0
+        # simple score: views weighted + watch + search signal
+        score = float(views) * 1.0 + float(watch) * 20.0 + float(likes) * 3.0 + float(search) * 2.0
+        scored.append({**r, "score": round(score, 1), "search_pct": search, "fyp_pct": fyp})
+    scored.sort(key=lambda x: x.get("score") or 0, reverse=True)
+    winners = scored[:3]
+    patterns = []
+    if winners:
+        # common top search terms among winners
+        term_counts = {}
+        for w in winners:
+            for q in (w.get("search_queries") or [])[:5]:
+                term = (q.get("label") or "").strip().casefold()
+                if term:
+                    term_counts[term] = term_counts.get(term, 0) + 1
+        hot = sorted(term_counts.items(), key=lambda kv: -kv[1])[:8]
+        if hot:
+            patterns.append("Termos que aparecem nos melhores: " + ", ".join(t for t, _ in hot))
+        avg_watch = [w.get("watch_pct") for w in winners if w.get("watch_pct") is not None]
+        if avg_watch:
+            patterns.append(f"Watch% medio dos top: {round(sum(avg_watch)/len(avg_watch), 2)}%")
+        searches = [w.get("search_pct") or 0 for w in winners]
+        if searches and max(searches) >= 15:
+            patterns.append("Search forte nos top — priorize SEO de legenda/hook com as queries.")
+        fyps = [w.get("fyp_pct") or 0 for w in winners]
+        if fyps and max(fyps) >= 40:
+            patterns.append("FYP forte nos top — gancho visual nos 1s importa mais que keyword.")
+    return {
+        "ranked": scored,
+        "top": winners,
+        "patterns": patterns,
+        "count": len(scored),
+    }
+
+
+async def audit_published_videos(page, *, limit: int = 8, viewers_top: int = 3) -> dict:
+    """Batch-audit recent Studio posts before locking a learning framework."""
+    posts = await list_content_posts(page, limit=limit)
+    if not posts:
+        raise RuntimeError("Nenhum post encontrado na lista do Studio.")
+    results = []
+    for idx, post in enumerate(posts):
+        vid = post["tiktok_video_id"]
+        deep_viewers = idx < viewers_top
+        try:
+            one = await audit_one_video(page, vid, with_viewers=deep_viewers)
+            if not one.get("caption") and post.get("caption"):
+                one["caption"] = post["caption"]
+            # fill views from list if analytics empty
+            if one.get("views_7d") is None and (post.get("list_metrics") or {}).get("views_7d") is not None:
+                one["views_7d"] = post["list_metrics"]["views_7d"]
+            results.append(one)
+        except Exception as exc:
+            results.append({
+                "tiktok_video_id": vid,
+                "caption": post.get("caption") or "",
+                "error": str(exc),
+                "published_url": post.get("published_url"),
+            })
+    summary = rank_audit_rows([r for r in results if not r.get("error")])
+    return {
+        "posts_found": len(posts),
+        "audited": len(results),
+        "results": results,
+        "summary": summary,
+    }
 
 
 async def collect_metrics(page, *, video_url: str | None = None, caption_hint: str | None = None) -> dict:
@@ -365,24 +793,29 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
         await page.wait_for_timeout(3000)
 
     analytics = await scrape_analytics_page(page)
-    if not analytics:
-        # dump snippet for debugging
-        try:
-            snippet = (await page.inner_text("body"))[:1200]
-        except Exception:
-            snippet = ""
-        raise RuntimeError(
-            f"Abri analytics/{vid}, mas nao li nenhum card de metrica. "
-            "Confira se a pagina carregou logada. Trecho: "
-            + (snippet.replace("\n", " ")[:240] if snippet else "(vazio)")
-        )
-
+    caption = analytics.pop("caption", None)
     merged = {**list_metrics, **analytics}
+    if caption:
+        merged["caption"] = caption
     merged["tiktok_video_id"] = vid
     merged["analytics_url"] = ANALYTICS_URL.format(vid=vid)
     merged["source"] = "tiktok_studio_playwright"
     if video_url:
         merged["published_url"] = video_url
+    # Viewers tab (audience)
+    try:
+        viewers = await scrape_viewers_page(page, vid)
+        if viewers:
+            merged["viewers"] = viewers
+    except Exception:
+        pass
+    # return to overview analytics url for user-visible tab
+    try:
+        await page.goto(ANALYTICS_URL.format(vid=vid), wait_until="domcontentloaded", timeout=30000)
+    except Exception:
+        pass
+    merged["smart_actions"] = smart_actions_from_raw(merged)
+    notes = build_insight_notes(merged)
     result = {
         "views_7d": merged.get("views_7d"),
         "views_24h": merged.get("views_24h"),
@@ -392,16 +825,11 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
         "saves": merged.get("saves"),
         "shares": merged.get("shares"),
         "orders": merged.get("orders"),
-        "notes": " | ".join(
-            x
-            for x in [
-                f"avg={merged.get('avg_watch_raw')}" if merged.get("avg_watch_raw") else "",
-                f"play={merged.get('total_play_raw')}" if merged.get("total_play_raw") else "",
-                f"followers+={merged.get('new_followers')}" if merged.get("new_followers") is not None else "",
-                merged.get("analytics_url") or "",
-            ]
-            if x
-        ),
+        "notes": notes,
+        "smart_actions": merged["smart_actions"],
+        "traffic_source": merged.get("traffic_source") or [],
+        "search_queries": merged.get("search_queries") or [],
+        "viewers": merged.get("viewers") or {},
         "raw": merged,
     }
     return {k: v for k, v in result.items() if v is not None and v != ""}

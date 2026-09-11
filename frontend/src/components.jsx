@@ -449,7 +449,7 @@ export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
 }
 
 
-export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics}){
+export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport}){
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
   const insightsMap=(c.checklist&&c.checklist.insights)||{};
@@ -507,7 +507,86 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
       </div>
       <div className="insight-psych"><strong>Psicologia</strong><ul>{(card.psychology||[]).map((p,i)=><li key={i}>{p}</li>)}</ul></div>
     </>:<div className="notice">Salve métricas (opcional) e clique em <strong>Gerar insights</strong>.</div>}
-        <div className="studio-metrics-box">
+
+      {(() => {
+        const prev = perfMap[key] || perfMap[active] || {};
+        const traffic = prev.traffic_source || [];
+        const queries = prev.search_queries || [];
+        const viewers = prev.viewers || {};
+        const actions = prev.smart_actions || [];
+        if (!traffic.length && !queries.length && !actions.length && viewers.total_viewers == null) return null;
+        const g0 = (viewers.gender || [])[0];
+        const a0 = (viewers.age || [])[0];
+        const viewerBits = [];
+        if (viewers.total_viewers != null) viewerBits.push('Total ' + viewers.total_viewers);
+        if (viewers.new_viewers_pct != null) viewerBits.push('novos ' + viewers.new_viewers_pct + '%');
+        if (g0) viewerBits.push((g0.label || '') + ' ' + (g0.pct_raw || ((g0.pct != null ? g0.pct + '%' : ''))));
+        if (a0) viewerBits.push('idade ' + (a0.label || '') + ' ' + (a0.pct_raw || ''));
+        return (
+          <div className="audience-insights">
+            <strong>Insights da coleta</strong>
+            {traffic.length > 0 && (
+              <div className="audience-block">
+                <span className="audience-label">Traffic source</span>
+                <ul>{traffic.slice(0,6).map((r,i) => <li key={i}><span>{r.label}</span><b>{r.pct_raw || (r.pct != null ? r.pct + '%' : '')}</b></li>)}</ul>
+              </div>
+            )}
+            {queries.length > 0 && (
+              <div className="audience-block">
+                <span className="audience-label">Search queries</span>
+                <ul>{queries.slice(0,6).map((r,i) => <li key={i}><span>{r.label}</span><b>{r.pct_raw || (r.pct != null ? r.pct + '%' : '')}</b></li>)}</ul>
+              </div>
+            )}
+            {viewerBits.length > 0 && (
+              <div className="audience-block">
+                <span className="audience-label">Viewers</span>
+                <p className="help" style={{margin:0}}>{viewerBits.join(' · ')}</p>
+              </div>
+            )}
+            {actions.length > 0 && (
+              <div className="audience-block audience-actions">
+                <span className="audience-label">Melhorias da semana</span>
+                <ul>{actions.map((a,i) => <li key={i}>{a}</li>)}</ul>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+    
+      {studioAuditReport?.report && (
+        <div className="studio-audit-report">
+          <strong>Auditoria dos publicados</strong>
+          <p className="help">{studioAuditReport.message} · {studioAuditReport.created_at || ''}</p>
+          {(studioAuditReport.report.summary?.patterns || []).length > 0 && (
+            <ul className="audit-patterns">{(studioAuditReport.report.summary.patterns).map((p,i)=><li key={i}>{p}</li>)}</ul>
+          )}
+          <div className="audit-table-wrap">
+            <table className="audit-table">
+              <thead><tr><th>Video</th><th>Views</th><th>Watch%</th><th>Search</th><th>FYP</th><th>Score</th></tr></thead>
+              <tbody>
+                {(studioAuditReport.report.summary?.ranked || studioAuditReport.report.results || []).slice(0,10).map((r,i)=>{
+                  const search=(r.traffic_source||[]).find(t=>(t.label||'').toLowerCase()==='search');
+                  const fyp=(r.traffic_source||[]).find(t=>(t.label||'').toLowerCase()==='for you');
+                  const title=(r.caption||r.tiktok_video_id||'').slice(0,42);
+                  return (
+                    <tr key={r.tiktok_video_id||i}>
+                      <td title={r.caption||''}>{title}{r.error?' ⚠':''}</td>
+                      <td>{r.views_7d ?? '—'}</td>
+                      <td>{r.watch_pct ?? '—'}</td>
+                      <td>{r.search_pct ?? search?.pct_raw ?? search?.pct ?? '—'}</td>
+                      <td>{r.fyp_pct ?? fyp?.pct_raw ?? fyp?.pct ?? '—'}</td>
+                      <td>{r.score ?? '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+    <div className="studio-metrics-box">
       <div className="studio-metrics-head">
         <strong>Métricas do Studio</strong>
         <span className="help">Puxa views e % do TikTok Studio com o Chrome da Micaela.</span>
@@ -515,8 +594,9 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
       <div className="studio-metrics-actions">
         <button type="button" className="primary" disabled={busy||!onFetchStudioMetrics} onClick={()=>onFetchStudioMetrics&&onFetchStudioMetrics(active||variants[0]?.color)}>Coletar métricas</button>
         <button type="button" className="button" disabled={busy||!onOpenStudio} onClick={()=>onOpenStudio&&onOpenStudio()}>Abrir Studio</button>
+        <button type="button" className="button" disabled={busy||!onAuditStudioPosts} onClick={()=>onAuditStudioPosts&&onAuditStudioPosts()}>Auditar publicados (8)</button>
       </div>
-      <p className="studio-metrics-tip">Feche o Chrome antes de coletar.</p>
+      <p className="studio-metrics-tip">Na 1ª coleta, feche o Chrome (copia a sessão Micaela). Depois pode deixar o Chrome normal aberto.</p>
     </div>
     <div className="critico-box">
       <button type="button" className="primary" disabled={busy} onClick={()=>{
