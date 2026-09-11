@@ -31,3 +31,11 @@
 .campaign-rename{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:7px 0}
 .campaign-rename input{min-width:min(320px,100%);flex:1;font-size:18px;font-weight:650;padding:8px 11px}
 .campaign-rename .primary{padding:8px 12px}
+
+.video-mixer{margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.mixer-list{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.mixer-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px;border:1px solid #e5e1ed;border-radius:9px;background:#faf8ff}
+.mixer-row.on{border-color:#c8b9ef;background:#f5f1ff}
+.mixer-row input[type=number]{width:72px;padding:6px 8px}
+.mixer-row button{padding:6px 9px}
+.mixer-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}

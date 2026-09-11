@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from flask import Flask, g, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
+from services.video_mix import mix_clips, find_ffmpeg
 from services.media import inspect_media
 from services.prompts import color_variants, generate, generate_variants, package_text, refresh_script_fields, build_caption
 
@@ -851,6 +852,116 @@ def create_app(config=None):
         touch(cid)
         db().commit()
         return jsonify(detail(cid))
+
+
+    @app.post('/api/campaigns/<int:cid>/videos/mix')
+    def mix_videos(cid):
+        """Junta 2+ MP4s da campanha num so (~15s 9:16) e anexa no slot escolhido."""
+        data = body()
+        c = start(cid, data)
+        editable(c)
+        clips = data.get('clips')
+        if not isinstance(clips, list) or len(clips) < 2:
+            raise Invalid('Selecione pelo menos 2 videos para misturar.')
+        target_slot = (data.get('slot') or data.get('color') or 'Mix').strip() or 'Mix'
+        color_slots = image_slots_for(c)
+        allowed = {s for s in color_slots if s} | {'Mix'}
+        if target_slot not in allowed and target_slot.casefold() not in {s.casefold() for s in allowed}:
+            raise Invalid('Escolha uma cor da campanha ou o slot Mix.')
+        # normalize case to known slot
+        for s in allowed:
+            if s.casefold() == target_slot.casefold():
+                target_slot = s
+                break
+        try:
+            target_duration = float(data.get('duration') or 15)
+        except (TypeError, ValueError):
+            raise Invalid('Duracao invalida.')
+        if not 10 <= target_duration <= 60:
+            raise Invalid('Duracao alvo entre 10 e 60 segundos.')
+        try:
+            find_ffmpeg()
+        except FileNotFoundError as exc:
+            raise Invalid(str(exc), 503) from exc
+
+        resolved = []
+        for item in clips:
+            if not isinstance(item, dict) or type(item.get('asset_id')) is not int:
+                raise Invalid('Cada clip precisa de asset_id.')
+            row = db().execute(
+                "SELECT * FROM assets WHERE id=? AND campaign_id=? AND kind='video' AND active=1",
+                (item['asset_id'], cid),
+            ).fetchone()
+            if not row:
+                raise Invalid(f"Video {item['asset_id']} nao encontrado nesta campanha.", 404)
+            seconds = item.get('seconds')
+            if seconds is None:
+                seconds = None
+            else:
+                try:
+                    seconds = float(seconds)
+                except (TypeError, ValueError):
+                    raise Invalid('seconds invalido.')
+                if seconds <= 0:
+                    raise Invalid('seconds deve ser positivo.')
+            resolved.append((row, seconds))
+
+        # equal split when seconds omitted
+        missing = [i for i, (_, s) in enumerate(resolved) if s is None]
+        if missing:
+            each = target_duration / len(resolved)
+            resolved = [(row, (s if s is not None else each)) for row, s in resolved]
+        total = sum(s for _, s in resolved)
+        if total <= 0:
+            raise Invalid('Duracao total invalida.')
+        # scale to target_duration
+        scale = target_duration / total
+        resolved = [(row, max(0.2, s * scale)) for row, s in resolved]
+
+        width, height = (1080, 1920) if c['generator'] == 'flow' else (720, 1280)
+        fd, temp = tempfile.mkstemp(dir=app.config['MEDIA_DIR'], suffix='.mix.mp4')
+        os.close(fd)
+        temp_path = Path(temp)
+        destination = None
+        try:
+            sources = [(path_for(row), sec) for row, sec in resolved]
+            mix_clips(sources, temp_path, width=width, height=height)
+            try:
+                metadata, ext, mime = inspect_media(temp_path, 'video')
+            except (ValueError, EOFError) as exc:
+                raise Invalid(str(exc)) from exc
+            metadata = dict(metadata or {})
+            metadata['mixed_from'] = [row['id'] for row, _ in resolved]
+            metadata['mix_seconds'] = [round(s, 3) for _, s in resolved]
+            metadata['color'] = target_slot
+            destination = attach(
+                cid, 'video', temp_path,
+                f"mix-{target_slot or 'video'}.mp4",
+                metadata, ext, mime, target_slot,
+            )
+            # mixed video is not auto-approved
+            db().execute(
+                "UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video' AND slot=?",
+                (cid, target_slot),
+            )
+            if STATES.index(c['status']) >= 5:
+                # kick back to video_ready if was past video approval
+                db().execute("UPDATE campaigns SET status='video_ready' WHERE id=?", (cid,))
+                db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'", (cid,))
+            db().commit()
+        except Invalid:
+            db().rollback()
+            if destination:
+                destination.unlink(missing_ok=True)
+            raise
+        except Exception as exc:
+            db().rollback()
+            if destination:
+                destination.unlink(missing_ok=True)
+            raise Invalid(f'Falha ao misturar videos: {exc}') from exc
+        finally:
+            temp_path.unlink(missing_ok=True)
+        return jsonify(detail(cid)), 201
 
     @app.post('/api/campaigns/<int:cid>/transition')
     def transition(cid):

@@ -113,6 +113,74 @@ function VariantScriptField({variant,field,value,busy,onSave}){
 }
 
 
+
+export function VideoMixer({c, busy, immutable, onError, onMix}){
+  const videos=(c.assets||[]).filter(a=>a.kind==='video');
+  const colorSlots=((c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean));
+  const slotOptions=[...colorSlots, 'Mix'].filter((v,i,arr)=>arr.indexOf(v)===i);
+  const [order,setOrder]=useState(()=>videos.map(v=>v.id));
+  const [seconds,setSeconds]=useState({});
+  const [slot,setSlot]=useState(slotOptions[0]||'Mix');
+  const [duration,setDuration]=useState(15);
+  const [working,setWorking]=useState(false);
+  useEffect(()=>{
+    setOrder(prev=>{
+      const ids=videos.map(v=>v.id);
+      const keep=prev.filter(id=>ids.includes(id));
+      const add=ids.filter(id=>!keep.includes(id));
+      return [...keep,...add];
+    });
+  },[videos.map(v=>v.id).join(',')]);
+  const ordered=order.map(id=>videos.find(v=>v.id===id)).filter(Boolean);
+  function move(id,dir){
+    setOrder(prev=>{
+      const i=prev.indexOf(id); if(i<0) return prev;
+      const j=i+dir; if(j<0||j>=prev.length) return prev;
+      const next=prev.slice(); [next[i],next[j]]=[next[j],next[i]]; return next;
+    });
+  }
+  function toggle(id){
+    setOrder(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
+  }
+  async function runMix(){
+    if(ordered.length<2){onError?.('Selecione pelo menos 2 videos.');return}
+    setWorking(true);
+    try{
+      const clips=ordered.map(v=>({
+        asset_id:v.id,
+        seconds: seconds[v.id] ? Number(seconds[v.id]) : undefined,
+      }));
+      await onMix({clips, slot, duration:Number(duration)||15});
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setWorking(false)}
+  }
+  if(!videos.length) return <div className="notice">Anexe ao menos 2 MP4s (por cor) para misturar.</div>;
+  return <section className="video-mixer">
+    <div className="section-title"><h3>Misturar videos</h3></div>
+    <p className="help">Ordene os clips, defina quantos segundos pegar de cada um (ou deixe vazio para dividir ~15s) e gere um MP4 unico 9:16.</p>
+    <div className="mixer-list">
+      {videos.map(v=>{
+        const on=order.includes(v.id);
+        const label=v.slot||v.metadata?.color||`Video #${v.id}`;
+        return <div className={'mixer-row'+(on?' on':'')} key={v.id}>
+          <label className="check-row" style={{margin:0}}><input type="checkbox" checked={on} disabled={busy||immutable||working} onChange={()=>toggle(v.id)}/><span>{label}</span></label>
+          {on&&<>
+            <input type="number" min="0.2" step="0.1" placeholder="seg" title="Segundos a partir do inicio" value={seconds[v.id]??''} disabled={busy||immutable||working} onChange={e=>setSeconds(s=>({...s,[v.id]:e.target.value}))}/>
+            <button type="button" disabled={busy||immutable||working} onClick={()=>move(v.id,-1)} title="Subir">↑</button>
+            <button type="button" disabled={busy||immutable||working} onClick={()=>move(v.id,1)} title="Descer">↓</button>
+          </>}
+        </div>;
+      })}
+    </div>
+    <div className="mixer-controls">
+      <label>Salvar no slot<select value={slot} disabled={busy||immutable||working} onChange={e=>setSlot(e.target.value)}>{slotOptions.map(s=><option key={s} value={s}>{s}</option>)}</select></label>
+      <label>Duracao total (s)<input type="number" min="10" max="60" step="0.5" value={duration} disabled={busy||immutable||working} onChange={e=>setDuration(e.target.value)}/></label>
+    </div>
+    <button className="primary full" disabled={busy||immutable||working||ordered.length<2} onClick={runMix}>{working?'Misturando…':'Gerar mix MP4'}</button>
+    {ordered.length>=2&&<p className="help">Ordem: {ordered.map(v=>v.slot||v.id).join(' · ')}</p>}
+  </section>;
+}
+
 export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRefreshVariant}){
   const videos=c.assets.filter(a=>a.kind==='video');
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];

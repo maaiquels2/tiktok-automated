@@ -26,6 +26,12 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 - Botão único **Abrir Grok/Flow para vídeo** no topo (sem repetir em cada cor).
 - Aprovação em lote: 15s e resolução alvo (1080×1920 Flow ou 720×1280 Grok).
 
+
+### Misturar videos
+- Na etapa **Criar video**, bloco **Misturar videos**.
+- Escolha 2+ MP4s da campanha, ordene, defina segundos por clip (ou deixe vazio para dividir ~15s).
+- Salva no slot de uma **cor** ou em **Mix** (requer FFmpeg no PATH / instalado).
+- O MP4 gerado precisa ser revisado de novo na aprovacao (~15s, 9:16).
 ### Legendas e hashtags para o TikTok
 - Legendas alinhadas a produto, benefício, público e cor.
 - Até **5 hashtags** por legenda, escolhidas pelo nicho (ex.: fitness, legging, TikTok Shop).
