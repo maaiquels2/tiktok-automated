@@ -121,13 +121,20 @@ def _script_variation(c, color, index=0):
     audience = _phrase(c.get('audience'))
     focus = _focus(c)
     color = _phrase(color) or _phrase(c.get('color')) or 'essa cor'
+    # Keep catalogue titles out of the opening sentence: a hook has about 4s.
+    piece = next((name for name in ('legging', 'vestido', 'conjunto', 'camiseta', 'blusa', 'calça', 'saia', 'short', 'top')
+                  if re.search(r'\b'+name+r'\b', product.casefold())), 'look')
+    feminine = piece in {'legging', 'camiseta', 'blusa', 'calça', 'saia'}
+    demonstrative = 'essa' if feminine else 'esse'
+    contracted = 'nessa' if feminine else 'nesse'
+    possessive = 'sua' if feminine else 'seu'
     hooks = [
-        f'{color} no corpo: olha esse caimento.',
-        f'Essa {product.lower()} em {color} mudou meu treino.',
-        f'Close no detalhe: {product.lower()} {color}.',
-        f'Se você curte {color}, presta atenção nisso.',
-        f'Antes eu duvidava do {color}. Olha agora.',
-        f'{focus.capitalize()} na versão {color}.',
+        f'Quer ver {demonstrative} {piece} no corpo? Repara no caimento em {color}.',
+        f'Como fica {demonstrative} {piece} em movimento? Olha a versão em {color}.',
+        f'Pensando {contracted} {piece}? Veja de perto como fica na cor {color}.',
+        f'Você usaria {demonstrative} {piece} em {color}? Olha os detalhes no corpo.',
+        f'Antes de escolher {possessive} {piece}, confira o caimento desta versão em {color}.',
+        f'O que observar {contracted} {piece}? Veja o acabamento e a cor {color}.',
     ]
     developments = [
         f'Em {color}, ela {benefit.lower()}. Veja {focus} e o caimento em movimento.',
@@ -170,6 +177,110 @@ def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
         merged['image'] = fresh['image']
     merged['variation_index'] = index
     return merged
+
+
+
+# Niche-specific video direction for Flow/Grok (concrete beats, not vague adjectives).
+_VIDEO_NICHE = {
+    "praia": {
+        "setting": "praia, deck de piscina ou varanda ensolarada; fundo com luz natural e leve movimento de vento",
+        "camera": "handheld UGC leve; plano medio na abertura; close no tecido ao vento; orbit curta no corpo; final em plano medio frontal",
+        "must_show": "caimento molhado/leve do tecido, brilho do sol na peca, movimento real ao caminhar na areia/deck",
+        "avoid": "estudio frio, pose estatica demais, morphing de rosto, logos inventados",
+    },
+    "academia": {
+        "setting": "academia limpa ou outdoor fitness crivel; luz clara e energetica",
+        "camera": "plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera",
+        "must_show": "compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural",
+        "avoid": "maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes",
+    },
+    "casual": {
+        "setting": "rua, cafe ou quarto com luz natural; visual street realista",
+        "camera": "push-in suave; giro 180 graus; close na barra/bolso/textura; walk-and-talk frontal",
+        "must_show": "como a peca cai no corpo em movimento urbano, textura do tecido, detalhe que vende (barra, costura, bolso)",
+        "avoid": "fundo genérico borrado sem contexto, gestos roboticos, troca de identidade",
+    },
+    "dia-a-dia": {
+        "setting": "casa real (quarto/cozinha/sala) com luz de janela suave",
+        "camera": "plano medio caseiro; close na textura ao sentar/levantar; travelling curto pela casa; final frontal calmo",
+        "must_show": "conforto real (sentar, levantar, caminhar), tecido macio em close, rotina crivel em 15s",
+        "avoid": "cena de studio fashion, exagero de poses, mudanca de rosto/cabelo",
+    },
+    "intima": {
+        "setting": "quarto premium ou canto de estudio com luz quente suave; clima elegante",
+        "camera": "plano medio frontal; pan lento para o lado; close no tecido/renda/ajuste; retorno ao rosto confiante",
+        "must_show": "caimento que valoriza sem vulgaridade, textura do tecido, ajuste de alca/fecho, poses seguras",
+        "avoid": "nudez, zoom agressivo, poses explicitas, troca de identidade, filtros plasticos",
+    },
+    "fantasia": {
+        "setting": "cenario tematico coerente com a fantasia (quarto preparado, luz colorida ou festa simples)",
+        "camera": "revelacao em plano medio; giro dramatico; close em acessorio (asa, cinto, peruca); pose iconica final",
+        "must_show": "transformacao visual clara, acessorios da fantasia, detalhe do traje, energia teatral controlada",
+        "avoid": "cenario generico sem tema, morphing de rosto, logos de franquias proibidas",
+    },
+}
+
+
+def _niche_key(c):
+    niche = (c.get("niche") or "").strip()
+    if niche in _VIDEO_NICHE:
+        return niche
+    # fallback from style/outfit keywords
+    blob = f"{c.get('style','')} {c.get('outfit','')} {c.get('angle','')}".casefold()
+    for key, words in (
+        ("praia", ("praia", "beach", "biquini", "verao")),
+        ("academia", ("academia", "fitness", "legging", "treino", "active")),
+        ("intima", ("intima", "íntima", "lingerie", "sensual")),
+        ("fantasia", ("fantasia", "cosplay", "halloween", "personagem")),
+        ("dia-a-dia", ("rotina", "dia a dia", "lounge", "casa")),
+        ("casual", ("casual", "street")),
+    ):
+        if any(w in blob for w in words):
+            return key
+    return "casual"
+
+
+def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta):
+    niche = _niche_key(c)
+    dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
+    outfit = _phrase(c.get("outfit")) or "look do produto"
+    angle = _phrase(c.get("angle")) or "mostrar o produto em uso"
+    style = _phrase(c.get("style")) or "natural e realista"
+    tone = _phrase(c.get("tone")) or "conversacional"
+    model = _phrase(c.get("model_name")) or "a modelo"
+    color_l = _phrase(color) or "a cor escolhida"
+    product_l = product or "o produto"
+    benefit_l = benefit or "o beneficio principal"
+    moves = movements or "movimentos naturais que mostrem o caimento"
+    extras = f" Instruções extras do briefing: {details}." if details else ""
+
+    return (
+        f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
+        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro frame / referência contínua. "
+        f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames "
+        f"(sem morphing, sem face swap, sem redesign). "
+        f"Produto em cena: {product_l} na cor {color_l}. Look: {outfit}. "
+        f"Ângulo de venda: {angle}. Benefício a provar visualmente: {benefit_l}.\n"
+        f"CENÁRIO ({niche}): {dirn['setting']}. "
+        f"CÂMERA: {dirn['camera']}. "
+        f"OBRIGATÓRIO mostrar: {dirn['must_show']}. "
+        f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
+        f"COREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): {moves}.{extras}\n"
+        f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
+        f"0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; "
+        f"micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"{hook}\"\n"
+        f"4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). "
+        f"Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n"
+        f"6.0–11.0s PROVA 2: movimento completo que demonstra o benefício ({benefit_l}) — "
+        f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis. "
+        f"Fala (PT-BR): \"{development}\"\n"
+        f"11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n"
+        f"12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"{cta}\"\n"
+        f"Estilo visual: {style}. Tom de performance: {tone}. "
+        f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
+        f"Sem promessas não demonstradas no vídeo. "
+        f"Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar."
+    )
 
 
 def generate_variants(c):
@@ -226,20 +337,17 @@ def generate(c, script=None, variant_index=0):
            'Apenas uma imagem estática; não descreva vídeo, falas nem duração.')
     )
     resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
-    video = (
-        f'Vídeo final vertical 9:16, 15 segundos, {resolution}. '
-        f"Use a IMAGEM APROVADA da cor {c['color']} anexada como quadro de referência. Preserve a identidade, "
-        'o look, as cores e o produto durante todo o vídeo. Movimentos sutis, gestos naturais, '
-        'continuidade visual, sem morphing ou alteração do rosto. '
-        f'Direção de movimentos para este produto: {movements}. '
-        + (f'Instruções extras do briefing: {details}. ' if details and not details_for_image else '')
-        + f"Estilo: {c['style'] or 'natural e realista'}. Tom: {c['tone'] or 'conversacional'}. "
-        f'0–2s: olhar para a câmera e apresentar o produto. Fala: {hook} '
-        f'2–12s: mostrar os detalhes e o benefício informado. Fala: {development} '
-        f'12–15s: encerrar com gesto leve. Fala: {cta} '
-        'Falas em português do Brasil. Ajuste o ritmo após leitura em voz alta. '
-        'Sem promessas adicionais ou resultados não demonstrados. '
-        'Se o serviço gerar clipes menores, monte os trechos e exporte 15 segundos antes de anexar.'
+    video = _build_video_prompt(
+        c,
+        resolution=resolution,
+        color=c.get('color'),
+        product=product,
+        benefit=benefit,
+        movements=movements,
+        details=details,
+        hook=hook,
+        development=development,
+        cta=cta,
     )
     caption = build_caption(c, color=color, cta=cta, variation_index=variant_index)
     return dict(image=image, video=video, hook=hook, development=development, cta=cta, caption=caption, variation_index=variant_index)
@@ -269,7 +377,7 @@ def package_text(c):
                       f"ROTEIRO\n{vp.get('hook','')}\n{vp.get('development','')}\n{vp.get('cta','')}\n"
                       f"LEGENDA\n{vp.get('caption','')}")
     for key, title in [('image', 'PROMPT DE IMAGEM (cor principal)'), ('video', 'PROMPT DE VÍDEO (cor principal)'),
-                       ('hook', 'HOOK · 0–2s'), ('development', 'DESENVOLVIMENTO · 2–12s'),
+                       ('hook', 'HOOK · 0–4s'), ('development', 'DESENVOLVIMENTO · 4–12s'),
                        ('cta', 'CTA · 12–15s'), ('caption', 'LEGENDA')]:
         blocks.append(f"{title}\n{p.get(key, '(ainda não gerado)')}")
     blocks.append('REVISÃO HUMANA\n[ ] Conferir conta da Micaela\n[ ] Subir o MP4 aprovado\n'

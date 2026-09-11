@@ -99,6 +99,63 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.post('/generate').status_code,409)
         self.assertEqual(self.upload('video',mp4_metadata()).status_code,409)
 
+    def test_single_script_refresh_preserves_image_and_other_phrases(self):
+        self.video_approved()
+        before=self.get()
+        response=self.post('/prompts/refresh',{'fields':['hook','caption'],'version':before['version']})
+        self.assertEqual(response.status_code,200,response.json)
+        updated=response.json
+        self.assertEqual(updated['status'],'image_approved')
+        self.assertNotEqual(updated['prompts']['hook'],before['prompts']['hook'])
+        self.assertNotEqual(updated['prompts']['caption'],before['prompts']['caption'])
+        for key in ('image','development','cta'):
+            self.assertEqual(updated['prompts'][key],before['prompts'][key])
+        self.assertIn(updated['prompts']['hook'].rstrip('.'),updated['prompts']['video'])
+        self.assertIn('0–4s HOOK:',updated['prompts']['video'])
+        self.assertFalse(any(a['kind']=='video' for a in updated['assets']))
+        self.assertTrue(next(a for a in updated['assets'] if a['kind']=='image')['approved_at'])
+        again=self.post('/prompts/refresh',{'fields':['hook','development','cta','caption']})
+        self.assertEqual(again.status_code,200,again.json)
+        for key in ('hook','development','cta'):
+            self.assertNotEqual(again.json['prompts'][key],updated['prompts'][key])
+        reopened=create_app(self.config).test_client().get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual(reopened['prompts'],again.json['prompts'])
+
+    def test_single_script_refresh_rejects_invalid_and_stale_requests(self):
+        self.assertEqual(self.post('/prompts/refresh').status_code,409)
+        self.image_ready()
+        before=self.get()
+        for fields in ([],['image'],['hook',{}],'hook'):
+            self.assertEqual(self.post('/prompts/refresh',{'fields':fields}).status_code,400)
+        self.assertEqual(self.post('/prompts/refresh',{'version':before['version']-1}).status_code,409)
+        self.assertEqual(self.get()['prompts'],before['prompts'])
+
+    def test_single_script_refresh_respects_published_and_color_workflows(self):
+        # Isolate the published guard from the publication workflow.
+        with sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db') as conn:
+            conn.execute("UPDATE campaigns SET status='published' WHERE id=?",(self.cid,))
+        conn.close()
+        self.assertEqual(self.post('/prompts/refresh').status_code,409)
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.post('/generate')
+        before=self.get()
+        self.assertEqual(self.post('/prompts/refresh').status_code,409)
+        variant=before['variants'][0]
+        result=self.post(f"/variants/{variant['id']}/refresh",{'fields':['hook','caption']})
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertNotEqual(result.json['variants'][0]['prompts']['hook'],variant['prompts']['hook'])
+
+    def test_hooks_have_complete_openings_with_bounded_length(self):
+        for product in ('Legging de treino cintura alta com bolso lateral poliamida','Vestido midi','Conjunto casual'):
+            for index in range(6):
+                prompt=generate({**self.brief,'product':product,'details':''},variant_index=index)
+                self.assertGreaterEqual(len(prompt['hook'].split()),10)
+                self.assertLessEqual(len(prompt['hook'].split()),16)
+                self.assertNotIn('mudou meu treino',prompt['hook'])
+                self.assertNotIn('Antes eu duvidava',prompt['hook'])
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})

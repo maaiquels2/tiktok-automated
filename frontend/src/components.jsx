@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { NICHE_DEFAULTS } from './nicheDefaults';
+import { modelLibrary, uploadModelLibrary, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -30,7 +32,8 @@ export function Uploader({kind,busy,onUpload,exists=false,disabled=false,color})
   const names={reference:'referência da modelo',image:color?`imagem · ${color}`:'imagem gerada',video:color?`vídeo · ${color}`:'vídeo MP4'};
   return <><input ref={ref} type="file" hidden accept={kind==='video'?'video/mp4,.mp4':'image/jpeg,image/png,image/webp'} onChange={e=>{const f=e.target.files?.[0];if(f)onUpload(kind,f,color);e.target.value=''}}/><button className="upload-button" onClick={()=>ref.current.click()} disabled={busy||disabled}>{kind==='video'?<Film size={18}/>:<ImagePlus size={18}/>} {exists?'Substituir':'Anexar'} {names[kind]}</button><small className="help">{kind==='video'?'MP4 · até 250 MB · 15s · vertical 9:16':'JPG, PNG ou WebP · até 40 MB'}</small></>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',generator:'flow'};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',generator:'flow'};
+export const NICHES=[{id:'praia',label:'Moda praia'},{id:'academia',label:'Moda academia'},{id:'casual',label:'Moda casual'},{id:'dia-a-dia',label:'Moda dia a dia'},{id:'intima',label:'Moda íntima'},{id:'fantasia',label:'Fantasia'}];
 export function ProductGallery({photos=[]}){
   if(!photos.length)return null;
   return <section className="product-gallery"><h3>Fotos do produto</h3><p>Anexe estas fotos depois da referência fixa da modelo.</p><div className="product-photo-grid">{photos.map((photo,i)=><AssetView key={photo.id} asset={photo} title={`Produto · foto ${i+1}`} compact/>)}</div></section>;
@@ -45,7 +48,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpl
     :focus==='video'
       ?'Use a imagem aprovada da mesma cor, copie o prompt de vídeo e anexe o MP4 de 15s. Precisa de um vídeo por cor.'
       :focus==='script'
-        ?'Cada cor tem falas diferentes. Se não gostar, use Atualizar fala para gerar outra variação.'
+        ?'Cada cor tem falas (hook, desenvolvimento, CTA). A legenda do TikTok fica na etapa Studio.'
         :'Abra cada cor para copiar os prompts e o roteiro correspondentes.';
   return <section className="variant-list"><div className="section-title"><h3>{title}</h3><span className="help">{variants.length} variações</span></div>
     <p>{help}</p>
@@ -68,8 +71,8 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpl
             {img?<AssetView asset={img} title={`Imagem aprovada · ${variant.color}`} compact/>:<div className="notice">Falta a imagem desta cor.</div>}
             <div className="variant-prompt"><div className="section-title"><strong>Prompt de vídeo — {variant.color}</strong><CopyButton text={p.video||''} onError={onError}/></div><p>{p.video||'-'}</p></div>
             <div className="variant-prompt"><div className="section-title"><strong>Falas 15s</strong></div>
-              <p><strong>0–2s:</strong> {p.hook||'-'}</p>
-              <p><strong>2–12s:</strong> {p.development||'-'}</p>
+              <p><strong>0–4s:</strong> {p.hook||'-'}</p>
+              <p><strong>4–12s:</strong> {p.development||'-'}</p>
               <p><strong>12–15s:</strong> {p.cta||'-'}</p>
             </div>
             {vid?<AssetView asset={vid} title={`Vídeo · ${variant.color}`} compact/>:null}
@@ -78,11 +81,12 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpl
           {focus==='script'&&<>
             <div className="variant-actions">
               {onRefreshVariant&&!immutable&&<>
-                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','caption'])}>Atualizar hook + legenda</button>
-                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta','caption'])}>Atualizar fala inteira</button>
+                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'])}>Atualizar hook</button>
+                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'])}>Atualizar fala inteira</button>
               </>}
             </div>
-            {[['hook','Hook · 0-2s'],['development','Desenvolvimento · 2-12s'],['cta','CTA · 12-15s'],['caption','Legenda'],['video','Prompt de vídeo']].map(([key,title])=>
+            <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
+            {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
               <div className="variant-prompt" key={key}>
                 <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
                 {onSaveVariant&&!immutable
@@ -90,7 +94,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpl
                   :<p>{p[key]||'-'}</p>}
               </div>)}
           </>}
-          {!['image','video','script'].includes(focus)&&[['image','Prompt de imagem'],['video','Prompt de vídeo'],['hook','Hook · 0-2s'],['development','Desenvolvimento · 2-12s'],['cta','CTA · 12-15s'],['caption','Legenda']].map(([key,title])=>
+          {!['image','video','script'].includes(focus)&&[['image','Prompt de imagem'],['video','Prompt de vídeo'],['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s'],['caption','Legenda']].map(([key,title])=>
             <div className="variant-prompt" key={key}>
               <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
               <p>{p[key]||'-'}</p>
@@ -115,6 +119,7 @@ function VariantScriptField({variant,field,value,busy,onSave}){
 
 
 export function VideoMixer({c, busy, immutable, onError, onMix}){
+  const [openMixer,setOpenMixer]=useState(false);
   const videos=(c.assets||[]).filter(a=>a.kind==='video');
   const colorSlots=((c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean));
   const slotOptions=[...colorSlots, 'Mix'].filter((v,i,arr)=>arr.indexOf(v)===i);
@@ -175,7 +180,7 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
       scores:[1,1,1,1,1,1,1],
       note:'Pipeline preparado. Cole o brief no Critico de Vendas (ou anexe os MP4s la). Ele assiste, corta com o Editor e devolve GO/REWORK/KILL.'
     });
-    setAutoNote(`Auto-cut pronto: ${ordered.length} take(s). Copie o brief e cole no chat do Critico de Vendas — ou anexe os mesmos MP4s la com a frase "roda o auto-cut".`);
+    setAutoNote(`Auto-cut enfileirado: ${ordered.length} take(s). O Critico de Vendas sera avisado automaticamente.`);
     try{
       await fetch(`/api/campaigns/${c.id}/autocut`,{
         method:'POST',
@@ -198,6 +203,13 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
   }
   if(!videos.length) return <div className="notice">Anexe ao menos 2 MP4s (por cor) para misturar ou usar Auto-cut.</div>;
   return <section className="video-mixer">
+    <div className="section-title">
+      <h3>Montagem automática (opcional)</h3>
+      <button type="button" className="button" disabled={busy||immutable} onClick={()=>setOpenMixer(v=>!v)}>{openMixer?'Ocultar':'Abrir'}</button>
+    </div>
+    <p className="help"><strong>Fluxo normal:</strong> 1 MP4 por cor na lista abaixo — não misture preto+branco+azul num único arquivo. <strong>Use isto</strong> só quando uma cor tiver vários takes e você quiser um corte tipo CapCut (IA escolhe trechos fortes).</p>
+    {!openMixer ? null : (<>
+
     <div className="section-title"><h3>Misturar videos</h3></div>
     <p className="help">Ordene os clips. <strong>Auto-cut</strong> prepara o pacote pro Critico (assiste, KEEP/DROP, Editor costura, gate). <strong>Gerar mix</strong> e o FFmpeg local rapido sem critica visual.</p>
     <div className="mixer-list">
@@ -226,9 +238,9 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
     {autoNote&&<p className="notice success">{autoNote}</p>}
     {autoBrief&&<div className="autocut-brief"><div className="section-title"><strong>Brief pro Critico</strong><CopyButton text={autoBrief} label="Copiar brief" onError={onError}/></div><pre>{autoBrief}</pre></div>}
     {autoGate&&<GateCriticoPanel fileName={autoGate.fileName} scores={autoGate.scores} note={autoGate.note} autoStart/>}
+    </>)}
   </section>;
 }
-
 export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRefreshVariant}){
   const videos=c.assets.filter(a=>a.kind==='video');
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
@@ -260,8 +272,8 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
         </button>;
       })}
     </div>
-    <div className="service-box"><strong>TikTok Studio · Micaela</strong>
-      <button disabled={busy} onClick={()=>onOpen('studio','publish')}><ExternalLink size={16}/> Abrir perfil da Micaela</button>
+    <div className="service-box"><strong>TikTok Studio</strong>
+      <button disabled={busy} onClick={()=>onOpen('studio','publish')}><ExternalLink size={16}/> Abrir perfil do Studio</button>
       <p>Um botão só para o Studio. Troque o vídeo/legenda conforme a cor selecionada acima.</p>
     </div>
     {video?<AssetView asset={video} title={`MP4 · ${variant?.color||''}`}/>:<div className="notice">Sem vídeo para esta cor.</div>}
@@ -287,7 +299,7 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
       </div>:
       done?<div className="notice success"><Check size={16}/> Cor <strong>{variant?.color}</strong> já registrada. Escolha a próxima ({remaining} restante{remaining===1?'':'s'}).</div>:
       <><h3>Checklist · {variant?.color}</h3>
-        {check('account','Conferi que estou na conta da Micaela.')}
+        {check('account','Conferi que estou na conta TikTok certa.')}
         {check('product',`Selecionei manualmente o produto no Shop: ${c.product} (${variant?.color}).`)}
         {check('caption','Subi este MP4 e colei a legenda desta cor.')}
         {check('review','Revisei vídeo, áudio, produto e direitos de uso.')}
@@ -310,9 +322,9 @@ export function VideoTimelinePreview({asset,variant,c}){
   const [dur,setDur]=useState(15);
   const prompts=(variant?.prompts)||c?.prompts||{};
   const src=asset?.url||asset?.href||(asset?.id?`/api/assets/${asset.id}/file`:'');
-  const beat=t<2?'Hook':t<12?'Desenvolvimento':'CTA';
+  const beat=t<4?'Hook':t<12?'Desenvolvimento':'CTA';
   const overlay=beat==='Hook'?(prompts.hook||''):beat==='Desenvolvimento'?(prompts.development||''):(prompts.cta||'');
-  const marks=[0,2,12,Math.min(15,dur||15)].filter((v,i,a)=>a.indexOf(v)===i&&v<=(dur||15));
+  const marks=[0,4,12,Math.min(15,dur||15)].filter((v,i,a)=>a.indexOf(v)===i&&v<=(dur||15));
   if(!asset)return null;
   return <section className="video-timeline-preview">
     <div className="phone-frame">
@@ -449,7 +461,7 @@ export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
 }
 
 
-export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport}){
+export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport,onSavePublishedLink}){
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
   const insightsMap=(c.checklist&&c.checklist.insights)||{};
@@ -459,6 +471,9 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
   const [metrics,setMetrics]=useState({});
   const [criticoNote,setCriticoNote]=useState('');
   const [gateRun,setGateRun]=useState(null);
+  const slotUrl=((c.checklist&&c.checklist.slots)||{})[active||'']?.url||((c.checklist&&c.checklist.slots)||{})[active||'default']?.url||'';
+  const [tiktokLink,setTiktokLink]=useState(c.published_url||slotUrl||'');
+  useEffect(()=>{const su=((c.checklist&&c.checklist.slots)||{})[active||'']?.url||((c.checklist&&c.checklist.slots)||{})[active||'default']?.url||'';setTiktokLink(c.published_url||su||'');},[c.id,c.version,c.published_url,active]);
   useEffect(()=>{
     const key=active||'default';
     const prev=perfMap[key]||perfMap[active]||{};
@@ -589,14 +604,27 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
     <div className="studio-metrics-box">
       <div className="studio-metrics-head">
         <strong>Métricas do Studio</strong>
-        <span className="help">Puxa views e % do TikTok Studio com o Chrome da Micaela.</span>
+        <span className="help">Puxa views e % do TikTok Studio com o Chrome CDP desta creator.</span>
       </div>
+      
+    <div className="published-link-box">
+      <div className="section-title"><h3>Link da publicacao no TikTok</h3><span className="help">cole o link do video ja publicado</span></div>
+      <label className="metric-field full">URL do video
+        <input type="url" placeholder="https://www.tiktok.com/@conta/video/123..." value={tiktokLink} disabled={busy} onChange={e=>setTiktokLink(e.target.value)}/>
+      </label>
+      <div className="studio-metrics-actions">
+        <button type="button" className="primary" disabled={busy||!onSavePublishedLink||!tiktokLink.trim()} onClick={()=>onSavePublishedLink({published_url:tiktokLink.trim(),color:active||variants[0]?.color})}>Salvar link</button>
+      </div>
+      <p className="help">Com o link salvo, <strong>Coletar metricas</strong> abre o analytics desse video. Sem link, use <strong>Auditar publicados</strong> para comparar varios posts do Studio.</p>
+      {c.published_url && <p className="help"><a href={c.published_url} target="_blank" rel="noreferrer">Abrir link salvo</a></p>}
+    </div>
+
       <div className="studio-metrics-actions">
         <button type="button" className="primary" disabled={busy||!onFetchStudioMetrics} onClick={()=>onFetchStudioMetrics&&onFetchStudioMetrics(active||variants[0]?.color)}>Coletar métricas</button>
         <button type="button" className="button" disabled={busy||!onOpenStudio} onClick={()=>onOpenStudio&&onOpenStudio()}>Abrir Studio</button>
         <button type="button" className="button" disabled={busy||!onAuditStudioPosts} onClick={()=>onAuditStudioPosts&&onAuditStudioPosts()}>Auditar publicados (8)</button>
       </div>
-      <p className="studio-metrics-tip">Na 1ª coleta, feche o Chrome (copia a sessão Micaela). Depois pode deixar o Chrome normal aberto.</p>
+      <p className="studio-metrics-tip">Na 1ª coleta, feche o Chrome (copia a sessão do perfil configurado). Depois pode deixar o Chrome normal aberto.</p>
     </div>
     <div className="critico-box">
       <button type="button" className="primary" disabled={busy} onClick={()=>{
@@ -654,15 +682,806 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
+  const [showAdvanced,setShowAdvanced]=useState(false);
   const published=campaign?.status==='published';
-  const labels=[['name','Nome da campanha','Ex.: Look de verão'],['model_name','Modelo','Nome da modelo fixa'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['outfit','Roupa','Ex.: Legging com top branco'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
+  const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
+  const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
   const change=(key,value)=>{setDraft(d=>({...d,[key]:value}));onDirty?.(true)};
+  function applyNiche(niche){
+    const defaults=NICHE_DEFAULTS[niche]||{};
+    const label=({praia:'Praia',academia:'Academia',casual:'Casual','dia-a-dia':'Dia a dia',intima:'Íntima',fantasia:'Fantasia'})[niche]||niche;
+    setDraft(d=>{
+      const model=d.model_name||'Micaela';
+      const next={...d,niche,...defaults,model_name:model,generator:d.generator||'flow'};
+      // Always keep campaign name in sync with niche (auto pattern or empty).
+      // If the user typed a fully custom name, still update when it looks like the auto "Modelo · Nicho" pattern.
+      const prev=String(d.name||'').trim();
+      const autoRe=/^.+\s·\s.+$/;
+      const modelLow=(model||'').toLowerCase();
+      if(niche && (!prev || autoRe.test(prev) || (modelLow && prev.toLowerCase().startsWith(modelLow)) || prev.toLowerCase().startsWith('micaela'))){
+        next.name=`${model} · ${label}`;
+      }
+      return next;
+    });
+    onDirty?.(true);
+  }
+  // on first mount for create (no campaign), apply current niche defaults once
+  useEffect(()=>{
+    if(!campaign && draft.niche && !(draft.audience||draft.benefit||draft.movements)){
+      applyNiche(draft.niche);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+  const field=(key,label,placeholder)=>(
+    <div key={key} className={key==='product'?'product-field':''}>
+      <label>{label}{['name','model_name','product'].includes(key)&&' *'}
+        <input value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>
+        {key==='color'&&<small className="help">Separe as cores por vírgulas para criar uma variação de cada uma.</small>}
+      </label>
+      {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
+    </div>
+  );
   return <form className="brief-form" onSubmit={e=>{e.preventDefault();onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed)}}>
-    <fieldset disabled={busy||published}><div className="form-grid">{labels.map(([key,label,placeholder])=><div key={key} className={key==='product'?'product-field':''}><label>{label}{['name','model_name'].includes(key)&&' *'}<input value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>{key==='color'&&<small className="help">Separe as cores por vírgulas para criar uma variação de cada uma.</small>}</label>{key==='product'&&campaign&&(published?<ProductGallery photos={campaign.product_assets}/>:<ProductPhotoPicker saved={campaign.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}</div>)}</div>
-    <label>Gerador<select value={draft.generator} onChange={e=>change('generator',e.target.value)}><option value="flow">Google Flow · alvo 1080p</option><option value="grok">Grok Imagine · alvo 720p</option></select></label>
-    <label>Detalhes adicionais<textarea rows={3} value={draft.details||''} onChange={e=>change('details',e.target.value)} maxLength={5000} placeholder="Enquadramento, gestos e detalhes do produto"/></label>
-    <label>Movimentos para mostrar<textarea rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} maxLength={1500} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós e mostrar o bolso lateral"/><small className="help">Descreva os movimentos que devem aparecer no vídeo deste produto.</small></label></fieldset>
-    {campaign?.prompts?.image&&!published&&<div className="notice">Alterar o briefing reinicia a produção e pede novas aprovações. Os arquivos anteriores permanecem na pasta local.</div>}
-    {!published&&<div className="form-actions">{onCancel&&<button type="button" onClick={onCancel} disabled={busy}>Cancelar</button>}<button className="primary" type="submit" disabled={busy}>{busy?'Salvando…':campaign?'Salvar briefing':'Criar campanha'}</button></div>}
+    <fieldset disabled={busy||published}>
+      <label>Nicho da modelo *
+        <select value={draft.niche||''} onChange={e=>applyNiche(e.target.value)} required>
+          <option value="">Escolha o nicho</option>
+          {NICHES.map(n=><option key={n.id} value={n.id}>{n.label}</option>)}
+        </select>
+        <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
+      </label>
+      <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>
+      <button type="button" className="button full" disabled={busy||published} onClick={()=>setShowAdvanced(v=>!v)}>{showAdvanced?'Ocultar ajustes do nicho':'Ver / editar o que o nicho preencheu'}</button>
+      {showAdvanced && (
+        <div className="niche-advanced">
+          <div className="notice"><strong>Preenchido pelo nicho.</strong> Pode editar se quiser — o padrão já está otimizado pra TikTok Shop.</div>
+          <div className="form-grid">{advanced.map(([k,l,p])=>field(k,l,p))}</div>
+          <label>Gerador<select value={draft.generator||'flow'} onChange={e=>change('generator',e.target.value)}><option value="flow">Google Flow · alvo 1080p</option><option value="grok">Grok Imagine · alvo 720p</option></select></label>
+          <label>Detalhes adicionais<textarea rows={3} value={draft.details||''} onChange={e=>change('details',e.target.value)} placeholder="Enquadramento, gestos e detalhes do produto" maxLength={5000}/></label>
+          <label>Movimentos para mostrar<textarea rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós" maxLength={1500}/><small className="help">Movimentos que devem aparecer no vídeo deste produto</small></label>
+        </div>
+      )}
+      {!showAdvanced && (
+        <div className="notice niche-summary">
+          <strong>Já preenchido:</strong> {(draft.audience||'—').slice(0,70)}… · tom {draft.tone||'—'} · estilo {draft.style||'—'}
+        </div>
+      )}
+    </fieldset>
+    <div className="form-actions">
+      {onCancel&&<button type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
+      <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?'Salvar':'Criar campanha'}</button>
+    </div>
   </form>;
+}
+
+
+export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,onSaved}){
+  const [draft,setDraft]=useState(()=>({...(identity||{})}));
+  const [saving,setSaving]=useState(false);
+  useEffect(()=>{ if(identity) setDraft({...identity}); },[identity]);
+  function set(k,v){ setDraft(d=>({...d,[k]:v})); }
+  async function save(){
+    if(busy||saving)return;
+    setSaving(true);
+    try{
+      const res=await saveStudioIdentity({
+        studio_name:draft.studio_name||'',
+        brand_name:draft.brand_name||'',
+        model_name:draft.model_name||'',
+        tiktok_handle:(draft.tiktok_handle||'').replace(/^@/,''),
+        chrome_profile_hint:draft.chrome_profile_hint||'',
+        grok_account_hint:draft.grok_account_hint||'',
+        flow_account_hint:draft.flow_account_hint||'',
+        notes:draft.notes||'',
+      });
+      const next=res.identity||res;
+      setIdentity(next);
+      onFlash?.('Identidade do estudio salva neste PC.');
+      onSaved?.(next);
+    }catch(e){ onError?.(e.message); }
+    finally{ setSaving(false); }
+  }
+  return (
+    <div className="identity-modal-body">
+      <p className="help">Cada PC tem a propria identidade. No outro notebook, troque nome, @handle e perfil Chrome — nao copie browser_profiles nem data desta conta.</p>
+      <div className="identity-grid">
+        <label>Nome do estudio<input value={draft.studio_name||''} disabled={busy||saving} onChange={e=>set('studio_name',e.target.value)} placeholder="Estudio da Ana"/></label>
+        <label>Marca / app<input value={draft.brand_name||''} disabled={busy||saving} onChange={e=>set('brand_name',e.target.value)} placeholder="Fabrica TikTok"/></label>
+        <label>Nome da modelo<input value={draft.model_name||''} disabled={busy||saving} onChange={e=>set('model_name',e.target.value)} placeholder="Ana"/></label>
+        <label>@ TikTok<input value={draft.tiktok_handle||''} disabled={busy||saving} onChange={e=>set('tiktok_handle',e.target.value.replace(/^@/,''))} placeholder="handle_sem_arroba"/></label>
+        <label>Perfil Chrome<input value={draft.chrome_profile_hint||''} disabled={busy||saving} onChange={e=>set('chrome_profile_hint',e.target.value)} placeholder="Profile 7 ou nome no Chrome (ex.: Micaela)"/></label>
+        <label>Conta Grok (lembrete)<input value={draft.grok_account_hint||''} disabled={busy||saving} onChange={e=>set('grok_account_hint',e.target.value)} placeholder="email@…"/></label>
+        <label>Conta Flow (lembrete)<input value={draft.flow_account_hint||''} disabled={busy||saving} onChange={e=>set('flow_account_hint',e.target.value)} placeholder="email@…"/></label>
+        <label className="span-2">Notas<textarea rows={2} value={draft.notes||''} disabled={busy||saving} onChange={e=>set('notes',e.target.value)} placeholder="Lembretes locais"/></label>
+      </div>
+      {draft.tiktok_handle ? <p className="help">URL: https://www.tiktok.com/@{(draft.tiktok_handle||'').replace(/^@/,'')} · pasta CDP: {draft.cdp_folder||'…'}</p> : null}
+      <div className="form-actions">
+        <button type="button" className="primary" disabled={busy||saving} onClick={save}>{saving?'Salvando…':'Salvar identidade'}</button>
+      </div>
+    </div>
+  );
+}
+
+
+export function SetupChecklist({busy,onError}){
+  const [data,setData]=useState(null);
+  const [open,setOpen]=useState(true);
+  useEffect(()=>{ setupStatus().then(d=>{setData(d); if((d.ready_score||0)>=80) setOpen(false);}).catch(e=>onError?.(e.message)); },[]);
+  if(!data) return null;
+  const score=data.ready_score||0;
+  return (
+    <section className={'setup-checklist card-panel'+(open?' is-open':' is-collapsed')}>
+      <div className="setup-head">
+        <button type="button" className="identity-toggle" onClick={()=>setOpen(o=>!o)}>
+          <span className="eyebrow">SETUP DESTE PC</span>
+          <strong>Pronto {score}% · {data.niches_filled}/{data.niches_total} nichos</strong>
+        </button>
+        <button type="button" className="button" onClick={()=>setOpen(o=>!o)}>{open?'Recolher':'Ver checklist'}</button>
+      </div>
+      {open && (
+        <ul className="setup-list">
+          <li className={data.identity_ok?'ok':'todo'}>{data.identity_ok?'Identidade preenchida':'Preencher identidade (icone no header)'}</li>
+          <li className={data.gen_profile_ready?'ok':'todo'}>{data.gen_profile_ready?'Perfil Grok/Flow (abas) pronto':'Abrir Grok ou Flow uma vez e fazer login'}</li>
+          <li className={data.cdp_ready?'ok':'todo'}>{data.cdp_ready?'Chrome CDP Studio pronto':'Abrir TikTok Studio / coletar metricas 1x'}</li>
+          {(data.next_steps||[]).map((s,i)=><li key={i} className="hint">{s}</li>)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+export function DailyQueueCard({busy,onError,onFlash,onCreate}){
+  const [q,setQ]=useState(null);
+  useEffect(()=>{ productivityQueue().then(setQ).catch(e=>onError?.(e.message)); },[]);
+  if(!q) return null;
+  const items=q.daily_queue||[];
+  const prog=q.daily_progress||{};
+  return (
+    <section className="daily-queue card-panel">
+      <div className="daily-head">
+        <div>
+          <span className="eyebrow">FILA DE HOJE</span>
+          <h2>5 posts · {prog.in_flight||0} em producao · faltam ~{prog.remaining??5}</h2>
+          <p className="help">Do playbook. Crie a campanha e siga no Produzir.</p>
+        </div>
+      </div>
+      {!items.length && <p className="help">Rode um lote 7/15/30 em Resultados e gere o playbook para encher a fila.</p>}
+      <div className="daily-grid">
+        {items.map((it,i)=>(
+          <article className="daily-card" key={i}>
+            <span className="campaign-id">POST {i+1}/5</span>
+            <strong>{it.title||'Ideia do playbook'}</strong>
+            <small>{it.niche||'nicho'}{it.spoken_hook?` · ${String(it.spoken_hook).slice(0,70)}`:''}</small>
+            <button type="button" className="primary" disabled={busy} onClick={()=>onCreate?.(typeof it.index==='number'?it.index:i)}>{it.action||'Criar campanha'}</button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const fileRefs=useRef({});
+  async function load(){
+    setLoading(true);
+    try{
+      const data=await modelLibrary(modelName);
+      setItems(data.niches||[]);
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setLoading(false)}
+  }
+  useEffect(()=>{load()},[modelName]);
+  async function onPick(niche,file){
+    if(!file)return;
+    const form=new FormData();
+    form.set('model_name',modelName);
+    form.set('niche',niche);
+    form.set('file',file);
+    try{
+      await uploadModelLibrary(form);
+      onFlash?.('Foto padrao salva: '+niche);
+      await load();
+    }catch(e){onError?.(e.message||String(e))}
+  }
+  return (
+    <section className="model-library">
+      <div className="home-hero" style={{marginBottom:12}}>
+        <div>
+          <span className="eyebrow">MODELO FIXA · {(items.filter(x=>x.has_photo).length)}/{(items.length||6)} nichos</span>
+          <h2>Fotos padrao por nicho — {modelName}</h2>
+          <p>Uma foto por nicho. Em campanhas novas do mesmo nicho, a referencia entra sozinha.</p>
+        </div>
+      </div>
+      {loading && <div className="notice">Carregando biblioteca…</div>}
+      <div className="model-library-grid">
+        {items.map(item=>(
+          <article className={'model-niche-card'+(item.has_photo?' has-photo':'')} key={item.niche}>
+            <strong>{item.label}</strong>
+            <div className="model-niche-preview">
+              {item.has_photo ? <img src={item.url} alt={item.label}/> : <span className="help">Sem foto ainda</span>}
+            </div>
+            <small className="help">{item.original_name||'Envie a foto padrao deste look'}</small>
+            <input ref={el=>{fileRefs.current[item.niche]=el}} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e=>onPick(item.niche,e.target.files?.[0])}/>
+            <button type="button" className="button" disabled={busy||loading} onClick={()=>fileRefs.current[item.niche]?.click()}>{item.has_photo?'Trocar foto':'Enviar foto padrao'}</button>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+
+export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTab,onCreateFromPlaybook,onOpenProduce,onOpenCampaignResults}){
+  const [url,setUrl]=useState('');
+  const [note,setNote]=useState('');
+  const [items,setItems]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [opening,setOpening]=useState(false);
+  const [openId,setOpenId]=useState(null);
+  const [batchReport,setBatchReport]=useState(null);
+  const [batchDays,setBatchDays]=useState(null);
+  const [batchSort,setBatchSort]=useState({key:'views',dir:'desc'});
+  const [histSort,setHistSort]=useState({key:'views',dir:'desc'});
+  const [playbook,setPlaybook]=useState(null);
+  const [pbBusy,setPbBusy]=useState(false);
+  const [queue,setQueue]=useState(null);
+  const [creatingIdx,setCreatingIdx]=useState(null);
+
+  async function refresh(){
+    try{
+      const data=await listLinkAnalyses();
+      setItems(data.items||[]);
+    }catch(e){/* ignore empty */}
+    try{
+      const latest=await studioAuditLatest();
+      if(latest?.report) setBatchReport(latest);
+    }catch(e){/* ignore */}
+    try{
+      const pb=await studioPlaybook();
+      if(pb?.playbook) setPlaybook(pb.playbook);
+    }catch(e){/* ignore */}
+    try{
+      const q=await productivityQueue();
+      setQueue(q);
+    }catch(e){/* ignore */}
+  }
+  useEffect(()=>{refresh()},[]);
+
+  async function runPeriodAudit(days){
+    setBatchDays(days);
+    setLoading(true);onBusy?.(true);
+    try{
+      const r=await studioAudit({days,min_views:100});
+      setBatchReport(r);
+      await refresh();
+      const n=r.report?.audited??0;
+      const skip=r.report?.skipped_low_views??0;
+      onFlash?.(r.message||`Lote ${days}d: ${n} videos (>=100 views).`);
+      if(r.report?.date_filter_fallback){
+        onFlash?.(`Janela ${days}d sem posts datados — usei os mais recentes com >=100 views (${n}).`);
+      }
+      if(skip) onFlash?.(`Ignorei ${skip} videos com menos de 100 views (Studio nao gera analytics).`);
+      try{
+        const built=await studioPlaybookBuild({days});
+        if(built?.playbook) setPlaybook(built.playbook);
+      }catch(e){/* optional */}
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setLoading(false);onBusy?.(false);setBatchDays(null)}
+  }
+
+  async function createBrief(index){
+    if(onCreateFromPlaybook){ onCreateFromPlaybook(index); return; }
+    setCreatingIdx(index); onBusy?.(true);
+    try{
+      const created=await playbookCreateCampaign({index});
+      onFlash?.('Campanha criada do playbook: '+(created.name||created.id));
+      await refresh();
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setCreatingIdx(null); onBusy?.(false)}
+  }
+  async function buildPlaybook(){
+    setPbBusy(true);onBusy?.(true);
+    try{
+      const built=await studioPlaybookBuild({days:batchReport?.days});
+      setPlaybook(built.playbook);
+      onFlash?.(`Playbook atualizado com ${built.playbook?.sample_n||0} videos do lote.`);
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setPbBusy(false);onBusy?.(false)}
+  }
+
+  async function openStudio(){
+    setOpening(true);onBusy?.(true);
+    try{
+      const r=await openStudioFree();
+      onFlash?.(r.message||'TikTok Studio aberto.');
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setOpening(false);onBusy?.(false)}
+  }
+  async function analyze(){
+    if(!url.trim()){onError?.('Cole o link do video no TikTok.');return}
+    await runAnalyze(url.trim(), note.trim());
+    setUrl('');
+  }
+  async function reanalyze(item){
+    const u=(item?.url||'').trim();
+    if(!u){onError?.('Este item nao tem URL para reanalisar.');return}
+    await runAnalyze(u, (item.note||'').trim());
+  }
+  async function runAnalyze(link, noteText){
+    setLoading(true);onBusy?.(true);
+    try{
+      const r=await analyzePublishedLink({url:link,note:noteText||''});
+      const list=r.items||[r.item].filter(Boolean);
+      setItems(list);
+      if(list[0]) setOpenId(list[0].id||list[0].url);
+      onFlash?.(r.item?.message||'Metricas do link coletadas.');
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setLoading(false);onBusy?.(false)}
+  }
+
+  function pctNum(r){
+    if(r==null) return 0;
+    if(typeof r==='number') return r;
+    const n=Number(String(r.pct_raw||r.pct||'').replace('%','').replace('<','').replace(',','.'));
+    return Number.isFinite(n)?n:0;
+  }
+  function trafficPct(row, label){
+    const t=(row.traffic_source||[]).find(x=>(x.label||'').toLowerCase()===label.toLowerCase());
+    return t?pctNum(t):0;
+  }
+  function num(v){
+    const n=Number(v);
+    return Number.isFinite(n)?n:0;
+  }
+  function toggleSort(setSort, key){
+    setSort(prev=>{
+      if(prev.key===key) return {key, dir: prev.dir==='desc'?'asc':'desc'};
+      return {key, dir:'desc'};
+    });
+  }
+  function sortMark(sort, key){
+    if(sort.key!==key) return '';
+    return sort.dir==='desc'?' \u2193':' \u2191';
+  }
+  function sortedBatchRows(){
+    const raw=(batchReport?.report?.summary?.ranked||batchReport?.report?.results||[]).slice();
+    const {key,dir}=batchSort;
+    const mul=dir==='desc'?-1:1;
+    const val=(row)=>{
+      if(key==='views') return num(row.views_7d??row.list_views);
+      if(key==='watch') return num(row.watch_pct);
+      if(key==='likes') return num(row.likes);
+      if(key==='comments') return num(row.comments);
+      if(key==='search') return num(row.search_pct??trafficPct(row,'search'));
+      if(key==='fyp') return num(row.fyp_pct??trafficPct(row,'for you'));
+      if(key==='score') return num(row.score);
+      return 0;
+    };
+    raw.sort((a,b)=>{
+      const av=val(a), bv=val(b);
+      if(av===bv) return 0;
+      return av>bv?mul:-mul;
+    });
+    return raw;
+  }
+  function sortedHistItems(){
+    const raw=items.slice();
+    const {key,dir}=histSort;
+    const mul=dir==='desc'?-1:1;
+    const val=(row)=>{
+      if(key==='views') return num(row.views_7d??row.views_24h);
+      if(key==='likes') return num(row.likes);
+      if(key==='comments') return num(row.comments);
+      if(key==='saves') return num(row.saves);
+      if(key==='watch') return num(row.watch_pct);
+      if(key==='date') return Date.parse(row.collected_at||0)||0;
+      return 0;
+    };
+    raw.sort((a,b)=>{
+      const av=val(a), bv=val(b);
+      if(av===bv) return 0;
+      return av>bv?mul:-mul;
+    });
+    return raw;
+  }
+
+  function BarList({rows, limit=6, tone='purple'}){
+    if(!rows||!rows.length) return <p className="help">Sem dados nesta coleta.</p>;
+    const top=Math.max(...rows.map(pctNum), 1);
+    return (
+      <ul className={'metric-bars tone-'+tone}>
+        {rows.slice(0,limit).map((r,i)=>{
+          const p=pctNum(r);
+          const w=Math.max(4, Math.round((p/top)*100));
+          return (
+            <li key={i}>
+              <div className="metric-bar-meta"><span>{r.label}</span><strong>{r.pct_raw||`${p}%`}</strong></div>
+              <div className="metric-bar-track"><i style={{width:w+'%'}}/></div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+  function StatPills({item}){
+    const pills=[
+      {k:'Views', v:item.views_7d??item.views_24h, tone:'purple'},
+      {k:'Likes', v:item.likes, tone:'pink'},
+      {k:'Comments', v:item.comments, tone:'purple'},
+      {k:'Saves', v:item.saves, tone:'green'},
+      {k:'Shares', v:item.shares, tone:'pink'},
+      {k:'Watch', v:item.watch_pct!=null?item.watch_pct+'%':null, tone:item.watch_pct!=null&&item.watch_pct<10?'warn':'green'},
+    ];
+    return (
+      <div className="analysis-pills">
+        {pills.map(p=>(
+          <div key={p.k} className={'analysis-pill tone-'+p.tone}>
+            <span>{p.k}</span><strong>{p.v??'\u2014'}</strong>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const batchRows=batchReport?.report?sortedBatchRows():[];
+  const histRows=sortedHistItems();
+  const activeTab = tab || 'studio';
+  function Collapse({id, title, defaultOpen=false, badge, children}){
+    const key='rq-collapse-'+id;
+    const [open,setOpen]=useState(()=>{
+      try{
+        const v=localStorage.getItem(key);
+        if(v==='1') return true;
+        if(v==='0') return false;
+      }catch(e){}
+      return defaultOpen;
+    });
+    function toggle(){
+      setOpen(o=>{
+        const n=!o;
+        try{localStorage.setItem(key, n?'1':'0')}catch(e){}
+        return n;
+      });
+    }
+    return (
+      <div className={'collapse-block'+(open?' open':'')}>
+        <div className="collapse-head">
+          <button type="button" className="collapse-toggle" onClick={toggle} aria-expanded={open}>
+            <span className="collapse-chevron">{open?'▾':'▸'}</span>
+            <strong>{title}</strong>
+            {badge!=null?<span className="count">{badge}</span>:null}
+          </button>
+          <button type="button" className="button analysis-action collapse-btn" onClick={toggle}>{open?'Comprimir':'Expandir'}</button>
+        </div>
+        {open && <div className="collapse-body">{children}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <section className="results-quick-tools">
+
+      {activeTab==='agora' && (
+        <div className="productivity-box">
+          <div className="results-quick-header">
+            <div>
+              <span className="eyebrow">PRODUTIVIDADE</span>
+              <h2>O que fazer agora</h2>
+              <p className="help">Continuar campanhas, criar do playbook e pontos a melhorar — sem scroll infinito.</p>
+            </div>
+            <button type="button" className="button analysis-action" disabled={busy||loading} onClick={refresh}>Atualizar fila</button>
+          </div>
+          {!queue && <p className="help">Carregando fila… Rode um lote e gere o playbook se estiver vazio.</p>}
+          {queue && (
+            <>
+              <Collapse id="prod-continue" title={`Continuar producao (${(queue.continue||[]).length})`} defaultOpen={true} badge={(queue.continue||[]).length}>
+                {(queue.continue||[]).length===0 && <p className="help">Nenhuma campanha em andamento. Crie uma do playbook abaixo.</p>}
+                <ul className="prod-list">
+                  {(queue.continue||[]).map((c,i)=>(
+                    <li key={c.campaign_id||i} className="prod-card">
+                      <div>
+                        <strong>{c.name}</strong>
+                        <div className="help">{c.label} · {c.status}{c.niche?` · ${c.niche}`:''}</div>
+                        <div className="help"><em>Como:</em> {c.how}</div>
+                      </div>
+                      <button type="button" className="primary" disabled={busy} onClick={()=>onOpenProduce?.(c.campaign_id)}>Abrir Produzir</button>
+                    </li>
+                  ))}
+                </ul>
+              </Collapse>
+              <Collapse id="prod-next" title={`Criar do playbook (${(queue.produce_next||[]).length})`} defaultOpen={true} badge={(queue.produce_next||[]).length}>
+                {(queue.produce_next||[]).length===0 && <p className="help">Sem briefs. Va em Playbook → Atualizar, ou rode o lote 30d.</p>}
+                <ul className="prod-list">
+                  {(queue.produce_next||[]).map((v,i)=>(
+                    <li key={i} className="prod-card">
+                      <div>
+                        <strong>[{v.niche}] {v.title}</strong>
+                        <div className="help">Hook: <code>{v.spoken_hook}</code></div>
+                        <div className="help">{v.shot_list}</div>
+                        <ol className="howto-mini">{(v.howto_15s||[]).map((h,j)=><li key={j}>{h}</li>)}</ol>
+                      </div>
+                      <button type="button" className="primary" disabled={busy||creatingIdx===i} onClick={()=>createBrief(v.index??i)}>
+                        {creatingIdx===i?'Criando…':'Criar campanha'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Collapse>
+              <Collapse id="prod-improve" title={`Espaco para melhorar (${(queue.improve||[]).length})`} defaultOpen={true} badge={(queue.improve||[]).length}>
+                <ul className="prod-list improve">
+                  {(queue.improve||[]).map((x,i)=>(
+                    <li key={i} className="prod-card">
+                      <div>
+                        <span className={'chip tone-'+(x.kind==='evitar'?'pink':'purple')}>{x.kind}</span>
+                        <strong> {x.title}</strong>
+                        <div className="help"><em>Acao:</em> {x.action}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {(queue.do||[]).length>0 && (
+                  <div className="playbook-panel tone-green" style={{marginTop:10}}>
+                    <h4>Lembretes do playbook</h4>
+                    <ul>{queue.do.map((d,i)=><li key={i}>{d}</li>)}</ul>
+                  </div>
+                )}
+              </Collapse>
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab==='studio' && (
+        <>
+          <div className="results-quick-header">
+            <div>
+              <span className="eyebrow">STUDIO</span>
+              <h2>Abrir Studio e analisar link</h2>
+              <p className="help">Sem passar por Produzir. Abra o TikTok Studio desta creator ou analise qualquer video ja publicado so com o link.</p>
+            </div>
+            <button type="button" className="primary" disabled={busy||opening} onClick={openStudio}>{opening?'Abrindo…':'Abrir TikTok Studio'}</button>
+          </div>
+          <Collapse id="analyze-link" title="Analisar link antigo" defaultOpen={true}>
+            <div className="analyze-link-box flat">
+              <label className="metric-field full">Link do video publicado
+                <input type="url" placeholder="https://www.tiktok.com/@conta/video/123..." value={url} disabled={busy||loading} onChange={e=>setUrl(e.target.value)}/>
+              </label>
+              <label className="metric-field full">Nota (opcional)
+                <input type="text" placeholder="Ex.: post de junho, nao veio da fabrica" value={note} disabled={busy||loading} onChange={e=>setNote(e.target.value)}/>
+              </label>
+              <button type="button" className="primary" disabled={busy||loading||!url.trim()} onClick={analyze}>{loading?'Coletando do Studio…':'Analisar link'}</button>
+              <p className="help">Abre analytics numa nova aba do Chrome da fabrica.</p>
+            </div>
+          </Collapse>
+        </>
+      )}
+
+      {activeTab==='lote' && (
+        <div className="period-audit-box flat">
+          <div className="section-title">
+            <h3>Analisar publicados do Studio</h3>
+            <span className="help">Content → so videos com ≥100 views</span>
+          </div>
+          <p className="help">Filtra o periodo, pula &lt;100 views e coleta overview + viewers.</p>
+          <div className="period-audit-actions">
+            {[7,15,30].map(d=>(
+              <button key={d} type="button" className="button analysis-action" disabled={busy||loading} onClick={()=>runPeriodAudit(d)}>
+                {batchDays===d?'Coletando…':`Ultimos ${d} dias`}
+              </button>
+            ))}
+          </div>
+          {batchReport?.report && (
+            <Collapse id="lote-table" title={`Tabela do lote (${batchRows.length})`} defaultOpen={true} badge={batchRows.length}>
+              <div className="period-audit-summary">
+                <p className="help">{batchReport.message} · {batchReport.created_at?String(batchReport.created_at).replace('T',' ').replace('Z',''):''}</p>
+                {(batchReport.report.summary?.patterns||[]).length>0 && (
+                  <ul className="period-patterns">{(batchReport.report.summary.patterns).map((p,i)=><li key={i}>{p}</li>)}</ul>
+                )}
+                <p className="help sort-hint">Clique no cabecalho para ordenar (maior→menor por padrao).</p>
+                <div className="period-audit-table-wrap">
+                  <table className="period-audit-table sortable">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Video</th>
+                        {[
+                          ['views','Views'],
+                          ['watch','Watch'],
+                          ['likes','Likes'],
+                          ['comments','Comments'],
+                          ['search','Search'],
+                          ['fyp','FYP'],
+                          ['score','Score'],
+                        ].map(([k,lab])=>(
+                          <th key={k}>
+                            <button type="button" className={'sort-th'+(batchSort.key===k?' active':'')} onClick={()=>toggleSort(setBatchSort,k)}>
+                              {lab}{sortMark(batchSort,k)}
+                            </button>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {batchRows.map((r,i)=>{
+                        const search=(r.traffic_source||[]).find(t=>(t.label||'').toLowerCase()==='search');
+                        const fyp=(r.traffic_source||[]).find(t=>(t.label||'').toLowerCase()==='for you');
+                        return (
+                          <tr key={r.tiktok_video_id||i} className={r.error?'is-error':''}>
+                            <td>{i+1}</td>
+                            <td><a href={r.published_url||r.analytics_url} target="_blank" rel="noreferrer">{(r.caption||r.tiktok_video_id||'—').toString().slice(0,48)}</a>{r.error?<small className="help">{r.error}</small>:null}</td>
+                            <td>{r.views_7d??r.list_views??'—'}</td>
+                            <td>{r.watch_pct!=null?r.watch_pct+'%':'—'}</td>
+                            <td>{r.likes??'—'}</td>
+                            <td>{r.comments??'—'}</td>
+                            <td>{search?.pct_raw||(search?.pct!=null?search.pct+'%':(r.search_pct!=null?r.search_pct+'%':'—'))}</td>
+                            <td>{fyp?.pct_raw||(fyp?.pct!=null?fyp.pct+'%':(r.fyp_pct!=null?r.fyp_pct+'%':'—'))}</td>
+                            <td>{r.score??'—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Collapse>
+          )}
+        </div>
+      )}
+
+      {activeTab==='playbook' && (
+        <div className="playbook-box flat">
+          <div className="section-title">
+            <h3>Playbook do lote</h3>
+            <button type="button" className="button analysis-action" disabled={busy||pbBusy||!batchReport?.report} onClick={buildPlaybook}>
+              {pbBusy?'Gerando…':(playbook?'Atualizar playbook':'Gerar playbook')}
+            </button>
+          </div>
+          {!playbook && <p className="help">Rode um lote em Lote 7/15/30 e clique em Gerar playbook.</p>}
+          {playbook && (
+            <>
+              <p className="help">Base: {playbook.sample_n} videos · {playbook.days||'?'}d · {playbook.created_at?String(playbook.created_at).replace('T',' ').replace('Z',''):''}</p>
+              <Collapse id="pb-do" title="Fazer / Evitar" defaultOpen={true}>
+                <div className="playbook-grid">
+                  <div className="playbook-panel tone-green">
+                    <h4>Fazer</h4>
+                    <ul>{(playbook.do||[]).map((x,i)=><li key={i}>{x}</li>)}</ul>
+                  </div>
+                  <div className="playbook-panel tone-pink">
+                    <h4>Evitar</h4>
+                    <ul>{(playbook.dont||[]).map((x,i)=><li key={i}>{x}</li>)}</ul>
+                  </div>
+                </div>
+              </Collapse>
+              <Collapse id="pb-queries" title={`Queries quentes (${(playbook.hot_queries||[]).length})`} defaultOpen={false} badge={(playbook.hot_queries||[]).length}>
+                <div className="query-chips">
+                  {(playbook.hot_queries||[]).slice(0,12).map((q,i)=>(
+                    <span key={i} className="chip" title={`${q.videos} videos`}>“{q.query}” · {Math.round(q.avg_views)} views</span>
+                  ))}
+                </div>
+              </Collapse>
+              <Collapse id="pb-niches" title="Nichos no lote" defaultOpen={false}>
+                <ul className="niche-stat-list">
+                  {(playbook.niche_stats||[]).map((n,i)=>(
+                    <li key={i}><strong>{n.niche}</strong> · {n.n} vids · media {Math.round(n.avg_views)} views · watch {n.avg_watch}% · FYP {n.avg_fyp}%</li>
+                  ))}
+                </ul>
+              </Collapse>
+              <Collapse id="pb-next" title={`Proximos videos (${(playbook.next_videos||[]).length})`} defaultOpen={true}>
+                <ol>
+                  {(playbook.next_videos||[]).map((v,i)=>(
+                    <li key={i} className="playbook-next-item">
+                      <div>
+                        <strong>[{v.niche}] {v.title}</strong>
+                        <div className="help">Hook falado: <code>{v.spoken_hook}</code></div>
+                        <div className="help">{v.shot_list}</div>
+                        {(v.howto_15s||[]).length>0 && <ol className="howto-mini">{v.howto_15s.map((h,j)=><li key={j}>{h}</li>)}</ol>}
+                      </div>
+                      <button type="button" className="primary" disabled={busy||creatingIdx===i} onClick={()=>createBrief(i)}>
+                        {creatingIdx===i?'Criando…':'Criar campanha'}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </Collapse>
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab==='historico' && (
+        <div className="link-analysis-list">
+          <div className="section-title">
+            <h3>Historico de links</h3>
+            <span className="count">{items.length}</span>
+          </div>
+          {items.length===0 && <p className="help">Nenhum link analisado ainda. Use Studio / link ou rode um lote.</p>}
+          {items.length>0 && (
+            <>
+              <div className="hist-sort-bar">
+                <span className="help">Ordenar:</span>
+                {[
+                  ['views','Views'],
+                  ['likes','Likes'],
+                  ['comments','Comments'],
+                  ['saves','Saves'],
+                  ['watch','Watch'],
+                  ['date','Data'],
+                ].map(([k,lab])=>(
+                  <button key={k} type="button" className={'button analysis-action sort-chip'+(histSort.key===k?' active':'')} onClick={()=>toggleSort(setHistSort,k)}>
+                    {lab}{sortMark(histSort,k)}
+                  </button>
+                ))}
+                <button type="button" className="button analysis-action" onClick={()=>setOpenId(null)}>Comprimir todos</button>
+              </div>
+              <ul>
+                {histRows.map(item=>{
+                  const id=item.id||item.url;
+                  const open=openId===id;
+                  const v=item.viewers||{};
+                  return (
+                    <li key={id} className={'analysis-card'+(open?' open':'')}>
+                      <div className="analysis-summary">
+                        <div className="analysis-title-row">
+                          <a href={item.url} target="_blank" rel="noreferrer">{(item.note||item.tiktok_video_id||item.url||'').toString().slice(0,64)}</a>
+                          <span className="analysis-when">{item.collected_at?String(item.collected_at).replace('T',' ').replace('Z',''):''}</span>
+                        </div>
+                        {item.tiktok_video_id?<strong className="analysis-note">{item.tiktok_video_id}</strong>:null}
+                        <StatPills item={item}/>
+                        <div className="analysis-actions-row">
+                          <button type="button" className="button analysis-action" onClick={()=>setOpenId(open?null:id)}>{open?'Comprimir':'Expandir detalhes'}</button>
+                          <button type="button" className="button analysis-action" disabled={busy||loading} onClick={()=>reanalyze(item)}>{loading?'Coletando…':'Analisar de novo'}</button>
+                        </div>
+                      </div>
+                      {open && (
+                        <div className="analysis-details">
+                          <div className="analysis-grid">
+                            <div className="analysis-panel tone-purple">
+                              <h4>Traffic source</h4>
+                              <BarList rows={item.traffic_source} tone="purple"/>
+                            </div>
+                            <div className="analysis-panel tone-pink">
+                              <h4>Search queries</h4>
+                              <BarList rows={item.search_queries} limit={8} tone="pink"/>
+                            </div>
+                            <div className="analysis-panel tone-green">
+                              <h4>Viewers</h4>
+                              {(v.total_viewers!=null||v.new_viewers_pct!=null)?(
+                                <>
+                                  <div className="viewer-chips">
+                                    <span className="chip">Total <strong>{v.total_viewers??'—'}</strong></span>
+                                    <span className="chip">Novos <strong>{v.new_viewers_pct!=null?v.new_viewers_pct+'%':'—'}</strong></span>
+                                    <span className="chip">Recorrentes <strong>{v.returning_viewers_pct!=null?v.returning_viewers_pct+'%':'—'}</strong></span>
+                                    <span className="chip">Nao-seguidores <strong>{v.non_followers_pct!=null?v.non_followers_pct+'%':'—'}</strong></span>
+                                  </div>
+                                  <h5>Genero</h5>
+                                  <BarList rows={v.gender} tone="green"/>
+                                  <h5>Idade</h5>
+                                  <BarList rows={v.age} tone="purple"/>
+                                  <h5>Local</h5>
+                                  <BarList rows={v.locations} limit={5} tone="pink"/>
+                                </>
+                              ):<p className="help">Sem viewers nesta coleta.</p>}
+                            </div>
+                          </div>
+                          {(item.smart_actions||[]).length>0 && (
+                            <div className="analysis-actions">
+                              <h4>Acoes sugeridas</h4>
+                              <ul>{(item.smart_actions||[]).map((a,i)=><li key={i}>{a}</li>)}</ul>
+                            </div>
+                          )}
+                          {item.analytics_url && <p className="help analysis-link"><a href={item.analytics_url} target="_blank" rel="noreferrer">Abrir analytics no Studio</a></p>}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
 }

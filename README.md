@@ -17,7 +17,9 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 - **Aprovar todas as imagens** só libera quando cada cor tem arquivo.
 
 ### Roteiros 15s inteligentes
-- Hook (0–2s), desenvolvimento (2–12s) e CTA (12–15s) **variam por cor**.
+- Produto único também tem **Atualizar hook + legenda** e **Atualizar fala inteira**. Salve edições manuais antes de regenerar. A imagem aprovada é preservada; novas falas exigem revisão do roteiro e um novo vídeo.
+- O hook usa uma abertura completa com janela sugerida de 4s. Confira o tempo total com leitura em voz alta.
+- Hook (0–4s), desenvolvimento (4–12s) e CTA (12–15s) **variam por cor**.
 - Botões **Atualizar hook + legenda** e **Atualizar fala inteira** para gerar outra variação sem recomeçar a campanha.
 - Edição manual por campo, com prompt de vídeo recalculado a partir das falas.
 
@@ -49,7 +51,7 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 ### Performance, Insights e preview 9:16
 - No **Studio** (status pronto/publicado): painel **Performance & Insights** por cor — informe views, watch%, likes, saves, pedidos etc. e salve em `checklist.performance`.
 - **Gerar insights** roda um crítico local (`services/insights.py`) e grava `checklist.insights` (Hook / Desenvolvimento / CTA + ações). Sem dados inventados do TikTok.
-- **Preview 9:16** na aprovação de vídeo: telefone, scrubber e beats Hook (0–2s) · Desenvolvimento (2–12s) · CTA (12–15s) com overlay do roteiro.
+- **Preview 9:16** na aprovação de vídeo: telefone, scrubber e beats Hook (0–4s) · Desenvolvimento (4–12s) · CTA (12–15s) com overlay do roteiro.
 - **Analisar vídeo (Critico)** usa a mesma API local e mostra o caminho do MP4 para revisão visual profunda com o agente Critico de Vendas (não dispara SendToAgent pelo Flask).
 
 ### Renomear campanha

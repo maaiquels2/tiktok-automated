@@ -21,7 +21,7 @@ def main():
         try:
             with urllib.request.urlopen(url+'/api/health',timeout=2) as response:
                 health=json.load(response)
-                if health.get('app')=='fabrica-tiktok' and health.get('version')==4:
+                if health.get('app')=='fabrica-tiktok' and health.get('version')==5:
                     webbrowser.open(url)
                     return
                 # A previous Fábrica TikTok process owns this port. Leave it

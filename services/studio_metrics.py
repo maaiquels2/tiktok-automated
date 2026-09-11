@@ -11,6 +11,12 @@ import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
+try:
+    from services.studio_identity import video_url as _identity_video_url
+except Exception:
+    def _identity_video_url(video_id: str, data_dir=None):
+        return f"https://www.tiktok.com/@conta/video/{video_id}"
+
 CONTENT_URL = "https://www.tiktok.com/tiktokstudio/content"
 ANALYTICS_URL = "https://www.tiktok.com/tiktokstudio/analytics/{vid}"
 
@@ -28,10 +34,57 @@ def video_id_from_url(url: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+
+
+def parse_studio_publish_label(text: str | None):
+    """Parse labels like 'Sep 11, 12:08 AM' / 'Jun 22, 4:45 PM' (Studio content table)."""
+    from datetime import datetime
+    if not text:
+        return None
+    raw = re.sub(r"\s+", " ", str(text)).strip()
+    # Drop prefixes like Pinned
+    raw = re.sub(r"^(Pinned|Published)\s*", "", raw, flags=re.I).strip()
+    year = datetime.utcnow().year
+    for fmt in ("%b %d, %I:%M %p", "%b %d, %H:%M", "%B %d, %I:%M %p"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            return dt.replace(year=year)
+        except ValueError:
+            continue
+    # 'Sep 11, 2026, 12:08 AM'
+    for fmt in ("%b %d, %Y, %I:%M %p", "%b %d, %Y %I:%M %p"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def tiktok_id_published_at(video_id: str | None):
+    """Approximate publish UTC datetime from TikTok snowflake id (id >> 32)."""
+    from datetime import datetime, timezone
+    if not video_id:
+        return None
+    try:
+        ts = int(str(video_id).strip()) >> 32
+        if ts < 1_000_000_000 or ts > 2_200_000_000:
+            return None
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
+
+
+def list_views(post: dict) -> float | int | None:
+    lm = post.get("list_metrics") if isinstance(post, dict) else None
+    if not isinstance(lm, dict):
+        return None
+    return lm.get("views_7d") if lm.get("views_7d") is not None else lm.get("views")
+
 def _parse_number(text: str):
+    """Parse Studio metric chips. Handles 1.2K, 1,171 (US thousands), 1.171 (BR thousands), 2,53 decimals."""
     if text is None:
         return None
-    raw = str(text).strip().replace("\xa0", " ").strip()
+    raw = str(text).strip().replace(" ", " ").strip()
     # Percentages: keep decimal point/comma
     if "%" in raw:
         m = re.search(r"([\d]+(?:[.,][\d]+)?)\s*%", raw)
@@ -41,14 +94,36 @@ def _parse_number(text: str):
             return float(m.group(1).replace(",", "."))
         except ValueError:
             return None
-    s = raw.replace(" ", "")
-    # 1.234.567 or 1.234 (BR thousands) vs 2.53 (decimal)
-    if re.fullmatch(r"[\d]+(?:\.[\d]{3})+", s):
+    # Skip delta chips like "+491 (vs 1d ago)"
+    if raw.startswith("+") or "vs " in raw.casefold() or "vs " in raw.casefold():
+        return None
+    s = raw.replace(" ", "").replace(" ", "")
+    # 19K / 1.2M / 1,2K
+    km = re.fullmatch(r"([\d]+(?:[.,][\d]+)?)([kKmMbB])", s)
+    if km:
+        try:
+            base = float(km.group(1).replace(",", "."))
+        except ValueError:
+            return None
+        mult = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}[km.group(2).lower()]
+        v = base * mult
+        return int(v) if float(v).is_integer() else v
+    # US thousands: 1,171 or 1,234,567
+    if re.fullmatch(r"[\d]+(?:,[\d]{3})+", s):
+        s = s.replace(",", "")
+    # US mixed: 1,234.56
+    elif re.fullmatch(r"[\d]+(?:,[\d]{3})+\.\d+", s):
+        s = s.replace(",", "")
+    # BR thousands: 1.234.567 or 1.171
+    elif re.fullmatch(r"[\d]+(?:\.[\d]{3})+", s):
         s = s.replace(".", "")
+    # BR mixed: 1.234,56
     elif re.fullmatch(r"[\d]+(?:\.[\d]{3})+,\d+", s):
         s = s.replace(".", "").replace(",", ".")
+    # BR/EU decimal only: 2,53
+    elif re.fullmatch(r"[\d]+,[\d]{1,2}", s):
+        s = s.replace(",", ".")
     elif "," in s and "." not in s:
-        # 12,5 -> 12.5
         s = s.replace(",", ".")
     m = re.search(r"[\d.]+", s)
     if not m:
@@ -82,13 +157,39 @@ LABEL_MAP = {
 
 
 
+
+async def _retry_async(label, fn, tries=3):
+    """Retry fragile Studio DOM scrapes; raise clear Portuguese error on final failure."""
+    last = None
+    for i in range(tries):
+        try:
+            return await fn()
+        except Exception as exc:
+            last = exc
+            if i + 1 < tries:
+                try:
+                    import asyncio
+                    await asyncio.sleep(0.45 * (i + 1))
+                except Exception:
+                    pass
+    raise RuntimeError(
+        f"Falha ao ler {label} no TikTok Studio apos {tries} tentativas: {last}. "
+        "O DOM do Studio pode ter mudado — rode de novo ou use Analisar link com a URL do video."
+    ) from last
+
+
 async def scrape_info_card(page) -> dict:
+    async def _once():
+        return await _scrape_info_card_once(page)
+    return await _retry_async('VideoInfoCard', _once)
+
+async def _scrape_info_card_once(page) -> dict:
     """Engagement row on analytics: views/likes/comments/shares/saves (icon columns)."""
     out = {}
     # Prefer the info card that also has the cover thumbnail
     root = page.locator('[data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]').first
     try:
-        await root.wait_for(state="visible", timeout=15000)
+        await root.wait_for(state="visible", timeout=8000)
     except Exception:
         return out
     cols = root.locator('[data-tt="VideoOverviewPage_VideoInfoCard_FlexColumn"]')
@@ -138,11 +239,16 @@ async def scrape_info_card(page) -> dict:
 
 
 async def scrape_metrics_cards(page) -> dict:
+    async def _once():
+        return await _scrape_metrics_cards_once(page)
+    return await _retry_async('VideoMetricsCard', _once)
+
+async def _scrape_metrics_cards_once(page) -> dict:
     """Analytics overview cards: views, total play, avg watch, completion %, new followers."""
     metrics = {}
     cards = page.locator('[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"]')
     try:
-        await cards.first.wait_for(state="visible", timeout=45000)
+        await cards.first.wait_for(state="visible", timeout=12000)
     except Exception:
         pass
     n = await cards.count()
@@ -277,10 +383,13 @@ async def scrape_viewers_page(page, video_id: str) -> dict:
     """Open analytics/<id>/viewers and pull audience essentials."""
     url = f"https://www.tiktok.com/tiktokstudio/analytics/{video_id}/viewers"
     try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await page.goto(url, wait_until="domcontentloaded", timeout=25000)
     except Exception:
         return {}
-    await page.wait_for_timeout(2200)
+    try:
+        await page.wait_for_selector('[data-tt="VideoViewerPage_VideoViewCard_TUXText"], [data-tt="components_AnalyticsCard_CardWrapper"]', timeout=8000)
+    except Exception:
+        pass
     data = {
         "total_viewers": None,
         "new_viewers_pct": None,
@@ -296,9 +405,10 @@ async def scrape_viewers_page(page, video_id: str) -> dict:
         await page.locator('[data-tt="VideoViewerPage_VideoViewCard_TUXText"]').first.wait_for(timeout=20000)
         texts = await page.locator('[data-tt="VideoViewerPage_VideoViewCard_TUXText"]').all_inner_texts()
         for tx in texts:
+            if "+" in tx or "vs" in tx.casefold():
+                continue
             n = _parse_number(tx)
-            if n is not None and n >= 1 and "Total" not in tx:
-                # prefer the large total
+            if n is not None and n >= 1:
                 if data["total_viewers"] is None or n > data["total_viewers"]:
                     data["total_viewers"] = n
     except Exception:
@@ -551,65 +661,399 @@ async def scrape_list_row_for_video(page, video_id: str) -> dict:
 
 
 
-async def list_content_posts(page, limit: int = 12) -> list:
-    """List recent posts from tiktokstudio/content (id, caption, href, list views if present)."""
-    await page.goto(CONTENT_URL, wait_until="domcontentloaded", timeout=90000)
-    await page.wait_for_timeout(2500)
+async def list_content_posts(page, limit: int = 40, *, days: int | None = None, min_views: int = 100) -> dict:
+    """List Studio Content rows. Harvest WHILE scrolling — table is virtualized (~6-12 DOM rows)."""
+    from datetime import datetime, timedelta, timezone
+
+    await page.goto(CONTENT_URL, wait_until="domcontentloaded", timeout=30000)
     try:
-        await page.wait_for_selector('a[data-tt="components_PostInfoCell_a"]', timeout=45000)
+        await page.wait_for_selector('a[data-tt="components_PostInfoCell_a"]', timeout=20000)
     except Exception as exc:
         raise RuntimeError(
-            "Nao abri a lista de publicacoes do Studio. Confirme o login na janela micaela-cdp."
+            "Nao abri a lista de publicacoes do Studio. Confirme o login na janela da fabrica."
         ) from exc
-    links = page.locator('a[data-tt="components_PostInfoCell_a"]')
-    count = await links.count()
-    posts = []
-    seen = set()
-    for i in range(min(count, max(limit * 2, limit))):
-        a = links.nth(i)
-        href = await a.get_attribute("href") or ""
-        vid = video_id_from_url(href)
-        if not vid or vid in seen:
-            continue
-        seen.add(vid)
+
+    # Give the virtualized table a moment to mount
+    await page.wait_for_timeout(800)
+
+    cutoff = None
+    if days:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(days) + 1)
+
+    collected: dict[str, dict] = {}
+    skipped_views = 0
+    skipped_old = 0
+    consecutive_old = 0
+    stagnant_scrolls = 0
+    max_scrolls = 120 if days and int(days) >= 30 else (80 if days and int(days) >= 15 else 50)
+
+    # Discover the real scrollable ancestor (PostTable_Container often has max=0)
+    scroll_info = await page.evaluate(
+        """() => {
+            const link = document.querySelector('a[data-tt="components_PostInfoCell_a"]');
+            if (!link) return {found: []};
+            const found = [];
+            let el = link;
+            let depth = 0;
+            while (el && depth < 18) {
+                const st = window.getComputedStyle(el);
+                const oy = st.overflowY || '';
+                const can = (oy.includes('auto') || oy.includes('scroll') || oy.includes('overlay'))
+                    && (el.scrollHeight > el.clientHeight + 40);
+                found.push({
+                    depth,
+                    tag: el.tagName,
+                    tt: el.getAttribute('data-tt') || '',
+                    className: (el.className || '').toString().slice(0, 80),
+                    scrollHeight: el.scrollHeight,
+                    clientHeight: el.clientHeight,
+                    scrollTop: el.scrollTop,
+                    canScroll: !!can,
+                    overflowY: oy,
+                });
+                el = el.parentElement;
+                depth += 1;
+            }
+            // Also note document scrollingElement
+            const se = document.scrollingElement || document.documentElement;
+            found.push({
+                depth: 99,
+                tag: 'SCROLLING_ELEMENT',
+                tt: '',
+                className: '',
+                scrollHeight: se.scrollHeight,
+                clientHeight: se.clientHeight,
+                scrollTop: se.scrollTop,
+                canScroll: se.scrollHeight > se.clientHeight + 40,
+                overflowY: 'doc',
+            });
+            return {found};
+        }"""
+    )
+
+    async def harvest_visible() -> int:
+        nonlocal skipped_views, skipped_old, consecutive_old
+        rows = page.locator('[data-tt="components_PostTable_Absolute"]')
+        n_rows = await rows.count()
+        added = 0
+        if n_rows == 0:
+            links = page.locator('a[data-tt="components_PostInfoCell_a"]')
+            n_links = await links.count()
+            for i in range(n_links):
+                link = links.nth(i)
+                href = await link.get_attribute("href") or ""
+                vid = video_id_from_url(href)
+                if not vid or vid in collected:
+                    continue
+                try:
+                    caption = (await link.inner_text(timeout=600)).strip()
+                except Exception:
+                    caption = ""
+                # Without row metrics, keep as candidate (views unknown) — include if min_views==0
+                if min_views and min_views > 0:
+                    # try parent texts
+                    views = None
+                else:
+                    views = 0
+                collected[vid] = {
+                    "tiktok_video_id": vid,
+                    "caption": caption[:180],
+                    "href": href,
+                    "published_url": _identity_video_url(vid),
+                    "published_at": None,
+                    "list_metrics": {"views_7d": views},
+                    "row_index": len(collected),
+                }
+                added += 1
+            return added
+
+        for i in range(n_rows):
+            row = rows.nth(i)
+            try:
+                link = row.locator('a[data-tt="components_PostInfoCell_a"]').first
+                if await link.count() == 0:
+                    continue
+                href = await link.get_attribute("href") or ""
+                vid = video_id_from_url(href)
+                if not vid or vid in collected:
+                    continue
+
+                try:
+                    caption = (await link.inner_text(timeout=800)).strip()
+                except Exception:
+                    caption = ""
+
+                published_at = None
+                publish_label = None
+                try:
+                    labels = await row.locator('[data-tt="components_PublishStageLabel_TUXText"]').all_inner_texts()
+                    for lab in labels:
+                        publish_label = lab
+                        published_at = parse_studio_publish_label(lab)
+                        if published_at:
+                            break
+                except Exception:
+                    pass
+                if published_at is None:
+                    published_at = tiktok_id_published_at(vid)
+                    if published_at:
+                        published_at = published_at.replace(tzinfo=None)
+
+                if cutoff is not None and published_at is not None:
+                    pub_aware = published_at
+                    if pub_aware.tzinfo is None:
+                        pub_aware = pub_aware.replace(tzinfo=timezone(timedelta(hours=-3)))
+                    if pub_aware.astimezone(timezone.utc) < cutoff:
+                        skipped_old += 1
+                        consecutive_old += 1
+                        collected[vid] = {
+                            "_skip": "old",
+                            "tiktok_video_id": vid,
+                            "published_at": published_at.isoformat() if published_at else None,
+                            "publish_label": publish_label,
+                        }
+                        continue
+                consecutive_old = 0
+
+                views = None
+                try:
+                    texts = await row.locator('[data-tt="components_ItemRow_TUXText"]').all_inner_texts()
+                    nums = []
+                    for tx in texts:
+                        n = _parse_number(tx)
+                        if n is not None:
+                            nums.append(n)
+                    if nums:
+                        views = nums[0]
+                except Exception:
+                    pass
+
+                if min_views and (views is None or float(views) < float(min_views)):
+                    skipped_views += 1
+                    collected[vid] = {
+                        "_skip": "low_views",
+                        "tiktok_video_id": vid,
+                        "published_at": published_at.isoformat() if published_at else None,
+                        "list_metrics": {"views_7d": views},
+                        "publish_label": publish_label,
+                    }
+                    continue
+
+                collected[vid] = {
+                    "tiktok_video_id": vid,
+                    "caption": caption[:180],
+                    "href": href,
+                    "published_url": _identity_video_url(vid),
+                    "published_at": published_at.isoformat() if published_at else None,
+                    "publish_label": publish_label,
+                    "list_metrics": {"views_7d": views},
+                    "row_index": len(collected),
+                }
+                added += 1
+            except Exception:
+                continue
+        return added
+
+    async def nudge_scroll(step: int) -> dict:
+        """Multi-strategy scroll: real scroll parents + wheel + keys. Never trust a single atEnd."""
+        result = await page.evaluate(
+            """(step) => {
+                const out = {moved: false, strategies: []};
+                const link = document.querySelector('a[data-tt="components_PostInfoCell_a"]');
+                const candidates = [];
+                // Prefer known Studio wrappers first
+                for (const sel of [
+                    '[data-tt="components_PostTable_Container"]',
+                    '[data-tt="components_PostTable_Absolute"]',
+                    '[class*="PostTable"]',
+                    '[class*="scroll"]',
+                ]) {
+                    document.querySelectorAll(sel).forEach(el => candidates.push(el));
+                }
+                // Ancestors of a post link
+                let el = link;
+                let d = 0;
+                while (el && d < 16) {
+                    candidates.push(el);
+                    el = el.parentElement;
+                    d += 1;
+                }
+                const se = document.scrollingElement || document.documentElement;
+                candidates.push(se);
+
+                const seen = new Set();
+                for (const node of candidates) {
+                    if (!node || seen.has(node)) continue;
+                    seen.add(node);
+                    const prev = node.scrollTop || 0;
+                    const max = Math.max(0, (node.scrollHeight || 0) - (node.clientHeight || 0));
+                    if (max < 20 && node !== se) continue;
+                    const delta = Math.max(step, Math.floor((node.clientHeight || 600) * 0.85));
+                    node.scrollTop = Math.min(prev + delta, max + 80);
+                    // Also dispatch scroll event for virtualized lists
+                    try { node.dispatchEvent(new Event('scroll', {bubbles: true})); } catch (e) {}
+                    const next = node.scrollTop || 0;
+                    out.strategies.push({
+                        tt: node.getAttribute && node.getAttribute('data-tt') || node.tagName,
+                        prev, next, max, moved: next > prev + 2
+                    });
+                    if (next > prev + 2) out.moved = true;
+                }
+                return out;
+            }""",
+            900 + (step % 5) * 200,
+        )
+        # Focus table then wheel / PageDown as backup
         try:
-            caption = (await a.inner_text(timeout=1500)).strip()
-        except Exception:
-            caption = ""
-        list_metrics = {}
-        try:
-            list_metrics = await scrape_list_row_for_video(page, vid)
+            box = await page.locator('a[data-tt="components_PostInfoCell_a"]').last.bounding_box()
+            if box:
+                await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                await page.mouse.wheel(0, 2200 + (step % 3) * 400)
+                result["wheel"] = True
         except Exception:
             pass
-        posts.append({
-            "tiktok_video_id": vid,
-            "caption": caption[:180],
-            "href": href,
-            "published_url": f"https://www.tiktok.com/@dicasdamiicaela/video/{vid}",
-            "list_metrics": list_metrics,
-        })
-        if len(posts) >= limit:
+        try:
+            await page.keyboard.press("PageDown")
+        except Exception:
+            pass
+        if step % 6 == 5:
+            try:
+                await page.keyboard.press("End")
+            except Exception:
+                pass
+        return result or {}
+
+    await harvest_visible()
+
+    # Click last visible row once so keyboard scroll targets the list
+    try:
+        await page.locator('a[data-tt="components_PostInfoCell_a"]').last.click(timeout=2000, force=True)
+        await page.wait_for_timeout(200)
+    except Exception:
+        pass
+
+    scroll_i = -1
+    for scroll_i in range(max_scrolls):
+        eligible = [v for v in collected.values() if not v.get("_skip")]
+        if len(eligible) >= limit:
             break
-    return posts
+        # Past the date window (newest-first list)
+        if cutoff is not None and consecutive_old >= 10 and len(collected) >= 15:
+            break
+
+        before = len(collected)
+        await nudge_scroll(scroll_i)
+        await page.wait_for_timeout(650)  # virtualized fetch needs a beat
+        added = await harvest_visible()
+
+        if len(collected) == before and added == 0:
+            stagnant_scrolls += 1
+            # Do NOT stop on fake atEnd — only after many empty nudges
+            if stagnant_scrolls >= 18:
+                break
+        else:
+            stagnant_scrolls = 0
+
+    posts = [v for v in collected.values() if not v.get("_skip")]
+    posts = posts[:limit]
+
+    return {
+        "posts": posts,
+        "skipped_low_views": skipped_views,
+        "skipped_outside_window": skipped_old,
+        "scanned": len(collected),
+        "days": days,
+        "min_views": min_views,
+        "scrolls": scroll_i + 1,
+        "stagnant_scrolls": stagnant_scrolls,
+        "scroll_candidates": (scroll_info or {}).get("found") or [],
+    }
+
+
+async def open_analytics_via_chart_rise(page, video_id: str) -> bool:
+    """On Content page, click ChartRise (View analytics) for the row of video_id."""
+    # Prefer row that contains this video link (may need scroll — table is virtualized)
+    link = page.locator(f'a[data-tt="components_PostInfoCell_a"][href*="{video_id}"]').first
+    if await link.count() == 0:
+        # Scroll from top looking for this id (up to ~20 nudges)
+        try:
+            await page.locator('[data-tt="components_PostTable_Container"]').last.evaluate(
+                "el => { el.scrollTop = 0 }"
+            )
+            await page.wait_for_timeout(250)
+        except Exception:
+            pass
+        for _ in range(24):
+            link = page.locator(f'a[data-tt="components_PostInfoCell_a"][href*="{video_id}"]').first
+            if await link.count() > 0:
+                break
+            try:
+                await page.locator('[data-tt="components_PostTable_Container"]').last.evaluate(
+                    "el => { el.scrollTop = (el.scrollTop || 0) + (el.clientHeight || 700) }"
+                )
+            except Exception:
+                try:
+                    await page.mouse.wheel(0, 1800)
+                except Exception:
+                    return False
+            await page.wait_for_timeout(280)
+        link = page.locator(f'a[data-tt="components_PostInfoCell_a"][href*="{video_id}"]').first
+        if await link.count() == 0:
+            return False
+    row = link.locator('xpath=ancestor::div[@data-tt="components_PostTable_Absolute"][1]')
+    if await row.count() == 0:
+        row = link.locator('xpath=ancestor::div[@data-tt="components_RowLayout_FlexRow"][1]')
+    chart = row.locator('[data-testid="ChartRise"], [data-icon="ChartRise"]').first
+    if await chart.count() == 0:
+        # Action cell container next to ChartRise
+        chart = row.locator('[data-tt="components_ActionCell_Container"]').nth(1)
+    try:
+        await chart.click(timeout=5000)
+    except Exception:
+        try:
+            await chart.click(timeout=5000, force=True)
+        except Exception:
+            return False
+    try:
+        await page.wait_for_url(re.compile(r"tiktokstudio/analytics"), timeout=15000)
+        return True
+    except Exception:
+        # Sometimes opens overlay / same SPA without full URL change quickly
+        try:
+            await page.wait_for_selector(
+                '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], span.absolute-value',
+                timeout=10000,
+            )
+            return True
+        except Exception:
+            return False
 
 
 async def audit_one_video(page, video_id: str, *, with_viewers: bool = False) -> dict:
     """Deep scrape one video overview (+ optional viewers)."""
     analytics_url = ANALYTICS_URL.format(vid=video_id)
-    await page.goto(analytics_url, wait_until="domcontentloaded", timeout=90000)
-    await page.wait_for_timeout(2200)
+    cur = ""
+    try:
+        cur = page.url or ""
+    except Exception:
+        cur = ""
+    if video_id not in cur or "analytics" not in cur:
+        await page.goto(analytics_url, wait_until="domcontentloaded", timeout=25000)
     try:
         await page.wait_for_selector(
             '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], span.absolute-value, [data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]',
-            timeout=45000,
+            timeout=12000,
         )
     except Exception:
-        await page.wait_for_timeout(2000)
+        pass
     metrics = await scrape_analytics_page(page)
     caption = metrics.pop("caption", None)
     raw = {**metrics, "tiktok_video_id": video_id, "analytics_url": analytics_url}
     if caption:
         raw["caption"] = caption
+    pub = tiktok_id_published_at(video_id)
+    if pub:
+        raw["published_at"] = pub.isoformat()
     if with_viewers:
         try:
             viewers = await scrape_viewers_page(page, video_id)
@@ -637,7 +1081,8 @@ async def audit_one_video(page, video_id: str, *, with_viewers: bool = False) ->
         "notes": raw.get("notes") or "",
         "caption": raw.get("caption") or "",
         "analytics_url": analytics_url,
-        "published_url": f"https://www.tiktok.com/@dicasdamiicaela/video/{video_id}",
+        "published_url": _identity_video_url(video_id),
+        "published_at": raw.get("published_at"),
         "raw": raw,
     }
 
@@ -691,67 +1136,200 @@ def rank_audit_rows(rows: list) -> dict:
     }
 
 
-async def audit_published_videos(page, *, limit: int = 8, viewers_top: int = 3) -> dict:
-    """Batch-audit recent Studio posts before locking a learning framework."""
-    posts = await list_content_posts(page, limit=limit)
+async def audit_published_videos(
+    page,
+    *,
+    limit: int = 20,
+    viewers_top: int = 5,
+    days: int | None = 7,
+    min_views: int = 100,
+    reconnect=None,
+    prefer_direct_url: bool = True,
+) -> dict:
+    """Batch-audit: Content list → filter days + >=min_views → analytics scrape.
+
+    prefer_direct_url=True skips ChartRise (more stable for long batches).
+    reconnect: optional async callable() -> page, used if the tab/browser dies mid-loop.
+    """
+    listing = await list_content_posts(page, limit=limit, days=days, min_views=min_views)
+    posts = listing.get("posts") or []
+    meta = listing
+    fallback = False
+    if not posts and days:
+        listing2 = await list_content_posts(page, limit=limit, days=None, min_views=min_views)
+        posts = listing2.get("posts") or []
+        meta = {**meta, **listing2}
+        fallback = bool(posts)
     if not posts:
-        raise RuntimeError("Nenhum post encontrado na lista do Studio.")
+        raise RuntimeError(
+            f"Nenhum post com >={min_views} views"
+            + (f" nos ultimos {days} dias" if days else "")
+            + " na lista do Studio. Confira o login e tente de novo."
+        )
+
     results = []
+    reconnects = 0
+
+    async def ensure_page(current):
+        nonlocal page, reconnects
+        try:
+            if current is not None and not current.is_closed():
+                return current
+        except Exception:
+            pass
+        if reconnect is None:
+            raise RuntimeError("Aba do Chrome da fabrica fechou no meio do lote.")
+        reconnects += 1
+        page = await reconnect()
+        return page
+
     for idx, post in enumerate(posts):
         vid = post["tiktok_video_id"]
         deep_viewers = idx < viewers_top
         try:
+            page = await ensure_page(page)
+            opened = False
+            if prefer_direct_url:
+                await page.goto(
+                    ANALYTICS_URL.format(vid=vid),
+                    wait_until="domcontentloaded",
+                    timeout=25000,
+                )
+                opened = False  # direct
+            else:
+                if "tiktokstudio/content" not in (page.url or ""):
+                    await page.goto(CONTENT_URL, wait_until="domcontentloaded", timeout=25000)
+                    await page.wait_for_selector('a[data-tt="components_PostInfoCell_a"]', timeout=15000)
+                opened = await open_analytics_via_chart_rise(page, vid)
+                if not opened:
+                    await page.goto(
+                        ANALYTICS_URL.format(vid=vid),
+                        wait_until="domcontentloaded",
+                        timeout=25000,
+                    )
             one = await audit_one_video(page, vid, with_viewers=deep_viewers)
             if not one.get("caption") and post.get("caption"):
                 one["caption"] = post["caption"]
-            # fill views from list if analytics empty
+            if not one.get("published_at") and post.get("published_at"):
+                one["published_at"] = post["published_at"]
             if one.get("views_7d") is None and (post.get("list_metrics") or {}).get("views_7d") is not None:
                 one["views_7d"] = post["list_metrics"]["views_7d"]
+            one["list_views"] = (post.get("list_metrics") or {}).get("views_7d")
+            one["opened_via"] = "chart_rise" if opened else "direct_url"
             results.append(one)
         except Exception as exc:
+            msg = str(exc).lower()
+            dead = any(
+                k in msg
+                for k in (
+                    "target closed",
+                    "has been closed",
+                    "browser has been closed",
+                    "connection closed",
+                    "crashed",
+                    "not connected",
+                )
+            )
+            if dead and reconnect is not None and reconnects < 3:
+                try:
+                    page = await reconnect()
+                    reconnects += 1
+                    await page.goto(
+                        ANALYTICS_URL.format(vid=vid),
+                        wait_until="domcontentloaded",
+                        timeout=25000,
+                    )
+                    one = await audit_one_video(page, vid, with_viewers=deep_viewers)
+                    if not one.get("caption") and post.get("caption"):
+                        one["caption"] = post["caption"]
+                    one["list_views"] = (post.get("list_metrics") or {}).get("views_7d")
+                    one["opened_via"] = "direct_url_after_reconnect"
+                    one["reconnected"] = True
+                    results.append(one)
+                    continue
+                except Exception as exc2:
+                    exc = exc2
             results.append({
                 "tiktok_video_id": vid,
                 "caption": post.get("caption") or "",
                 "error": str(exc),
                 "published_url": post.get("published_url"),
+                "published_at": post.get("published_at"),
             })
+
     summary = rank_audit_rows([r for r in results if not r.get("error")])
     return {
         "posts_found": len(posts),
         "audited": len(results),
+        "ok": sum(1 for r in results if not r.get("error")),
+        "days": days,
+        "min_views": min_views,
+        "date_filter_fallback": fallback,
+        "skipped_low_views": meta.get("skipped_low_views", 0),
+        "skipped_outside_window": meta.get("skipped_outside_window", 0),
+        "scanned": meta.get("scanned", len(posts)),
+        "scrolls": meta.get("scrolls"),
+        "reconnects": reconnects,
         "results": results,
         "summary": summary,
     }
 
 
-async def collect_metrics(page, *, video_url: str | None = None, caption_hint: str | None = None) -> dict:
-    """Prefer analytics/<id> when the campaign already has a published video URL."""
+async def collect_metrics(
+    page,
+    *,
+    video_url: str | None = None,
+    caption_hint: str | None = None,
+    already_on_analytics: bool = False,
+) -> dict:
+    """Scrape Studio analytics. When video_url has an id, go straight to analytics/<id>.
+
+    already_on_analytics=True skips a second goto when the caller already opened the page.
+    """
     want_id = video_id_from_url(video_url)
     list_metrics: dict = {}
+    ready_sel = (
+        '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], '
+        "span.absolute-value, "
+        '[data-tt="components_AnalyticsCard_CardWrapper"], '
+        '[data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]'
+    )
 
-    if want_id:
-        analytics_url = ANALYTICS_URL.format(vid=want_id)
+    async def _ensure_analytics(vid: str) -> None:
+        analytics_url = ANALYTICS_URL.format(vid=vid)
+        cur = ""
         try:
-            await page.goto(analytics_url, wait_until="domcontentloaded", timeout=90000)
-        except Exception as exc:
+            cur = page.url or ""
+        except Exception:
             cur = ""
+        if already_on_analytics and vid in cur and "analytics" in cur and not cur.startswith("about:"):
+            pass
+        elif vid in cur and "/tiktokstudio/analytics/" in cur and not cur.startswith("about:"):
+            # Already there (same tab from caller) — do not reload
+            pass
+        else:
             try:
-                cur = page.url
-            except Exception:
-                pass
-            raise RuntimeError(
-                f"Nao abri analytics/{want_id} (fiquei em {cur or 'about:blank'}). "
-                "Confirme o login da Micaela no Studio e tente de novo."
-            ) from exc
-        await page.wait_for_timeout(2500)
+                await page.goto(analytics_url, wait_until="domcontentloaded", timeout=25000)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Nao abri analytics/{vid} (fiquei em {cur or 'about:blank'}). "
+                    "Confirme o login da Micaela no Studio e tente de novo."
+                ) from exc
+        try:
+            await page.wait_for_selector(ready_sel, timeout=12000)
+        except Exception:
+            pass
         if (page.url or "").startswith("about:"):
             raise RuntimeError(
-                f"A aba ficou em about:blank ao abrir analytics/{want_id}. Feche o Chrome e tente de novo."
+                f"A aba ficou em about:blank ao abrir analytics/{vid}. Feche o Chrome e tente de novo."
             )
+
+    if want_id:
         vid = want_id
+        await _ensure_analytics(vid)
     else:
         try:
-            await page.goto(CONTENT_URL, wait_until="domcontentloaded", timeout=90000)
+            await page.goto(CONTENT_URL, wait_until="domcontentloaded", timeout=25000)
         except Exception as exc:
             cur = ""
             try:
@@ -762,13 +1340,8 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
                 f"Nao consegui abrir o Studio (pagina ficou em {cur or 'about:blank'}). "
                 "Feche o Chrome, confirme o login da Micaela e tente de novo."
             ) from exc
-        await page.wait_for_timeout(2500)
-        if (page.url or "").startswith("about:"):
-            raise RuntimeError(
-                "A aba ficou em about:blank apos navegar. Feche o Chrome da Micaela e rode Coletar metricas de novo."
-            )
         try:
-            await page.wait_for_selector('a[data-tt="components_PostInfoCell_a"]', timeout=45000)
+            await page.wait_for_selector('a[data-tt="components_PostInfoCell_a"]', timeout=15000)
         except Exception as exc:
             raise RuntimeError(
                 "Nao encontrei a lista de publicacoes. Confirme o login da Micaela nesta janela do Studio "
@@ -781,16 +1354,7 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
                 "(ex.: https://www.tiktok.com/@conta/video/ID)."
             )
         list_metrics = await scrape_list_row_for_video(page, vid)
-        await page.goto(ANALYTICS_URL.format(vid=vid), wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(2500)
-
-    try:
-        await page.wait_for_selector(
-            '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], span.absolute-value, [data-tt="components_AnalyticsCard_CardWrapper"], [data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]',
-            timeout=60000,
-        )
-    except Exception:
-        await page.wait_for_timeout(3000)
+        await _ensure_analytics(vid)
 
     analytics = await scrape_analytics_page(page)
     caption = analytics.pop("caption", None)
@@ -802,16 +1366,11 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
     merged["source"] = "tiktok_studio_playwright"
     if video_url:
         merged["published_url"] = video_url
-    # Viewers tab (audience)
+    # Viewers tab (audience) — one extra navigation, no sleep padding, no return trip
     try:
         viewers = await scrape_viewers_page(page, vid)
         if viewers:
             merged["viewers"] = viewers
-    except Exception:
-        pass
-    # return to overview analytics url for user-visible tab
-    try:
-        await page.goto(ANALYTICS_URL.format(vid=vid), wait_until="domcontentloaded", timeout=30000)
     except Exception:
         pass
     merged["smart_actions"] = smart_actions_from_raw(merged)
@@ -832,4 +1391,4 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
         "viewers": merged.get("viewers") or {},
         "raw": merged,
     }
-    return {k: v for k, v in result.items() if v is not None and v != ""}
+    return result

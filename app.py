@@ -21,7 +21,7 @@ from services.prompts import color_variants, generate, generate_variants, packag
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
-FIELDS = ['name','model_name','outfit','color','product','audience','benefit','angle','tone','style','details','movements','generator']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','generator']
 PROMPTS = ['image','video','hook','development','cta','caption']
 NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
 
@@ -64,7 +64,7 @@ def create_app(config=None):
                 generator TEXT NOT NULL DEFAULT 'flow',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             columns={r['name'] for r in conn.execute('PRAGMA table_info(campaigns)')}
-            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note']}
+            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note','niche']}
             additions.update(version='INTEGER NOT NULL DEFAULT 1',layout="TEXT NOT NULL DEFAULT '{}'",
                              checklist="TEXT NOT NULL DEFAULT '{}'",published_url="TEXT NOT NULL DEFAULT ''")
             for name,definition in additions.items():
@@ -298,6 +298,11 @@ def create_app(config=None):
             raise Invalid('Nome da campanha e modelo são obrigatórios.')
         if values['generator'] not in {'flow','grok'}:
             raise Invalid('Escolha Flow ou Grok.')
+        from services.model_library import NICHE_IDS
+        niche = (values.get('niche') or '').strip()
+        if niche and niche not in NICHE_IDS:
+            raise Invalid('Nicho invalido. Use praia, academia, casual, dia-a-dia, intima ou fantasia.')
+        values['niche'] = niche
         return values
 
     @app.get('/')
@@ -326,13 +331,17 @@ def create_app(config=None):
     def static_asset(filename):
         return send_from_directory(app.config['FRONTEND_DIR']/'assets',filename)
 
+    @app.get('/brand/<path:filename>')
+    def brand_asset(filename):
+        return send_from_directory(app.config['FRONTEND_DIR']/'brand',filename)
+
     @app.get('/favicon.svg')
     def favicon():
         return send_from_directory(app.config['FRONTEND_DIR'],'favicon.svg')
 
     @app.get('/api/health')
     def health():
-        return jsonify(app='fabrica-tiktok',version=4,local=True)
+        return jsonify(app='fabrica-tiktok',version=5,local=True)
 
     @app.get('/api/campaigns')
     def list_campaigns():
@@ -345,6 +354,16 @@ def create_app(config=None):
             cid=db().execute(f"INSERT INTO campaigns ({','.join(FIELDS)}) VALUES ({','.join('?' for _ in FIELDS)})",tuple(values[k] for k in FIELDS)).lastrowid
             for name in STATES:
                 db().execute('INSERT INTO steps(campaign_id,name) VALUES(?,?)',(cid,name))
+        # Auto-attach standard model photo for the chosen niche (if uploaded in library).
+        try:
+            db().execute('BEGIN IMMEDIATE')
+            if attach_library_reference(cid, values.get('model_name') or '', values.get('niche') or ''):
+                db().commit()
+            else:
+                db().commit()
+        except Exception:
+            db().rollback()
+            raise
         return jsonify(detail(cid)),201
 
     @app.get('/api/campaigns/<int:cid>')
@@ -705,9 +724,115 @@ def create_app(config=None):
             temp.unlink(missing_ok=True)
         return jsonify(detail(cid)),201
 
+
+    def attach_library_reference(cid, model_name, niche):
+        """Copy the standard niche photo into the campaign as reference, if present."""
+        if not niche:
+            return False
+        from services import model_library as ml
+        src = ml.get_file(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche)
+        if not src:
+            return False
+        fd, temp = tempfile.mkstemp(dir=app.config['MEDIA_DIR'], suffix=src.suffix or '.jpg')
+        os.close(fd)
+        temp = Path(temp)
+        destination = None
+        try:
+            shutil.copyfile(src, temp)
+            lib = ml.load_library(app.config['DATA_DIR'])
+            entry = {}
+            for k, v in lib.items():
+                if isinstance(k, str) and k.casefold() == (model_name or '').casefold() and isinstance(v, dict):
+                    entry = v.get(niche) or {}
+                    break
+            mime = entry.get('mime') or 'image/jpeg'
+            original = entry.get('original_name') or src.name
+            meta = {'niche': niche, 'source': 'model_library'}
+            destination = attach(cid, 'reference', temp, original, meta, src.suffix.lower() or '.jpg', mime)
+            return True
+        except Exception:
+            if destination:
+                destination.unlink(missing_ok=True)
+            raise
+        finally:
+            temp.unlink(missing_ok=True)
+
+
+    @app.get('/api/model-library')
+    def get_model_library():
+        from services import model_library as ml
+        model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
+        return jsonify({
+            'model_name': model_name,
+            'niches': ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name),
+        })
+
+    @app.get('/api/model-library/file')
+    def model_library_file():
+        from services import model_library as ml
+        model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche = (request.args.get('niche') or '').strip()
+        path = ml.get_file(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche)
+        if not path:
+            raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
+        mime = 'image/jpeg'
+        if path.suffix.lower() == '.png':
+            mime = 'image/png'
+        elif path.suffix.lower() == '.webp':
+            mime = 'image/webp'
+        return send_file(path, mimetype=mime, conditional=True)
+
+    @app.post('/api/model-library')
+    def upload_model_library():
+        """Upload/replace the standard reference photo for model+niche."""
+        from services import model_library as ml
+        model_name = (request.form.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche = (request.form.get('niche') or '').strip()
+        uploaded = request.files.get('file')
+        if niche not in ml.NICHE_IDS:
+            raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
+        if not uploaded or not uploaded.filename:
+            raise Invalid('Envie a foto padrao da modelo.')
+        fd, temp = tempfile.mkstemp(dir=app.config['MEDIA_DIR'], suffix='.upload')
+        os.close(fd)
+        temp = Path(temp)
+        try:
+            uploaded.save(temp)
+            if temp.stat().st_size > 40 * 1024 * 1024:
+                raise Invalid('Foto acima de 40 MB.')
+            mime = uploaded.mimetype or 'image/jpeg'
+            if not str(mime).startswith('image/'):
+                raise Invalid('Use JPG, PNG ou WebP.')
+            entry = ml.save_photo(
+                app.config['DATA_DIR'], app.config['MEDIA_DIR'],
+                model_name, niche, temp,
+                Path(uploaded.filename.replace('\\', '/')).name[:240],
+                mime,
+            )
+            return jsonify(entry)
+        finally:
+            temp.unlink(missing_ok=True)
+
+    @app.post('/api/campaigns/<int:cid>/reference-from-library')
+    def reference_from_library(cid):
+        data = body()
+        c = start(cid, data)
+        editable(c)
+        niche = (data.get('niche') or c.get('niche') or '').strip()
+        from services import model_library as ml
+        if niche not in ml.NICHE_IDS:
+            raise Invalid('Escolha um nicho valido.')
+        # also persist niche on campaign
+        db().execute('UPDATE campaigns SET niche=? WHERE id=?', (niche, cid))
+        ok = attach_library_reference(cid, c.get('model_name') or '', niche)
+        if not ok:
+            raise Invalid('Ainda nao ha foto padrao para este nicho. Envie em Inicio > Fotos da modelo.', 404)
+        db().commit()
+        return jsonify(detail(cid))
+
     @app.get('/api/references')
     def references():
-        rows=db().execute("SELECT a.id,a.original_name,c.model_name,c.name AS campaign_name FROM assets a JOIN campaigns c ON c.id=a.campaign_id WHERE a.kind='reference' AND a.active=1 ORDER BY a.id DESC")
+        rows=db().execute("SELECT a.id,a.original_name,c.model_name,c.name AS campaign_name,c.niche FROM assets a JOIN campaigns c ON c.id=a.campaign_id WHERE a.kind='reference' AND a.active=1 ORDER BY a.id DESC")
         return jsonify([dict(r) for r in rows])
 
     @app.post('/api/campaigns/<int:cid>/reference')
@@ -748,6 +873,31 @@ def create_app(config=None):
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
 
+
+    @app.post('/api/campaigns/<int:cid>/prompts/refresh')
+    def refresh_single_script(cid):
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        current=detail(cid)
+        if current['variants']:
+            raise Invalid('Escolha a cor do roteiro que deseja atualizar.',409)
+        if not current['prompts'].get('hook'):
+            raise Invalid('Gere o roteiro pelo briefing primeiro.',409)
+        fields=data.get('fields',['hook','caption'])
+        allowed={'hook','development','cta','caption'}
+        if not isinstance(fields,list) or not fields or any(not isinstance(f,str) or f not in allowed for f in fields):
+            raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
+        merged=refresh_script_fields(c,c['color'],current['prompts'],fields=fields)
+        save_prompts(cid,merged)
+        if set(fields)&{'hook','development','cta'} and STATES.index(c['status'])>=2:
+            state(cid,'image_approved')
+            clear_after(cid,['video'])
+        elif 'caption' in fields and c['status']=='ready_to_publish':
+            state(cid,'video_approved')
+        touch(cid)
+        db().commit()
+        return jsonify(detail(cid))
 
     @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/refresh')
     def refresh_variant_script(cid,vid):
@@ -955,6 +1105,43 @@ def create_app(config=None):
         out['_fetch'] = {'message': result.get('message'), 'metrics': cleaned, 'analytics_url': entry.get('analytics_url')}
         return jsonify(out)
 
+
+    @app.post('/api/campaigns/<int:cid>/published-link')
+    def save_published_link(cid):
+        """Attach/update TikTok URL for metrics even when campaign is already published."""
+        data = body()
+        c = start(cid, data)
+        url = (data.get('published_url') or data.get('url') or '').strip()
+        color = (data.get('color') or '').strip()
+        if not isinstance(url, str) or not url or len(url) > 2000:
+            raise Invalid('Cole o link HTTPS da publicacao no TikTok.')
+        parsed = urlsplit(url)
+        host = (parsed.hostname or '').lower()
+        if parsed.scheme != 'https' or not (host == 'tiktok.com' or host.endswith('.tiktok.com')):
+            raise Invalid('Use um link HTTPS do TikTok (ex.: https://www.tiktok.com/@conta/video/123).')
+        if '/video/' not in parsed.path and 'vm.tiktok.com' not in host:
+            # allow short links on vm.tiktok.com; otherwise prefer /video/
+            if 'vm.tiktok.com' not in host:
+                raise Invalid('Use o link do video (deve conter /video/...).')
+        checklist = json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'), str) else (c.get('checklist') or {})
+        if not isinstance(checklist, dict):
+            checklist = {}
+        slots = checklist.get('slots') if isinstance(checklist.get('slots'), dict) else {}
+        if color:
+            key = color
+            info = slots.get(key) if isinstance(slots.get(key), dict) else {}
+            info = {**info, 'url': url, 'published': True, 'published_at': info.get('published_at') or __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+            slots[key] = info
+            checklist['slots'] = slots
+        db().execute(
+            'UPDATE campaigns SET published_url=?, checklist=? WHERE id=?',
+            (url, json.dumps(checklist, ensure_ascii=False), cid),
+        )
+        # do not force status=published if still in pipeline — only store the link
+        touch(cid)
+        db().commit()
+        return jsonify(detail(cid))
+
     @app.post('/api/campaigns/<int:cid>/insights')
     def save_insights(cid):
         """Run local analyzer; save checklist.insights[color or all]."""
@@ -1070,23 +1257,96 @@ def create_app(config=None):
 
     @app.post('/api/campaigns/<int:cid>/autocut')
     def autocut_job(cid):
-        """Salva brief Auto-cut para o Critico (local-first; nao chama agente)."""
+        """Salva brief Auto-cut + entra na fila pending para o Maiskinho avisar o Critico."""
         data = body()
-        c = get_campaign(cid)
+        c = detail(cid)
         work = Path(app.root_path) / 'work' / 'autocut'
         work.mkdir(parents=True, exist_ok=True)
+        # Enrich clips with absolute local paths when possible
+        clips = data.get('clips') if isinstance(data.get('clips'), list) else []
+        enriched = []
+        for clip in clips:
+            if not isinstance(clip, dict):
+                continue
+            item = dict(clip)
+            aid = item.get('asset_id')
+            if aid and not item.get('local_path'):
+                row = db().execute('SELECT * FROM assets WHERE id=? AND campaign_id=?', (aid, cid)).fetchone()
+                if row:
+                    try:
+                        item['local_path'] = str(path_for(row))
+                        item['slot'] = item.get('slot') or row['slot'] or ''
+                        item['original_name'] = row['original_name']
+                    except Exception:
+                        pass
+            enriched.append(item)
+        now = __import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
         payload = {
+            'id': f'{cid}-{int(__import__("time").time())}',
+            'status': 'pending',
             'campaign_id': cid,
-            'campaign_name': c['name'],
-            'created_at': __import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat() + 'Z',
+            'campaign_name': c.get('name') or '',
+            'product': c.get('product') or '',
+            'color': c.get('color') or '',
+            'niche': c.get('niche') or '',
+            'created_at': now,
             'slot': data.get('slot') or 'Mix',
             'brief': data.get('brief') or '',
-            'clips': data.get('clips') or [],
+            'clips': enriched,
+            'dispatched_at': None,
         }
         out = work / f'campaign-{cid}-latest.json'
         out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
-        (work / f'campaign-{cid}-latest.txt').write_text(payload['brief'], encoding='utf-8')
-        return jsonify({'ok': True, 'path': str(out), 'txt': str(work / f'campaign-{cid}-latest.txt')})
+        (work / f'campaign-{cid}-latest.txt').write_text(payload['brief'] or '', encoding='utf-8')
+        # queue file for Grok Bot routine
+        queue_path = app.config['DATA_DIR'] / 'autocut_queue.json'
+        try:
+            queue = json.loads(queue_path.read_text(encoding='utf-8')) if queue_path.exists() else []
+        except Exception:
+            queue = []
+        if not isinstance(queue, list):
+            queue = []
+        # replace any pending job for same campaign
+        queue = [j for j in queue if not (isinstance(j, dict) and j.get('campaign_id') == cid and j.get('status') == 'pending')]
+        queue.append(payload)
+        queue_path.write_text(json.dumps(queue, ensure_ascii=False, indent=2), encoding='utf-8')
+        return jsonify({
+            'ok': True,
+            'queued': True,
+            'job_id': payload['id'],
+            'path': str(out),
+            'txt': str(work / f'campaign-{cid}-latest.txt'),
+            'message': 'Auto-cut enfileirado. O Critico de Vendas sera avisado em breve.',
+        })
+
+    @app.get('/api/autocut/pending')
+    def autocut_pending():
+        queue_path = app.config['DATA_DIR'] / 'autocut_queue.json'
+        try:
+            queue = json.loads(queue_path.read_text(encoding='utf-8')) if queue_path.exists() else []
+        except Exception:
+            queue = []
+        pending = [j for j in queue if isinstance(j, dict) and j.get('status') == 'pending']
+        return jsonify({'pending': pending, 'count': len(pending)})
+
+    @app.post('/api/autocut/<job_id>/dispatched')
+    def autocut_dispatched(job_id):
+        queue_path = app.config['DATA_DIR'] / 'autocut_queue.json'
+        try:
+            queue = json.loads(queue_path.read_text(encoding='utf-8')) if queue_path.exists() else []
+        except Exception:
+            queue = []
+        now = __import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
+        changed = False
+        for j in queue:
+            if isinstance(j, dict) and j.get('id') == job_id and j.get('status') == 'pending':
+                j['status'] = 'dispatched'
+                j['dispatched_at'] = now
+                changed = True
+        if changed:
+            queue_path.write_text(json.dumps(queue, ensure_ascii=False, indent=2), encoding='utf-8')
+        return jsonify({'ok': changed})
+
 
     @app.post('/api/campaigns/<int:cid>/videos/mix')
     def mix_videos(cid):
@@ -1303,33 +1563,188 @@ def create_app(config=None):
         return response
 
     
-    @app.post('/api/studio/audit')
-    def studio_audit():
-        """Batch-audit recent TikTok Studio posts (pre-framework learning)."""
+
+    @app.post('/api/studio/open')
+    def studio_open_free():
+        """Open TikTok Studio (Micaela profile) without campaign/publish gates."""
         data = body()
-        try:
-            limit = max(1, min(int(data.get('limit', 8)), 15))
-        except (TypeError, ValueError):
-            limit = 8
-        try:
-            viewers_top = max(0, min(int(data.get('viewers_top', 3)), limit))
-        except (TypeError, ValueError):
-            viewers_top = 3
+        if data.get('confirmed') is not True:
+            raise Invalid('Confirme a abertura do TikTok Studio no perfil da Micaela.', 409)
         with browser_init_lock:
             if 'browser_assistant' not in app.extensions:
                 from services.browser_assistant import BrowserAssistant
                 app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
             assistant = app.extensions['browser_assistant']
         try:
-            result = assistant.audit_studio_posts(limit=limit, viewers_top=viewers_top)
+            result = assistant.open_tiktok_studio(0)
+        except RuntimeError as exc:
+            raise Invalid(str(exc), 409) from exc
+        except OSError as exc:
+            app.logger.exception('Falha ao abrir Studio livre')
+            raise Invalid('Nao foi possivel abrir o Studio. Reinicie pelo iniciar.vbs.', 409) from exc
+        result = dict(result or {})
+        result['message'] = result.get('message') or 'TikTok Studio aberto no perfil da Micaela.'
+        return jsonify(result)
+
+    @app.get('/api/studio/link-analyses')
+    def list_link_analyses():
+        path = app.config['DATA_DIR'] / 'link_analyses.json'
+        try:
+            rows = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list):
+            rows = []
+        return jsonify({'items': rows[:200], 'count': len(rows)})
+
+    @app.post('/api/studio/analyze-link')
+    def analyze_published_link():
+        """Collect Studio metrics for any TikTok video URL (no Produzir campaign required)."""
+        data = body()
+        url = (data.get('url') or data.get('published_url') or '').strip()
+        if not url or len(url) > 2000:
+            raise Invalid('Cole o link HTTPS do video no TikTok.')
+        parsed = urlsplit(url)
+        host = (parsed.hostname or '').lower()
+        if parsed.scheme != 'https' or not (host == 'tiktok.com' or host.endswith('.tiktok.com')):
+            raise Invalid('Use um link HTTPS do TikTok (ex.: https://www.tiktok.com/@conta/video/123).')
+        is_short = host in {'vm.tiktok.com', 'vt.tiktok.com'} or host.startswith('vm.')
+        if '/video/' not in parsed.path and not is_short:
+            raise Invalid('Use o link do video (deve conter /video/...) ou um link curto vm.tiktok.com.')
+        note = (data.get('note') or '').strip()[:500]
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+            assistant = app.extensions['browser_assistant']
+        try:
+            result = assistant.fetch_studio_metrics(0, video_url=url, caption_hint=note or None)
+        except RuntimeError as exc:
+            raise Invalid(str(exc), 503) from exc
+        metrics = result.get('metrics') or {}
+        raw = metrics.get('raw') if isinstance(metrics.get('raw'), dict) else {}
+        now = __import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
+        from services.studio_metrics import video_id_from_url
+        vid = video_id_from_url(url) or raw.get('tiktok_video_id') or ''
+        entry = {
+            'id': f'{vid or int(__import__("time").time())}-{int(__import__("time").time())}',
+            'url': url,
+            'tiktok_video_id': vid,
+            'note': note,
+            'collected_at': now,
+            'message': result.get('message') or 'Metricas coletadas.',
+            'views_24h': metrics.get('views_24h'),
+            'views_7d': metrics.get('views_7d'),
+            'watch_pct': metrics.get('watch_pct'),
+            'likes': metrics.get('likes'),
+            'comments': metrics.get('comments'),
+            'saves': metrics.get('saves'),
+            'shares': metrics.get('shares'),
+            'traffic_source': metrics.get('traffic_source') or raw.get('traffic_source') or [],
+            'search_queries': metrics.get('search_queries') or raw.get('search_queries') or [],
+            'viewers': metrics.get('viewers') or raw.get('viewers') or {},
+            'smart_actions': metrics.get('smart_actions') or raw.get('smart_actions') or [],
+            'analytics_url': raw.get('analytics_url') or '',
+            'notes': metrics.get('notes') or '',
+        }
+        path = app.config['DATA_DIR'] / 'link_analyses.json'
+        try:
+            rows = json.loads(path.read_text(encoding='utf-8')) if path.is_file() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list):
+            rows = []
+        # newest first; replace same video id
+        rows = [r for r in rows if not (isinstance(r, dict) and vid and r.get('tiktok_video_id') == vid)]
+        rows.insert(0, entry)
+        path.write_text(json.dumps(rows[:200], ensure_ascii=False, indent=2), encoding='utf-8')
+        return jsonify({'ok': True, 'item': entry, 'items': rows[:200]})
+
+    @app.post('/api/studio/audit')
+    def studio_audit():
+        """Batch-audit Studio posts for last 7/15/30 days (skip <100 views by default)."""
+        data = body()
+        try:
+            days = int(data.get('days', 7))
+        except (TypeError, ValueError):
+            days = 7
+        if days not in (7, 15, 30):
+            days = 7
+        try:
+            min_views = max(0, min(int(data.get('min_views', 100)), 100000))
+        except (TypeError, ValueError):
+            min_views = 100
+        # Wider window → allow more videos; still capped for runtime
+        default_limit = {7: 25, 15: 50, 30: 80}.get(days, 25)
+        try:
+            limit = max(1, min(int(data.get('limit', default_limit)), 120))
+        except (TypeError, ValueError):
+            limit = default_limit
+        try:
+            viewers_top = max(0, min(int(data.get('viewers_top', min(5, limit))), limit))
+        except (TypeError, ValueError):
+            viewers_top = min(5, limit)
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+            assistant = app.extensions['browser_assistant']
+        try:
+            result = assistant.audit_studio_posts(
+                limit=limit, viewers_top=viewers_top, days=days, min_views=min_views
+            )
         except RuntimeError as exc:
             raise Invalid(str(exc), 503) from exc
         report = result.get('report') or {}
+        # Merge successful rows into link_analyses history (same shape as Analisar link)
+        hist_path = app.config['DATA_DIR'] / 'link_analyses.json'
+        try:
+            rows = json.loads(hist_path.read_text(encoding='utf-8')) if hist_path.is_file() else []
+        except Exception:
+            rows = []
+        if not isinstance(rows, list):
+            rows = []
+        now = __import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
+        for r in (report.get('results') or []):
+            if not isinstance(r, dict) or r.get('error'):
+                continue
+            vid = str(r.get('tiktok_video_id') or '')
+            if not vid:
+                continue
+            entry = {
+                'id': f'{vid}-{int(__import__("time").time())}',
+                'url': r.get('published_url') or (__import__('services.studio_identity', fromlist=['video_url']).video_url(vid, app.config['DATA_DIR'])),
+                'tiktok_video_id': vid,
+                'note': (r.get('caption') or '')[:500],
+                'collected_at': now,
+                'message': f'Lote {days}d (>= {min_views} views)',
+                'views_24h': None,
+                'views_7d': r.get('views_7d'),
+                'watch_pct': r.get('watch_pct'),
+                'likes': r.get('likes'),
+                'comments': r.get('comments'),
+                'saves': r.get('saves'),
+                'shares': r.get('shares'),
+                'traffic_source': r.get('traffic_source') or [],
+                'search_queries': r.get('search_queries') or [],
+                'viewers': r.get('viewers') or {},
+                'smart_actions': r.get('smart_actions') or [],
+                'analytics_url': r.get('analytics_url') or '',
+                'notes': r.get('notes') or '',
+                'published_at': r.get('published_at'),
+                'batch_days': days,
+            }
+            rows = [x for x in rows if not (isinstance(x, dict) and x.get('tiktok_video_id') == vid)]
+            rows.insert(0, entry)
+        hist_path.write_text(json.dumps(rows[:200], ensure_ascii=False, indent=2), encoding='utf-8')
         out_path = app.config['DATA_DIR'] / 'studio_audit_latest.json'
         payload = {
             'message': result.get('message'),
-            'created_at': __import__('datetime').datetime.utcnow().isoformat(timespec='seconds') + 'Z',
+            'created_at': now,
+            'days': days,
+            'min_views': min_views,
             'report': report,
+            'history_count': len(rows),
         }
         out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
         return jsonify(payload)
@@ -1340,6 +1755,146 @@ def create_app(config=None):
         if not out_path.is_file():
             return jsonify({'report': None, 'message': 'Nenhuma auditoria ainda.'})
         return jsonify(json.loads(out_path.read_text(encoding='utf-8')))
+
+    @app.post('/api/studio/playbook')
+    def studio_playbook_build():
+        """Build / refresh playbook from latest audit report."""
+        from services.playbook import build_playbook
+        data = body()
+        days = data.get('days')
+        report = data.get('report')
+        audit_path = app.config['DATA_DIR'] / 'studio_audit_latest.json'
+        payload_audit = None
+        if audit_path.is_file():
+            try:
+                payload_audit = json.loads(audit_path.read_text(encoding='utf-8'))
+            except Exception:
+                payload_audit = None
+        if not report:
+            report = (payload_audit or {}).get('report')
+        if days is None:
+            days = (payload_audit or {}).get('days')
+        if not report:
+            raise Invalid('Rode um lote 7/15/30 dias em Resultados antes de gerar o playbook.', 409)
+        playbook = build_playbook(report, days=days)
+        out = app.config['DATA_DIR'] / 'playbook_latest.json'
+        out.write_text(json.dumps(playbook, ensure_ascii=False, indent=2), encoding='utf-8')
+        return jsonify({'ok': True, 'playbook': playbook})
+
+
+
+    @app.get('/api/studio/identity')
+    def studio_identity_get():
+        from services.studio_identity import load_identity
+        return jsonify(load_identity(app.config['DATA_DIR']))
+
+    @app.patch('/api/studio/identity')
+    def studio_identity_patch():
+        from services.studio_identity import save_identity
+        data = body()
+        ident = save_identity(data, app.config['DATA_DIR'])
+        return jsonify({'ok': True, 'identity': ident})
+
+
+    @app.get('/api/setup-status')
+    def setup_status():
+        from services.setup_status import build_setup_status
+        return jsonify(build_setup_status(
+            app.config['DATA_DIR'],
+            app.config['MEDIA_DIR'],
+            app.config['PROFILE_DIR'],
+        ))
+
+    @app.get('/api/productivity')
+    def productivity_queue():
+        """What to continue, produce next from playbook, and what to improve."""
+        from services.playbook import build_productivity_queue
+        pb_path = app.config['DATA_DIR'] / 'playbook_latest.json'
+        playbook = None
+        if pb_path.is_file():
+            try:
+                playbook = json.loads(pb_path.read_text(encoding='utf-8'))
+            except Exception:
+                playbook = None
+        rows = db().execute(
+            "SELECT id,name,status,niche,model_name,product FROM campaigns ORDER BY id DESC LIMIT 40"
+        ).fetchall()
+        campaigns = [dict(r) for r in rows]
+        queue = build_productivity_queue(playbook=playbook, campaigns=campaigns)
+        return jsonify(queue)
+
+    @app.post('/api/studio/playbook/campaign')
+    def playbook_create_campaign():
+        """Create a Produzir campaign prefilled from a playbook next-video brief."""
+        from services.playbook import brief_from_playbook_item, build_playbook
+        data = body()
+        item = data.get('item')
+        index = data.get('index')
+        if not item:
+            pb_path = app.config['DATA_DIR'] / 'playbook_latest.json'
+            if not pb_path.is_file():
+                raise Invalid('Gere o playbook em Resultados antes.', 409)
+            playbook = json.loads(pb_path.read_text(encoding='utf-8'))
+            nxt = playbook.get('next_videos') or []
+            try:
+                index = int(index if index is not None else 0)
+            except (TypeError, ValueError):
+                index = 0
+            if index < 0 or index >= len(nxt):
+                raise Invalid('Brief do playbook nao encontrado.', 404)
+            item = nxt[index]
+        if not isinstance(item, dict):
+            raise Invalid('Item do playbook invalido.')
+        model_name = (data.get('model_name') or 'Micaela').strip() or 'Micaela'
+        brief = brief_from_playbook_item(item, model_name=model_name)
+        meta = brief.pop('playbook_meta', {})
+        values = fields(brief)
+        # merge niche defaults soft-fill for empty outfit/audience if present in DB flow via fields()
+        with db():
+            cid = db().execute(
+                f"INSERT INTO campaigns ({','.join(FIELDS)}) VALUES ({','.join('?' for _ in FIELDS)})",
+                tuple(values[k] for k in FIELDS),
+            ).lastrowid
+            for name in STATES:
+                db().execute('INSERT INTO steps(campaign_id,name) VALUES(?,?)', (cid, name))
+        try:
+            db().execute('BEGIN IMMEDIATE')
+            attach_library_reference(cid, values.get('model_name') or '', values.get('niche') or '')
+            # seed hook prompt so Script starts with the query
+            hook = (meta.get('spoken_hook') or '')[:500]
+            caption = (meta.get('caption_seed') or '')[:800]
+            shot = (meta.get('shot_list') or '')[:800]
+            seeds = {
+                'hook': hook,
+                'development': shot or (f'Prova no corpo da peca. Query: {hook}' if hook else ''),
+                'cta': 'Toque no carrinho / Shop agora.' if hook else '',
+                'caption': caption,
+                'video': shot,
+            }
+            for kind, content in seeds.items():
+                if not content:
+                    continue
+                db().execute(
+                    'INSERT INTO prompts(campaign_id,kind,content) VALUES(?,?,?) '
+                    'ON CONFLICT(campaign_id,kind) DO UPDATE SET content=excluded.content',
+                    (cid, kind, content),
+                )
+            db().commit()
+        except Exception:
+            db().rollback()
+            raise
+        detail_row = detail(cid)
+        detail_row['playbook_meta'] = meta
+        detail_row['howto_15s'] = meta.get('howto_15s') or []
+        return jsonify(detail_row), 201
+
+
+    @app.get('/api/studio/playbook')
+    def studio_playbook_latest():
+        out = app.config['DATA_DIR'] / 'playbook_latest.json'
+        if not out.is_file():
+            return jsonify({'playbook': None, 'message': 'Nenhum playbook ainda. Gere a partir do lote.'})
+        return jsonify({'playbook': json.loads(out.read_text(encoding='utf-8'))})
 
 
     @app.post('/api/campaigns/<int:cid>/browser')

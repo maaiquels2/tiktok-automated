@@ -1,0 +1,10 @@
+{
+  "studio_name": "Estudio da Creator",
+  "brand_name": "Fabrica TikTok",
+  "model_name": "NomeDaModelo",
+  "tiktok_handle": "handle_sem_arroba",
+  "chrome_profile_hint": "NomeDoPerfilChrome",
+  "grok_account_hint": "email-grok@exemplo.com",
+  "flow_account_hint": "email-flow@exemplo.com",
+  "notes": "Copie para data/studio_identity.json e ajuste."
+}
