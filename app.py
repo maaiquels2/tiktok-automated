@@ -800,6 +800,111 @@ def create_app(config=None):
         return jsonify(detail(cid))
 
 
+
+    @app.post('/api/campaigns/<int:cid>/performance')
+    def save_performance(cid):
+        """Merge user-entered metrics into checklist.performance[color]."""
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        color=(data.get('color') or '').strip()
+        metrics=data.get('metrics')
+        if not isinstance(metrics,dict):
+            raise Invalid('Informe metrics como objeto.')
+        slots=image_slots_for(c)
+        if not color and slots==['']:
+            color=''
+        elif not color:
+            raise Invalid('Escolha a cor/produto das métricas.')
+        if color and slots!=[''] and color not in slots:
+            raise Invalid('Cor inválida para esta campanha.')
+        key=color or 'default'
+        allowed=('views_24h','views_7d','watch_pct','likes','comments','saves','shares','orders','notes')
+        clean={}
+        for k in allowed:
+            if k not in metrics:
+                continue
+            v=metrics[k]
+            if k=='notes':
+                if not isinstance(v,str) or len(v)>2000:
+                    raise Invalid('notes inválido.')
+                clean[k]=v.strip()
+            else:
+                try:
+                    clean[k]=float(v)
+                except (TypeError,ValueError):
+                    raise Invalid(f'Métrica inválida: {k}')
+        checklist=json.loads(c['checklist'] or '{}')
+        if not isinstance(checklist,dict):
+            checklist={}
+        perf=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
+        prev=perf.get(key) if isinstance(perf.get(key),dict) else {}
+        merged={**prev,**clean,'updated_at':__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'}
+        perf[key]=merged
+        checklist['performance']=perf
+        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
+        touch(cid)
+        db().commit()
+        return jsonify(detail(cid))
+
+    @app.post('/api/campaigns/<int:cid>/insights')
+    def save_insights(cid):
+        """Run local analyzer; save checklist.insights[color or all]."""
+        from services.insights import analyze_variant
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        color=(data.get('color') or '').strip()
+        slots=image_slots_for(c)
+        checklist=json.loads(c['checklist'] or '{}')
+        if not isinstance(checklist,dict):
+            checklist={}
+        perf_map=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
+        insights=checklist.get('insights') if isinstance(checklist.get('insights'),dict) else {}
+        variants=c.get('variants') or []
+        # build list of (color_key, prompts dict)
+        targets=[]
+        if color:
+            if slots!=[''] and color not in slots and not any((v.get('color')==color) for v in variants):
+                raise Invalid('Cor inválida para esta campanha.')
+            targets.append(color)
+        else:
+            if variants:
+                targets=[v.get('color') or 'default' for v in variants]
+            elif slots and slots!=['']:
+                targets=list(slots)
+            else:
+                targets=['default']
+        prompts_by={}
+        for v in variants:
+            prompts_by[v.get('color') or 'default']=v.get('prompts') or {}
+        if not prompts_by:
+            prompts_by['default']=c.get('prompts') or {}
+        product=c.get('product') or ''
+        benefit=c.get('benefit') or ''
+        audience=c.get('audience') or ''
+        for key in targets:
+            p=prompts_by.get(key) or prompts_by.get('default') or c.get('prompts') or {}
+            metrics=perf_map.get(key) if isinstance(perf_map.get(key),dict) else None
+            card=analyze_variant(
+                hook=p.get('hook') or '',
+                development=p.get('development') or '',
+                cta=p.get('cta') or '',
+                caption=p.get('caption') or '',
+                product=product,
+                benefit=benefit,
+                audience=audience,
+                metrics=metrics,
+            )
+            card['updated_at']=__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'
+            card['color']=key if key!='default' else (color or '')
+            insights[key]=card
+        checklist['insights']=insights
+        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
+        touch(cid)
+        db().commit()
+        return jsonify(detail(cid))
+
     @app.post('/api/campaigns/<int:cid>/publish-slot')
     def publish_slot(cid):
         """Register one color/product publish; campaign finishes when all slots are done."""

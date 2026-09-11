@@ -45,6 +45,13 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 - **Ver publicação** abre os links do TikTok (`published_url` / slots da checklist) quando a cor ou a campanha já foi registrada.
 - O app **não** publica sozinho no TikTok (sem automação de post/tag).
 
+
+### Performance, Insights e preview 9:16
+- No **Studio** (status pronto/publicado): painel **Performance & Insights** por cor — informe views, watch%, likes, saves, pedidos etc. e salve em `checklist.performance`.
+- **Gerar insights** roda um crítico local (`services/insights.py`) e grava `checklist.insights` (Hook / Desenvolvimento / CTA + ações). Sem dados inventados do TikTok.
+- **Preview 9:16** na aprovação de vídeo: telefone, scrubber e beats Hook (0–2s) · Desenvolvimento (2–12s) · CTA (12–15s) com overlay do roteiro.
+- **Analisar vídeo (Critico)** usa a mesma API local e mostra o caminho do MP4 para revisão visual profunda com o agente Critico de Vendas (não dispara SendToAgent pelo Flask).
+
 ### Renomear campanha
 - Controle **Renomear** (lápis) perto do título da campanha.
 - PATCH só de `name` — não invalida etapas nem dispara guards de busy/discard de forma agressiva.

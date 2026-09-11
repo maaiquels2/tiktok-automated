@@ -255,6 +255,105 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
 }
 
 
+
+export function VideoTimelinePreview({asset,variant,c}){
+  const videoRef=useRef(null);
+  const [t,setT]=useState(0);
+  const [dur,setDur]=useState(15);
+  const prompts=(variant?.prompts)||c?.prompts||{};
+  const src=asset?.url||asset?.href||(asset?.id?`/api/assets/${asset.id}/file`:'');
+  const beat=t<2?'Hook':t<12?'Desenvolvimento':'CTA';
+  const overlay=beat==='Hook'?(prompts.hook||''):beat==='Desenvolvimento'?(prompts.development||''):(prompts.cta||'');
+  const marks=[0,2,12,Math.min(15,dur||15)].filter((v,i,a)=>a.indexOf(v)===i&&v<=(dur||15));
+  if(!asset)return null;
+  return <section className="video-timeline-preview">
+    <div className="phone-frame">
+      <video ref={videoRef} src={src} controls playsInline onTimeUpdate={e=>setT(e.currentTarget.currentTime||0)} onLoadedMetadata={e=>setDur(e.currentTarget.duration||15)}/>
+      <div className="beat-overlay"><span className="beat-label">{beat}</span><p>{overlay||'—'}</p></div>
+    </div>
+    <div className="timeline-scrub">
+      <input type="range" min={0} max={dur||15} step={0.05} value={Math.min(t,dur||15)} onChange={e=>{const v=Number(e.target.value);setT(v);if(videoRef.current)videoRef.current.currentTime=v;}}/>
+      <div className="timeline-marks">{marks.map(m=><span key={m} style={{left:`${(m/(dur||15))*100}%`}}>{m}s</span>)}</div>
+      <small className="help">Marcadores 0 / 2 / 12 / 15s · beat ativo: <strong>{beat}</strong></small>
+    </div>
+  </section>;
+}
+
+export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript}){
+  const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
+  const perfMap=(c.checklist&&c.checklist.performance)||{};
+  const insightsMap=(c.checklist&&c.checklist.insights)||{};
+  const videos=c.assets.filter(a=>a.kind==='video');
+  const hasUrl=videos.some(v=>v.url||v.href||v.id);
+  const show=c.status==='ready_to_publish'||c.status==='published'||hasUrl;
+  const [active,setActive]=useState(variants[0]?.color||'');
+  const [metrics,setMetrics]=useState({});
+  const [criticoNote,setCriticoNote]=useState('');
+  useEffect(()=>{
+    const key=active||'default';
+    const prev=perfMap[key]||perfMap[active]||{};
+    setMetrics({
+      views_24h:prev.views_24h??'',views_7d:prev.views_7d??'',watch_pct:prev.watch_pct??'',
+      likes:prev.likes??'',comments:prev.comments??'',saves:prev.saves??'',shares:prev.shares??'',
+      orders:prev.orders??'',notes:prev.notes??''
+    });
+  },[active,c.version]);
+  if(!show)return null;
+  const variant=variants.find(v=>v.color===active)||variants[0];
+  const key=variant?.color||'default';
+  const card=insightsMap[key]||insightsMap['default'];
+  const video=videos.find(v=>(v.slot||v.metadata?.color)===variant?.color)||videos[0];
+  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} step={step} value={metrics[name]??''} disabled={busy||immutable}
+    onChange={e=>setMetrics(m=>({...m,[name]:e.target.value}))}/></label>;
+  const num=v=>v===''||v==null?undefined:Number(v);
+  const save=()=>onSavePerformance&&onSavePerformance({color:variant?.color,metrics:{
+    views_24h:num(metrics.views_24h),views_7d:num(metrics.views_7d),watch_pct:num(metrics.watch_pct),
+    likes:num(metrics.likes),comments:num(metrics.comments),saves:num(metrics.saves),shares:num(metrics.shares),
+    orders:num(metrics.orders),notes:metrics.notes||undefined
+  }});
+  const scoreBox=(title,block)=><div className="score-card"><strong>{title}</strong><div className="score-num">{block?.score??'—'}</div><p>{block?.note||''}</p></div>;
+  return <section className="performance-panel">
+    <div className="section-title"><h3>Performance & Insights</h3><span className="help">métricas manuais · crítico local</span></div>
+    <div className="publish-slot-tabs">{variants.map(v=><button type="button" key={v.color||'x'} className={'slot-tab'+(active===v.color?' active':'')} disabled={busy} onClick={()=>setActive(v.color)}>{v.color||'Produto'}</button>)}</div>
+    <div className="metric-form">
+      {field('views_24h','Views 24h')}{field('views_7d','Views 7d')}{field('watch_pct','Watch %','0.1')}
+      {field('likes','Likes')}{field('comments','Comentários')}{field('saves','Saves')}{field('shares','Shares')}{field('orders','Pedidos')}
+      {field('notes','Notas')}
+      <button type="button" className="primary" disabled={busy||immutable||!onSavePerformance} onClick={save}>Salvar métricas</button>
+      <button type="button" disabled={busy||!onGenerateInsights} onClick={()=>onGenerateInsights({color:variant?.color})}>Gerar insights</button>
+    </div>
+    {card?<>
+      <div className="score-grid">
+        {scoreBox('Hook',card.hook)}
+        {scoreBox('Desenvolvimento',card.development)}
+        {scoreBox('CTA',card.cta)}
+        <div className="score-card overall"><strong>Geral</strong><div className="score-num">{card.overall??'—'}</div></div>
+      </div>
+      <div className="insight-actions">
+        <strong>Ações</strong>
+        <ul>{(card.actions||[]).map((a,i)=><li key={i}><button type="button" className="linkish" disabled={busy} onClick={()=>{
+          if(onRefreshVariant&&variant?.id&&variant.id!=='main') onRefreshVariant(variant.id,['hook','development','cta','caption']);
+          else if(onGotoScript) onGotoScript();
+        }}>{a}</button></li>)}</ul>
+      </div>
+      <div className="insight-psych"><strong>Psicologia</strong><ul>{(card.psychology||[]).map((p,i)=><li key={i}>{p}</li>)}</ul></div>
+    </>:<div className="notice">Salve métricas (opcional) e clique em <strong>Gerar insights</strong>.</div>}
+    <div className="critico-box">
+      <button type="button" disabled={busy||!onGenerateInsights} onClick={()=>{
+        onGenerateInsights({color:variant?.color});
+        setCriticoNote(video?.local_path
+          ?`Análise local gerada. Para revisão visual profunda, use o agente Critico de Vendas com o MP4: ${video.local_path}`
+          :'Análise local gerada. Para revisão visual profunda, use o agente Critico de Vendas com o arquivo MP4 da cor.');
+      }}>Analisar vídeo (Critico)</button>
+      {criticoNote&&<p className="notice">{criticoNote}</p>}
+      {video?.local_path&&<CopyButton text={video.local_path} label="Copiar caminho do MP4" onError={onError}/>}
+      <small className="help">Heurística local no app — não envia ao agente automaticamente.</small>
+    </div>
+  </section>;
+}
+
+
+
 function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
   const input=useRef();
   const [previews,setPreviews]=useState([]),[error,setError]=useState('');
