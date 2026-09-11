@@ -81,27 +81,125 @@ LABEL_MAP = {
 }
 
 
+
+async def scrape_info_card(page) -> dict:
+    """Engagement row on analytics: views/likes/comments/shares/saves (icon columns)."""
+    out = {}
+    # Prefer the info card that also has the cover thumbnail
+    root = page.locator('[data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]').first
+    try:
+        await root.wait_for(state="visible", timeout=15000)
+    except Exception:
+        return out
+    cols = root.locator('[data-tt="VideoOverviewPage_VideoInfoCard_FlexColumn"]')
+    # Columns that are metric columns are the narrow ones with a single number TUXText
+    # Observed order under the engagement strip: views, likes, comments, shares, saves
+    nums = []
+    try:
+        # Scope to the engagement strip: FlexRow that contains multiple FlexColumns with numbers only
+        strips = page.locator('[data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]')
+        n_strips = await strips.count()
+        for si in range(n_strips):
+            strip = strips.nth(si)
+            cols = strip.locator(':scope > [data-tt="VideoOverviewPage_VideoInfoCard_FlexColumn"]')
+            count = await cols.count()
+            if count < 3:
+                continue
+            vals = []
+            for i in range(count):
+                col = cols.nth(i)
+                try:
+                    txt = (await col.locator('[data-tt="VideoOverviewPage_VideoInfoCard_TUXText"]').last.inner_text(timeout=1000)).strip()
+                except Exception:
+                    try:
+                        txt = (await col.inner_text(timeout=1000)).strip().split("\n")[-1]
+                    except Exception:
+                        continue
+                parsed = _parse_number(txt)
+                if parsed is None:
+                    continue
+                vals.append(parsed)
+            if len(vals) >= 3:
+                nums = vals
+                break
+    except Exception:
+        nums = []
+    keys = ["views_7d", "likes", "comments", "shares", "saves"]
+    for k, v in zip(keys, nums):
+        out[k] = v
+    # caption / published date (optional)
+    try:
+        cap = await page.locator('[data-tt="VideoOverviewPage_VideoInfoCard_TUXText"]').first.inner_text(timeout=2000)
+        if cap and len(cap) > 8 and not _parse_number(cap):
+            out["caption"] = cap.strip()
+    except Exception:
+        pass
+    return out
+
+
+async def scrape_metrics_cards(page) -> dict:
+    """Analytics overview cards: views, total play, avg watch, completion %, new followers."""
+    metrics = {}
+    cards = page.locator('[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"]')
+    try:
+        await cards.first.wait_for(state="visible", timeout=45000)
+    except Exception:
+        pass
+    n = await cards.count()
+    for i in range(n):
+        card = cards.nth(i)
+        label = ""
+        value = ""
+        try:
+            label = _normalize_label(await card.locator(".TUXText").first.inner_text(timeout=2000))
+        except Exception:
+            continue
+        try:
+            value = await card.locator("span.absolute-value").first.inner_text(timeout=2000)
+        except Exception:
+            try:
+                value = await card.locator(".absolute-value").first.inner_text(timeout=1500)
+            except Exception:
+                continue
+        key = None
+        for k, field in LABEL_MAP.items():
+            if k in label:
+                key = field
+                break
+        if not key:
+            continue
+        parsed = _parse_number(value)
+        if key == "avg_watch":
+            metrics["avg_watch_raw"] = value.strip()
+            m = re.search(r"([\d.,]+)\s*s", value, re.I)
+            if m:
+                try:
+                    metrics["avg_watch_s"] = float(m.group(1).replace(",", "."))
+                except ValueError:
+                    pass
+        elif key == "total_play":
+            metrics["total_play_raw"] = value.strip()
+        elif key == "followers":
+            metrics["new_followers"] = parsed
+        elif parsed is not None:
+            metrics[key] = parsed
+    return metrics
+
+
 async def scrape_from_page_text(page) -> dict:
     """Fallback: parse visible page text for known metric labels."""
     try:
         body = await page.inner_text("body", timeout=8000)
     except Exception:
-        try:
-            body = await page.content()
-        except Exception:
-            return {}
+        return {}
     metrics = {}
     flat = re.sub(r"\s+", " ", body or "")
     patterns = [
         (r"visualiza[cç][oõ]es do v[ií]deo\s*([\d\.,]+%?|\d[\d\.,]*)", "views_7d"),
-        (r"video views\s*([\d\.,]+)", "views_7d"),
         (r"assistiu ao v[ií]deo completo\s*([\d\.,]+%?)", "watch_pct"),
-        (r"watched full video\s*([\d\.,]+%?)", "watch_pct"),
         (r"novos seguidores\s*([-]?[\d\.,]+)", "new_followers"),
-        (r"new followers\s*([-]?[\d\.,]+)", "new_followers"),
         (r"tempo m[eé]dio de visualiza[cç][aã]o\s*([\d\.,]+\s*s)", "avg_watch_raw"),
-        (r"average watch time\s*([\d\.,]+\s*s)", "avg_watch_raw"),
-        (r"tempo total de reprodu[cç][aã]o\s*([^\n]{0,40}?)", "total_play_raw"),
+        (r"tempo total de reprodu[cç][aã]o\s*([0-9hms:]+)", "total_play_raw"),
     ]
     for pat, key in patterns:
         m = re.search(pat, flat, re.I)
@@ -125,82 +223,22 @@ async def scrape_from_page_text(page) -> dict:
 
 
 async def scrape_analytics_page(page) -> dict:
-    metrics = {}
-    selectors = [
-        '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"]',
-        '[data-tt*="VideoMetricsCard"]',
-        '[class*="VideoMetricsCard"]',
-    ]
-    cards = None
-    n = 0
-    for sel in selectors:
-        loc = page.locator(sel)
-        try:
-            n = await loc.count()
-        except Exception:
-            n = 0
-        if n:
-            cards = loc
-            break
-    if cards is not None and n:
-        for i in range(n):
-            card = cards.nth(i)
-            label = ""
-            value = ""
-            for ls in [".TUXText", "[class*='TUXText']", "span", "div"]:
-                try:
-                    label = _normalize_label(await card.locator(ls).first.inner_text(timeout=800))
-                    if label:
-                        break
-                except Exception:
-                    continue
-            for vs in [".absolute-value", "[class*='absolute-value']"]:
-                try:
-                    value = await card.locator(vs).first.inner_text(timeout=800)
-                    if value:
-                        break
-                except Exception:
-                    continue
-            if not value:
-                try:
-                    full = await card.inner_text(timeout=800)
-                    parts = [p.strip() for p in re.split(r"\n+", full) if p.strip()]
-                    if len(parts) >= 2:
-                        label = _normalize_label(parts[0])
-                        value = parts[-1]
-                except Exception:
-                    continue
-            if not label or not value:
-                continue
-            key = None
-            for k, field in LABEL_MAP.items():
-                if k in label:
-                    key = field
-                    break
-            if not key:
-                continue
-            parsed = _parse_number(value)
-            if key == "avg_watch":
-                metrics["avg_watch_raw"] = value.strip()
-                m = re.search(r"([\d.,]+)\s*s", value, re.I)
-                if m:
-                    try:
-                        metrics["avg_watch_s"] = float(m.group(1).replace(",", "."))
-                    except ValueError:
-                        pass
-            elif key == "total_play":
-                metrics["total_play_raw"] = value.strip()
-            elif key == "followers":
-                metrics["new_followers"] = parsed
-            elif parsed is not None:
-                metrics[key] = parsed
-    if not metrics:
-        metrics = await scrape_from_page_text(page)
+    """Merge VideoInfoCard engagement + VideoMetricsCard overview (+ text fallback)."""
+    info = await scrape_info_card(page)
+    cards = await scrape_metrics_cards(page)
+    # cards override info for overlapping keys (views etc.) when present
+    metrics = {**info, **cards}
+    if not metrics or ("views_7d" not in metrics and "watch_pct" not in metrics):
+        extra = await scrape_from_page_text(page)
+        for k, v in extra.items():
+            metrics.setdefault(k, v)
     else:
         extra = await scrape_from_page_text(page)
         for k, v in extra.items():
             metrics.setdefault(k, v)
+    # drop non-form helpers from top-level later; keep caption in raw only via caller
     return metrics
+
 
 async def find_video_id_on_content(page, *, want_id: str | None = None, caption_hint: str | None = None) -> str | None:
     links = page.locator('a[data-tt="components_PostInfoCell_a"]')
@@ -320,7 +358,7 @@ async def collect_metrics(page, *, video_url: str | None = None, caption_hint: s
 
     try:
         await page.wait_for_selector(
-            '.absolute-value, [data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], [data-tt*="VideoMetricsCard"]',
+            '[data-tt="VideoOverviewPage_VideoMetricsCard_Clickable"], span.absolute-value, [data-tt="components_AnalyticsCard_CardWrapper"], [data-tt="VideoOverviewPage_VideoInfoCard_FlexRow"]',
             timeout=60000,
         )
     except Exception:
