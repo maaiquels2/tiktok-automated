@@ -775,22 +775,32 @@ def create_app(config=None):
         db().commit()
         return jsonify(layout=positions)
 
-    def write_with_llm(campaign, pack):
+    def write_with_llm(campaign, pack, cid=None):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
 
         A auditoria local decide se o texto entra. Reprovado duas vezes, fica o
         deterministico -- o app nunca para por causa do provedor.
         """
+        def registrar(origem, motivo=''):
+            # Fica no checklist (que agora sobrevive as transicoes) para a tela
+            # poder dizer quem escreveu. Sem isso o operador nao tem como saber
+            # se leu um texto do modelo ou do gerador local.
+            if cid:
+                patch_checklist(cid, {'writer': {'by': origem, 'reason': motivo}})
+
         settings = copywriter.load_settings(app.config['DATA_DIR'])
         if not settings.get('enabled'):
+            registrar('local')
             return pack, ''
         written, motivo = copywriter.write_script(campaign, settings)
         if not written:
             app.logger.info('Escrita por IA recusada: %s', motivo)
+            registrar('local', motivo)
             return pack, motivo
         merged = dict(pack)
         merged.update({k: written[k] for k in ('hook', 'development', 'cta', 'caption')})
         merged['video'] = generate(campaign, script=merged)['video']
+        registrar(settings.get('provider') or 'ia')
         return merged, ''
 
     @app.get('/api/writer')
@@ -842,12 +852,12 @@ def create_app(config=None):
         if len(colors)>=2:
             variants=generate_variants(current)
             for variant in variants:
-                variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'])
+                variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'],cid)
                 db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
                              (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
             save_prompts(cid,variants[0]['prompts'])
         else:
-            pack,_=write_with_llm(current,generate(current))
+            pack,_=write_with_llm(current,generate(current),cid)
             save_prompts(cid,pack)
         touch(cid)
         db().commit()
@@ -872,7 +882,7 @@ def create_app(config=None):
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         variants=generate_variants(current)
         for variant in variants:
-            variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'])
+            variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'],cid)
             db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
                          (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
         save_prompts(cid,variants[0]['prompts'])
@@ -1305,7 +1315,7 @@ def create_app(config=None):
         if not isinstance(fields,list) or not fields or any(not isinstance(f,str) or f not in allowed for f in fields):
             raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
         merged=refresh_script_fields(c,c['color'],current['prompts'],fields=fields)
-        rewritten,_=write_with_llm(c,merged)
+        rewritten,_=write_with_llm(c,merged,cid)
         # Refresh so da legenda nao precisa reescrever as falas.
         merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
         if set(fields)&{'hook','development','cta'}:

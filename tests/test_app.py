@@ -416,6 +416,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('401',motivo)
         self.assertIn('Incorrect API key',motivo)
 
+    def test_campaign_records_who_wrote_the_script(self):
+        # Sem este registro nao ha como a tela dizer se o texto veio do modelo
+        # de linguagem ou do gerador local.
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        self.assertEqual(self.get()['checklist']['writer']['by'],'local')
+
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        aprovado={'hook':'Você já deixou de comprar um vestido com medo de ficar curto demais?',
+                  'development':'O tecido cai reto e não marca. Girei aqui e continua no lugar. Uso no trabalho e depois no jantar.',
+                  'cta':'Tá no produto marcado aqui embaixo.','caption':'O vestido que eu não tiro. #vestido #tiktokshop'}
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'benefit':'Tecido leve e fresco'},headers=self.headers)
+        with patch('services.copywriter.write_script',return_value=(aprovado,'')):
+            self.assertEqual(self.post('/generate').status_code,200)
+        self.assertEqual(self.get()['checklist']['writer']['by'],'openai')
+
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'benefit':'Tecido leve'},headers=self.headers)
+        with patch('services.copywriter.write_script',return_value=(None,'o provedor respondeu 429')):
+            self.assertEqual(self.post('/generate').status_code,200)
+        registro=self.get()['checklist']['writer']
+        self.assertEqual(registro['by'],'local')
+        self.assertIn('429',registro['reason'])
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})

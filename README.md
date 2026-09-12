@@ -119,6 +119,20 @@ O iniciador imprime o endereço de LAN (algo como `http://192.168.0.10:5050`). A
 
 Isso **não** é hospedagem na nuvem: o servidor continua sendo o seu PC, que precisa estar ligado. Para restringir o acesso a `127.0.0.1`, defina `FABRICA_LAN=0`.
 
+### Quem escreve as falas — três coisas diferentes
+
+É fácil confundir, então vale separar:
+
+| Onde | O que é | Quando age |
+|---|---|---|
+| **Gerador local** (`services/prompts.py`) | Regras em Python. Monta hook, desenvolvimento, CTA e legenda a partir dos campos do briefing. Não usa internet nem API. | Sempre que a escrita por IA está desligada, falha ou é reprovada. |
+| **Escrita por IA** (`services/copywriter.py`) | O app chama a API da OpenAI ou do Gemini com a sua chave, recebe o texto e audita antes de aceitar. | Só quando você liga em Identidade → Escrita das falas. É o app que faz a chamada, sozinho, a cada geração. |
+| **Skill `roteiro-ugc-15s`** | Um documento de método. Vive no Claude, **não** dentro do app. | Quando você pede roteiro ao Claude numa conversa. O app não lê esse arquivo. |
+
+As regras da skill foram traduzidas para a instrução que o app manda ao modelo, mas são **duas cópias**: mudar a skill não muda o app, e vice-versa. Se você evoluir a skill e quiser que o app acompanhe, peça a sincronização.
+
+**Como saber qual dos dois escreveu:** a etapa *Roteiro de 15s* mostra um selo no topo — "Escrito por IA · OpenAI" ou "Texto local (sem IA)". Quando a IA é recusada pela auditoria ou pelo provedor, o selo mostra o motivo.
+
 ### Escrita das falas por IA (opcional)
 
 O gerador local é correto e nunca inventa atributo, mas monta a frase a partir do rótulo do briefing — por isso sai coisa como *"Repara no tecido sem transparência"*. Quem escreve bem é um modelo de linguagem; quem garante a honestidade é o código.

@@ -646,9 +646,22 @@ function ScriptBudget({draft}){
     </span>
   </div>;
 }
+// Quem escreveu este roteiro: o modelo de linguagem ou o gerador local. Sem
+// isto na tela, nao ha como o operador saber qual dos dois ele esta lendo.
+function WriterBadge({c}){
+  const info=(c.checklist||{}).writer;
+  if(!info) return null;
+  const nomes={openai:'OpenAI',gemini:'Gemini',ia:'IA'};
+  const porIA=info.by&&info.by!=='local';
+  return <div className={'writer-badge '+(porIA?'is-ai':'is-local')}>
+    <strong>{porIA?`Escrito por IA · ${nomes[info.by]||info.by}`:'Texto local (sem IA)'}</strong>
+    {!porIA&&info.reason&&<small>A IA tentou e foi recusada: {info.reason}. Use “Atualizar fala inteira” para tentar de novo.</small>}
+    {!porIA&&!info.reason&&<small>Ligue a escrita por IA no ícone de Identidade, no topo.</small>}
+  </div>;
+}
 function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh}){
   const [draft,setDraft]=useState({hook:c.prompts.hook,development:c.prompts.development,cta:c.prompts.cta});
   const fields=[['hook','Hook','0–4s'],['development','Desenvolvimento','4–12s'],['cta','Chamada para ação','12–15s']];
   const changed=Object.keys(draft).some(k=>draft[k]!==c.prompts[k]);
-  return <div className="script-editor">{c.status!=='published'&&onRefresh&&<div className="script-refresh-actions"><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'])}>Atualizar hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'])}>Atualizar fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<ScriptBudget draft={draft}/></div>;
+  return <div className="script-editor"><WriterBadge c={c}/>{c.status!=='published'&&onRefresh&&<div className="script-refresh-actions"><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'])}>Atualizar hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'])}>Atualizar fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<ScriptBudget draft={draft}/></div>;
 }
