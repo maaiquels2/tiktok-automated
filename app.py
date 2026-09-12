@@ -3,6 +3,7 @@ import io
 import json
 import math
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -28,6 +29,12 @@ STATES = ['briefing','image_ready','image_approved','script_ready','video_ready'
 FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','objection','offer','generator']
 PROMPTS = ['image','video','hook','development','cta','caption']
 NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
+
+try:
+    import psycopg2 as _psycopg2_probe
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, _psycopg2_probe.IntegrityError)
+except ImportError:
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
 
 class Invalid(Exception):
     def __init__(self, message, status=400):
@@ -65,7 +72,81 @@ def create_app(config=None):
                       CLOUD_MODE=cloud_mode,AUTH_REQUIRED=auth_required)
     db_path = app.config['DATA_DIR']/'fabrica_tiktok.db'
 
+    class _CloudRow(dict):
+        """Uma linha vinda do Postgres que aceita tanto row['coluna'] quanto
+        row[0], do jeito que o sqlite3.Row ja se comportava no app local."""
+        def __getitem__(self, key):
+            if isinstance(key, int):
+                return list(self.values())[key]
+            return dict.__getitem__(self, key)
+
+    def _adapt_sql(query):
+        text = query.strip()
+        upper = text.upper()
+        if upper.startswith('BEGIN'):
+            return 'BEGIN', False
+        if 'INSERT OR IGNORE INTO' in upper:
+            text = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', text, flags=re.IGNORECASE)
+            text = text.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
+        want_id = bool(re.match(r'insert\s+into\s+(campaigns|users)\b', text, re.IGNORECASE)) and 'RETURNING' not in text.upper()
+        text = text.replace('?', '%s')
+        if want_id:
+            text = text.rstrip().rstrip(';') + ' RETURNING id'
+        return text, want_id
+
+    class _CloudCursor:
+        def __init__(self, cursor):
+            self._cursor = cursor
+            self.lastrowid = None
+        def execute(self, query, params=()):
+            text, want_id = _adapt_sql(query)
+            if text == 'BEGIN':
+                return self
+            self._cursor.execute(text, tuple(params))
+            if want_id:
+                row = self._cursor.fetchone()
+                self.lastrowid = row['id'] if row else None
+            return self
+        def fetchone(self):
+            row = self._cursor.fetchone()
+            return _CloudRow(row) if row is not None else None
+        def fetchall(self):
+            return [_CloudRow(r) for r in self._cursor.fetchall()]
+        def __iter__(self):
+            return iter(self.fetchall())
+        @property
+        def rowcount(self):
+            return self._cursor.rowcount
+
+    class _CloudConnection:
+        """Faz uma conexao psycopg2 (Postgres/Supabase) responder a mesma
+        'linguagem' que o resto do app ja fala com sqlite3: .execute(sql,params)
+        com '?' no lugar de '%s', .commit()/.rollback()/.close(), e cursores que
+        aceitam tanto row['coluna'] quanto row[0]."""
+        def __init__(self, pg_conn):
+            self._conn = pg_conn
+        def execute(self, query, params=()):
+            cursor = _CloudCursor(self._conn.cursor())
+            return cursor.execute(query, params)
+        def commit(self):
+            self._conn.commit()
+        def rollback(self):
+            self._conn.rollback()
+        def close(self):
+            self._conn.close()
+
     def connect():
+        if cloud_mode:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            dsn = os.environ.get('FABRICA_DATABASE_URL', '').strip()
+            if not dsn:
+                raise RuntimeError(
+                    'FABRICA_CLOUD=1 exige a variavel FABRICA_DATABASE_URL '
+                    '(string de conexao do Postgres/Supabase, em Configuracoes > Database no painel do Supabase).'
+                )
+            pg_conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor)
+            return _CloudConnection(pg_conn)
         conn = sqlite3.connect(db_path,timeout=20)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
@@ -77,7 +158,10 @@ def create_app(config=None):
         Todo o trabalho da fabrica vive neste arquivo e ele fica fora do Git de
         proposito. Sem copia automatica, um disco com defeito ou um `data/`
         apagado por engano levam campanhas, playbook, identidade e historico.
+        Na nuvem quem cuida do backup do Postgres e o proprio Supabase.
         """
+        if cloud_mode:
+            return
         try:
             if not db_path.exists() or db_path.stat().st_size == 0:
                 return
@@ -96,6 +180,10 @@ def create_app(config=None):
             app.logger.warning('Backup diario nao realizado: %s', exc)
 
     def migrate():
+        if cloud_mode:
+            # O schema do Postgres ja foi criado pela migracao do Supabase;
+            # as migracoes automaticas abaixo sao especificas do SQLite local.
+            return
         with closing(connect()) as conn:
             version=conn.execute('PRAGMA user_version').fetchone()[0]
             exists=conn.execute("SELECT 1 FROM sqlite_master WHERE name='campaigns'").fetchone()
@@ -415,7 +503,7 @@ def create_app(config=None):
             uid=db().execute('INSERT INTO users(username,display_name,password_hash,role) VALUES(?,?,?,\'editor\')',
                              (username,display,generate_password_hash(password))).lastrowid
             db().commit()
-        except sqlite3.IntegrityError:
+        except DB_INTEGRITY_ERRORS:
             db().rollback()
             raise Invalid('Este usuário já existe.',409)
         row=db().execute('SELECT id,username,display_name,role FROM users WHERE id=?',(uid,)).fetchone()
