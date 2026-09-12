@@ -439,6 +439,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(registro['by'],'local')
         self.assertIn('429',registro['reason'])
 
+    def test_audit_does_not_confuse_acabamento_with_urgency(self):
+        # "acaba" casava dentro de "acabamento" e reprovava o texto mais honesto
+        # que existe sobre qualidade de costura. Pegou um bom roteiro na pratica.
+        from services.copywriter import audit
+        brief=dict(product='Legging',outfit='legging',benefit='tem cós largo',angle='',
+                   details='',objection='',offer='')
+        honesto=dict(hook='Se você já desistiu da legging por parecer barata de perto, olha isto',
+                     development='Repara no acabamento e na costura de perto. Agachei aqui e continua opaca. Uso no treino e na rua',
+                     cta='Toque no produto marcado e confira',caption='legging preta #legging')
+        self.assertEqual(audit(honesto,brief),[])
+        com_urgencia={**honesto,'cta':'Corre que acaba hoje, toque no produto'}
+        self.assertTrue(any('urgência' in p for p in audit(com_urgencia,brief)))
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})

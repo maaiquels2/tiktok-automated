@@ -46,11 +46,20 @@ CLAIM_TERMS = (
     'sustentavel', 'orgânico', 'organico', 'certificado',
 )
 
-URGENCY_TERMS = (
-    'últimas', 'ultimas', 'acaba', 'acabando', 'esgot', 'só hoje', 'so hoje',
-    'corre', 'promoção relâmpago', 'promocao relampago', 'por tempo limitado',
-    'última chance', 'ultima chance', 'desconto', 'off', 'frete grátis',
-    'frete gratis', 'oferta',
+URGENCY_PATTERNS = (
+    r'\búltim[ao]s?\s+(?:chance|unidades|peças|pecas)\b',
+    r'\búltimas\b', r'\bultimas\b',
+    r'\bacab(?:a|ou|ando|ar)\b',
+    r'\besgot\w*\b',
+    r'\bs[óo]\s+hoje\b',
+    r'\bcorre\b', r'\bcorra\b',
+    r'\brel[âa]mpago\b',
+    r'\bpor\s+tempo\s+limitado\b',
+    r'\bdesconto\w*\b',
+    r'\bpromo(?:ção|cao|ções|coes)\b',
+    r'\bfrete\s+gr[áa]tis\b',
+    r'\boferta\w*\b',
+    r'\b\d{1,3}\s*%\s*(?:off|de\s+desconto)\b',
 )
 
 BUDGET = {'hook': (9, 14), 'development': (18, 26), 'cta': (6, 10)}
@@ -192,9 +201,10 @@ def audit(pack: dict, c: dict) -> list[str]:
             problemas.append(f'"{termo}" não está no briefing e não pode ser afirmado')
 
     if not _offer_text(c):
-        for termo in URGENCY_TERMS:
-            if re.search(r'\b' + re.escape(termo), falado):
-                problemas.append(f'"{termo}" é urgência e não existe oferta real no briefing')
+        for padrao in URGENCY_PATTERNS:
+            achado = re.search(padrao, falado)
+            if achado:
+                problemas.append(f'"{achado.group(0)}" é urgência e não existe oferta real no briefing')
                 break
 
     caption = (pack.get('caption') or '')
