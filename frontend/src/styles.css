@@ -4649,3 +4649,30 @@ button.linkish {
   font-weight: 650;
   opacity: 0.75;
 }
+
+/* O painel de escrita fica recolhido por padrão: aberto, ele empurrava o
+   "Salvar identidade" para fora da tela e o segundo botão era clicado por
+   engano, dando a impressão de que a identidade não salvava. */
+.writer-panel.is-collapsed .setup-head {
+  margin-bottom: 0;
+}
+.writer-panel .setup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.writer-panel .identity-toggle {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.writer-panel .identity-toggle strong {
+  font-size: 15px;
+}

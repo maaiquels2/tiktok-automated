@@ -901,6 +901,7 @@ export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,o
 
 export function WriterSettingsPanel({busy,onError,onFlash}){
   const [data,setData]=useState(null);
+  const [open,setOpen]=useState(false);
   const [key,setKey]=useState('');
   const [saving,setSaving]=useState(false);
   const [testing,setTesting]=useState(false);
@@ -915,7 +916,7 @@ export function WriterSettingsPanel({busy,onError,onFlash}){
       if(key.trim()) payload.api_key=key.trim();
       const saved=await saveWriterSettings(payload);
       setData(saved);setKey('');
-      onFlash?.(saved.enabled?'Escrita por IA ligada.':'Configuração salva.');
+      onFlash?.(saved.enabled?'Escrita por IA ligada. A identidade tem o botão próprio, acima.':'Configuração da escrita salva.');
     }catch(e){onError?.(e.message)}finally{setSaving(false)}
   }
   async function test(){
@@ -926,9 +927,15 @@ export function WriterSettingsPanel({busy,onError,onFlash}){
       else onError?.('O provedor recusou: '+(r.message||'motivo não informado'));
     }catch(e){onError?.(e.message)}finally{setTesting(false)}
   }
-  return <section className="writer-panel card-panel">
-    <div className="section-title"><h3>Escrita das falas por IA</h3>
-      <span className="help">{data.enabled?'Ligada':'Desligada'}</span></div>
+  return <section className={'writer-panel card-panel'+(open?' is-open':' is-collapsed')}>
+    <div className="setup-head">
+      <button type="button" className="identity-toggle" onClick={()=>setOpen(o=>!o)}>
+        <span className="eyebrow">ESCRITA DAS FALAS</span>
+        <strong>{data.enabled?`Por IA · ${data.provider==='gemini'?'Gemini':'OpenAI'}`:'Texto local (sem IA)'}</strong>
+      </button>
+      <button type="button" className="button" onClick={()=>setOpen(o=>!o)}>{open?'Recolher':'Configurar'}</button>
+    </div>
+    {open && <>
     <p className="help">
       Com isto ligado, o hook, o desenvolvimento, o CTA e a legenda passam a ser escritos por um
       modelo de linguagem. O app continua conferindo cada texto: orçamento de palavras, nenhum
@@ -959,7 +966,7 @@ export function WriterSettingsPanel({busy,onError,onFlash}){
     <div className="form-actions">
       {data.has_key&&<button type="button" disabled={busy||saving} onClick={()=>save({clear_key:true,enabled:false})}>Remover chave</button>}
       {data.provider&&data.has_key&&<button type="button" disabled={busy||testing} onClick={test}>{testing?'Testando…':'Testar conexão'}</button>}
-      <button type="button" className="primary" disabled={busy||saving} onClick={()=>save()}>{saving?'Salvando…':'Salvar'}</button>
+      <button type="button" className="primary" disabled={busy||saving} onClick={()=>save()}>{saving?'Salvando…':'Salvar escrita por IA'}</button>
     </div>
     {sample&&<div className="notice writer-sample">
       <strong>Exemplo gerado agora:</strong>
@@ -967,6 +974,7 @@ export function WriterSettingsPanel({busy,onError,onFlash}){
       <p><em>Desenvolvimento:</em> {sample.development}</p>
       <p><em>CTA:</em> {sample.cta}</p>
     </div>}
+    </>}
   </section>;
 }
 
