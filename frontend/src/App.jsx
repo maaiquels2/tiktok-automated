@@ -28,7 +28,7 @@ export default function App(){
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
   const [renaming,setRenaming]=useState(false),[renameDraft,setRenameDraft]=useState('');
   const [identity,setIdentity]=useState(null);
-  const [lanUrls,setLanUrls]=useState([]);
+  const [lanUrls,setLanUrls]=useState([]),[lanPin,setLanPin]=useState('');
   const lock=useRef(false),noticeTimer=useRef();
   useEffect(()=>{
     let active=true;
@@ -36,6 +36,7 @@ export default function App(){
       const [list,refs,ident,h]=await Promise.all([api('/campaigns'),api('/references'),studioIdentity().catch(()=>null),health().catch(()=>null)]);
       if(ident) setIdentity(ident);
       if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
+      api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
       const first=list[0]?await api('/campaigns/'+list[0].id):null;
       if(active){
         setCampaigns(list);setReferences(refs);
@@ -138,8 +139,18 @@ export default function App(){
   async function run(action,message='Salvo localmente.',next){
     if(lock.current)return false;
     lock.current=true;setBusy(true);setError('');
+    // O painel remonta a cada gravacao (a chave inclui a versao da campanha),
+    // o que garante texto sempre atual mas jogava o scroll de volta ao topo.
+    const scroller=document.querySelector('.inspector');
+    const keepScroll=scroller?scroller.scrollTop:0;
     try{const result=await action();if(result?.id){setC(result);setDirty(false);if(next)setSelected(next)}await refresh();flash(message);return true}
-    catch(e){setError(e.message);return false}finally{lock.current=false;setBusy(false)}
+    catch(e){setError(e.message);return false}
+    finally{
+      lock.current=false;setBusy(false);
+      if(keepScroll>0&&!next){
+        requestAnimationFrame(()=>{const el=document.querySelector('.inspector');if(el)el.scrollTop=keepScroll});
+      }
+    }
   }
   function choose(stage){if(!busy&&discard()){if(stage==='performance'){setMode('results');setSelected('performance');setError('');return}setMode('produce');setSelected(stage);setError('')}}
   function publicationLinks(campaign){
@@ -364,7 +375,8 @@ export default function App(){
         <span className="identity-icon-label">{identity?.model_name||'Identidade'}</span>
       </button>
       <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':'Dados no computador'}</span>
-      {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash('Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
+      {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash(lanPin?`Link copiado. No celular, o PIN e ${lanPin}.`:'Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
+      {lanPin && lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <span className="lan-pin" title="Quem abrir pela rede local precisa digitar este PIN. Fica em data/lan_pin.txt.">PIN {lanPin}</span> : null}
     </div></header>
     
     {mode==='home' && (
@@ -612,9 +624,31 @@ function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,
   return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant} onRefreshCaption={onRefreshScript} onSaveCaption={(prompts)=>prompts?._variantId?onSaveVariant?.(prompts._variantId,{caption:prompts.caption}):onSaveTexts(prompts)}/>}{index>=6&&<div className="notice">Métricas e Crítico: abra <strong>Resultados</strong> no topo da página.</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;
 }
 
+// Portugues falado rende ~2,8 palavras por segundo. O total sozinho nao diz
+// onde esta o excesso: um hook de 16 palavras estoura os 4 segundos mesmo num
+// roteiro de 44 palavras.
+const SCRIPT_BUDGET={hook:[10,12,'0–4s'],development:[20,24,'4–12s'],cta:[7,9,'12–15s']};
+function countWords(value){const clean=String(value||'').trim();return clean?clean.split(/\s+/).length:0}
+function ScriptBudget({draft}){
+  const rows=Object.entries(SCRIPT_BUDGET).map(([key,[low,high,time]])=>{
+    const words=countWords(draft[key]);
+    const state=words>=low&&words<=high?'ok':(words<low?(words>=low-2?'near':'off'):(words<=high+2?'near':'off'));
+    return {key,words,low,high,time,state};
+  });
+  const total=rows.reduce((sum,row)=>sum+row.words,0);
+  const totalState=total>=38&&total<=45?'ok':(total<=47?'near':'off');
+  return <div className="script-budget">
+    {rows.map(row=><span key={row.key} className={'budget-chip is-'+row.state} title={`${row.time}: alvo ${row.low} a ${row.high} palavras`}>
+      <em>{row.time}</em>{row.words}<small>/{row.low}–{row.high}</small>
+    </span>)}
+    <span className={'budget-chip is-total is-'+totalState} title="15 segundos cabem entre 38 e 45 palavras faladas">
+      <em>total</em>{total}<small>/38–45</small>
+    </span>
+  </div>;
+}
 function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh}){
   const [draft,setDraft]=useState({hook:c.prompts.hook,development:c.prompts.development,cta:c.prompts.cta});
   const fields=[['hook','Hook','0–4s'],['development','Desenvolvimento','4–12s'],['cta','Chamada para ação','12–15s']];
   const changed=Object.keys(draft).some(k=>draft[k]!==c.prompts[k]);
-  return <div className="script-editor">{c.status!=='published'&&onRefresh&&<div className="script-refresh-actions"><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'])}>Atualizar hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'])}>Atualizar fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<div className="script-word-count">{Object.values(draft).join(' ').trim().split(/\s+/).length} palavras · confirme o tempo com uma leitura</div></div>;
+  return <div className="script-editor">{c.status!=='published'&&onRefresh&&<div className="script-refresh-actions"><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'])}>Atualizar hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'])}>Atualizar fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<ScriptBudget draft={draft}/></div>;
 }

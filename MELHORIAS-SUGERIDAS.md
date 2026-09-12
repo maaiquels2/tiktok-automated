@@ -8,6 +8,56 @@ Cada item traz **o que é**, **por que importa** e **como corrigir**. A ordem de
 
 ---
 
+## Status — o que já foi feito
+
+Revisão executada em 12/09/2026. A suíte passou de 51 para 61 testes, todos verdes, e as mudanças de interface foram conferidas com o app rodando.
+
+| Item | Estado |
+|---|---|
+| A1 "legging" fixa no prompt de imagem | ✅ feito — o substantivo vem do produto |
+| A2 pontuação dupla nas falas | ✅ feito |
+| A3 `checklist` sobrescrito | ✅ feito — gravações mesclam e a transição preserva métricas, insights e cores publicadas |
+| A4 `#ModaFeminina` em qualquer produto | ✅ feito |
+| A5 prompt de imagem com dois modos | ✅ feito — 1ª cor cria a base, as demais editam |
+| A6 oito testes falhando | ✅ feito — sete alinhados ao comportamento atual, um era bug de teste |
+| B1 hooks todos iguais | ✅ feito — famílias por motor |
+| B2 cor desperdiçando palavras do hook | ✅ feito |
+| B3 desenvolvimento sem estrutura | ✅ feito — prova → objeção → posse |
+| B4 CTA único | ✅ feito — quatro famílias, escolhidas pelo motor |
+| B5 orçamento de palavras | ✅ feito — por trecho; ao estourar cai a posse, não a prova |
+| B6 briefing sem objeção e oferta | ✅ feito — dois campos novos |
+| B7 gerador só sabia falar de roupa | ✅ feito — camada de família de produto |
+| B8 fala declarada em dois beats | ✅ feito |
+| B9 código morto | ✅ feito |
+| C1 sem backup automático | ✅ feito — cópia diária, 10 dias de histórico |
+| C2 trava `busy` global | ✅ feito — operações longas do Studio não congelam mais o app |
+| C3 painel remontado a cada save | ✅ parcial — a posição do scroll é preservada; a remontagem foi mantida de propósito (ver abaixo) |
+| C4 rede local sem autenticação | ✅ feito — PIN de 4 dígitos |
+| C5 multi-cor pode não estar em uso | ⏳ depende de você — a tabela continua vazia |
+| C6 dois caminhos publicam | ✅ mitigado — o risco era perda de dados, resolvido no A3; a unificação em si continua pendente |
+| D1 trabalho na coluna mais estreita | ❌ **achado incorreto, retirado** (ver abaixo) |
+| D2 sem sistema de design | ✅ feito — 226 tokens por papel |
+| D3 oito breakpoints | ✅ parcial — 21 blocos `@media` viraram 10, um por largura; a redução de 8 larguras para 3 continua pendente |
+| D4 CSS em duas linhas | ✅ feito — formatado, 4.500 linhas legíveis |
+| D5 sem modo escuro / reduced-motion | ✅ feito |
+| D6 foco de teclado inconsistente | ✅ feito |
+| D7 resíduo do React Flow | ✅ feito — dependência, import e CSS removidos |
+| D8 contador de palavras pouco útil | ✅ feito — por trecho, com faixa alvo e cor |
+
+### Correção: o item D1 estava errado
+
+O relatório original dizia que o painel de trabalho ficava espremido em 350 px enquanto o stepper ocupava o centro largo. Isso foi lido do CSS base (`.workspace`), mas a tela de produção usa `.produce-workspace`, que sobrescreve esse grid.
+
+Com o app aberto em 1600 px, a medição real é: fila de campanhas 210 px, painel do stepper 1375 px e **painel de trabalho 1375 px** — ele ocupa a largura inteira, numa segunda linha. A hierarquia já estava correta; não havia o que inverter. O que de fato existia ali era um defeito pequeno de layout — o rótulo `#0021 · Micaela · Grok · 15s` colado no título da campanha na mesma linha —, esse sim corrigido.
+
+Fica o registro do método: o achado nasceu de ler o CSS sem abrir a tela. A verificação visual desmentiu.
+
+### Sobre o C3
+
+A remontagem do painel a cada gravação foi **mantida**. Ela é uma escolha defensiva correta: garante que nenhum campo mostre texto desatualizado depois de um refresh do roteiro. Trocá-la por sincronização manual exigiria acertar seis pontos de estado diferentes (rascunhos de texto, confirmações da etapa, link de publicação, aba de cor ativa), com risco de exibir conteúdo velho — pior do que o problema. O incômodo real, perder a posição da rolagem, foi resolvido guardando e restaurando o scroll.
+
+---
+
 ## Resumo executivo
 
 O projeto está sólido na arquitetura e na disciplina de não inventar atributos de produto — isso é raro e vale preservar. Os problemas se concentram em três lugares:
@@ -248,7 +298,9 @@ Todas são **convites a observar**. Nenhuma usa dor ("cansei de legging que desc
 
 ## 🔵 Bloco D — Design e interface
 
-### D1. O trabalho acontece na coluna mais estreita
+### D1. ~~O trabalho acontece na coluna mais estreita~~ — RETIRADO
+
+> Verificado com o app aberto: não procede. O painel de trabalho já ocupa a largura inteira na tela de produção. Ver a correção no topo do documento. O texto abaixo fica como registro do erro.
 **O que é.** O layout de produção é `250px (lista) | centro largo (stepper) | 350px (inspector)`. O **inspector** é onde você lê prompts, edita roteiro, anexa mídia e confere aprovação — ou seja, onde 90% do trabalho acontece. O centro, muito mais largo, mostra o stepper das etapas, que é navegação.
 
 **Por que importa.** Prompts de vídeo têm 400+ palavras e você os lê numa coluna de 350 pixels. É a inversão da hierarquia: a navegação ganhou o espaço nobre e o conteúdo ficou espremido.

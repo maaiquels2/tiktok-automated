@@ -57,6 +57,12 @@ def main():
                     print(f'Fabrica na LAN (mesmo Wi-Fi): http://{ip}:{port}', flush=True)
         except Exception as exc:
             print(f'LAN URL skip: {exc}', flush=True)
+    try:
+        pin_file = root/'data'/'lan_pin.txt'
+        if pin_file.exists():
+            print(f'PIN para acesso pela rede: {pin_file.read_text(encoding="utf-8").strip()}', flush=True)
+    except Exception:
+        pass
     _print_lan(port)
     threading.Timer(.5,lambda:webbrowser.open(url)).start()
     server.serve_forever()

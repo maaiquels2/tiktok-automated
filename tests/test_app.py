@@ -237,6 +237,34 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn('?.',texto)
             self.assertNotIn('!.',texto)
 
+    def test_lan_access_requires_the_pin(self):
+        # Em rede compartilhada, qualquer pessoa na mesma Wi-Fi chegaria na porta
+        # 5050. O computador do estudio (loopback) continua entrando direto.
+        lan=dict(environ_base={'REMOTE_ADDR':'192.168.0.50'},headers={'Host':'192.168.0.10:5050'})
+        response=self.client.get('/api/campaigns',**lan)
+        self.assertEqual(response.status_code,401)
+        response=self.client.get('/',**lan)
+        self.assertEqual(response.status_code,401)
+        self.assertIn('PIN',response.get_data(as_text=True))
+
+        pin=self.client.get('/api/lan-pin').json['pin']
+        self.assertRegex(pin,r'^\d{4}$')
+        # Sem PIN o guard ja barra; com PIN, a rota do PIN continua exclusiva
+        # deste computador, para o segredo nao circular pela rede.
+        self.assertEqual(self.client.get('/api/lan-pin',**lan).status_code,401)
+
+        errado=self.client.post('/lan-unlock',data={'pin':'0000' if pin!='0000' else '1111'},**lan)
+        self.assertEqual(errado.status_code,401)
+
+        certo=self.client.post('/lan-unlock',data={'pin':pin},**lan)
+        self.assertEqual(certo.status_code,303)
+        self.assertEqual(self.client.get('/api/campaigns',**lan).status_code,200)
+        self.assertEqual(self.client.get('/api/lan-pin',**lan).status_code,403)
+
+    def test_local_machine_never_sees_the_pin_screen(self):
+        self.assertEqual(self.client.get('/api/campaigns').status_code,200)
+        self.assertEqual(self.client.get('/').status_code,200)
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})

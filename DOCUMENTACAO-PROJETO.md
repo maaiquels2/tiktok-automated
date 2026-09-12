@@ -170,7 +170,7 @@ Cada arquivo aqui resolve **um assunto**, para que `app.py` só precise coordena
 
 | Arquivo | Linhas | O que faz |
 |---|---:|---|
-| `prompts.py` | 1.061 | **O coração da escrita.** Gera, por regras determinísticas, os prompts de imagem e vídeo, as falas do roteiro (hook/desenvolvimento/CTA) e as legendas — um pacote por cor. Inclui normalização para pt-BR (troca "workout" por "treino de academia", "close-up" por "detalhe de perto"), extração de características do produto, sinais de persuasão e CTAs variados. Nenhuma API paga. |
+| `prompts.py` | ~1.240 | **O coração da escrita.** Gera, por regras determinísticas, os prompts de imagem e vídeo, as falas do roteiro (hook/desenvolvimento/CTA) e as legendas — um pacote por cor. Inclui normalização para pt-BR (troca "workout" por "treino de academia", "close-up" por "detalhe de perto"), extração de características do produto, sinais de persuasão e CTAs variados. Nenhuma API paga. |
 | `studio_metrics.py` | 1.394 | Raspagem do TikTok Studio com Playwright: página de conteúdo e página de analytics por vídeo. Lê os atributos `data-tt` do DOM (VideoInfoCard, VideoMetricsCard) para extrair views, watch %, likes, saves etc. |
 | `browser_assistant.py` | 1.068 | Abertura assistida de navegador. Grok e Flow abrem em **Chrome comum** (sem Playwright, para downloads não travarem a janela); o Studio usa um clone CDP do perfil da creator. Também cuida de vigiar a pasta de downloads e rotear o arquivo baixado para a campanha certa. **Não clica em gerar, não faz login, não publica.** |
 | `playbook.py` | 423 | Transforma um relatório de auditoria em lote num **playbook de replicação**: agrupa por nicho/formato, calcula medianas de views e watch%, e diz o que repetir. |
@@ -391,28 +391,20 @@ cd frontend && npm run build                # compila a UI que o Flask serve
 - Depende de Windows, Chrome instalado e FFmpeg no PATH para o mixer.
 - A geração de imagem/vídeo continua manual, por escolha de projeto.
 
-**Estado dos testes (12/09/2026)**
+**Estado dos testes (12/09/2026, após a revisão)**
 
-A suíte tem **51 testes**; **8 falham** hoje. As falhas são de *expectativa desatualizada*: os testes ainda descrevem o comportamento anterior à reescrita do `prompts.py` e às mudanças no `browser_assistant.py`. Em resumo:
+A suíte tem **61 testes e todos passam**. Os oito que falhavam eram expectativa desatualizada em relação à reescrita do gerador — foram alinhados ao comportamento atual, e oito testes novos cobrem o que passou a existir: backup diário, preservação de métricas na transição, objeção e oferta guiando o roteiro, peça correta no prompt de imagem, primeira cor versus cores seguintes, hashtags sem público presumido, ausência de pontuação dupla e o PIN da rede local.
 
-| Teste que falha | O que mudou no código |
-|---|---|
-| `test_script_uses_product_attributes_instead_of_generic_copy`, `test_generated_development_is_speech_and_fits_15_second_budget` | O desenvolvimento do roteiro deixou de citar o público ("mulheres que treinam") e passou a citar o produto e seus fatos confirmados. |
-| `test_multiple_color_prompt_variants_are_saved_and_exported` | O pacote por cor passou de 6 para 7 campos. |
-| `test_single_script_refresh_preserves_image_and_other_phrases` | O hook agora aparece dentro do prompt de vídeo com pontuação diferente (`?.`), então a comparação literal falha. |
-| `test_format_validation_and_wrong_resolution` | A aprovação de vídeo com resolução fora do alvo deixou de retornar erro 409. |
-| `test_editing_caption_requires_preparation_again` | Editar a legenda não volta mais o status para `video_approved`. |
-| `test_grok_uses_native_browser_without_playwright`, `test_grok_refuses_active_flow_profile` | Grok e Flow passaram a usar o perfil compartilhado `gen-maaiquels` em vez de `flow-maaiquels`. |
-
-As duas últimas linhas da tabela e as duas de comportamento (409 e status da legenda) merecem uma decisão consciente: se a mudança foi intencional, atualiza-se o teste; se não foi, é regressão a corrigir.
+Duas decisões ficaram registradas no código e agora também aqui: resolução e duração fora do alvo **avisam mas não bloqueiam** a aprovação do vídeo, e editar só a legenda **não** rebobina o status da campanha.
 
 **Próximos passos previstos**
 - Commitar a leva atual de mudanças.
 - Empacotamento em EXE (PyInstaller) ou Tauri/Electron.
 - Montagem automática de vídeo.
 - Possivelmente limpar `_patch/` e `work/`, que são resíduo do desenvolvimento.
-- Alinhar ou remover os 8 testes que falham (ver acima).
-- Remover a dependência `@xyflow/react`: ela continua no `package.json` e só é usada para importar um CSS em `main.jsx` — o canvas React Flow não é mais utilizado.
+- Unificar os dois caminhos de publicação (`transition` e `publish-slot`).
+- Reduzir as oito larguras de breakpoint para três, testando cada faixa com o app aberto.
+- Decidir o futuro do fluxo multi-cor (a tabela `campaign_variants` segue vazia).
 
 ---
 

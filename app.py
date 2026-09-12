@@ -202,12 +202,60 @@ def create_app(config=None):
             pass
         return urls
 
+    def lan_pin() -> str:
+        """PIN de 4 digitos exigido de quem acessa pela rede local.
+
+        Em casa o risco e baixo; em cafe, coworking ou rede compartilhada
+        qualquer pessoa na mesma Wi-Fi abriria a fabrica sem nenhuma barreira.
+        O PIN e gerado uma vez e fica em data/lan_pin.txt.
+        """
+        cached = app.config.get('LAN_PIN')
+        if cached:
+            return cached
+        path = app.config['DATA_DIR']/'lan_pin.txt'
+        try:
+            pin = path.read_text(encoding='utf-8').strip()
+        except OSError:
+            pin = ''
+        if not (pin.isdigit() and len(pin) == 4):
+            import secrets
+            pin = f'{secrets.randbelow(9000) + 1000}'
+            try:
+                path.write_text(pin, encoding='utf-8')
+            except OSError:
+                pass
+        app.config['LAN_PIN'] = pin
+        return pin
+
+    def _is_loopback_client() -> bool:
+        try:
+            return ipaddress.ip_address((request.remote_addr or '').strip()).is_loopback
+        except ValueError:
+            return False
+
+    @app.get('/api/lan-pin')
+    def lan_pin_route():
+        # So o proprio computador pode ler o PIN, para mostrar na tela e no celular.
+        if not _is_loopback_client():
+            raise Invalid('Somente neste computador.', 403)
+        return jsonify(pin=lan_pin(), lan_enabled=os.environ.get('FABRICA_LAN', '1') != '0')
+
     @app.before_request
     def local_only():
         hostname = urlsplit('http://' + request.host).hostname
         if not _host_allowed(hostname):
             raise Invalid('Este aplicativo so aceita localhost ou rede local privada (LAN).', 403)
+        if not _is_loopback_client() and request.endpoint not in {'lan_unlock', 'static_asset', 'brand_asset', 'favicon'}:
+            given = (request.cookies.get('fabrica_pin') or request.headers.get('X-Fabrica-Pin') or '').strip()
+            if given != lan_pin():
+                if request.path.startswith('/api/'):
+                    raise Invalid('Informe o PIN da fabrica para usar pela rede.', 401)
+                return unlock_page(), 401
         if request.method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
+            # O desbloqueio por PIN vem de um formulario HTML simples, que nao
+            # tem como mandar o cabecalho do app: ele se autentica pelo PIN.
+            if request.endpoint == 'lan_unlock':
+                return None
             origin = request.headers.get('Origin')
             if origin:
                 origin_host = urlsplit(origin).hostname
@@ -457,6 +505,37 @@ def create_app(config=None):
             200,
             {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store'},
         )
+
+    def unlock_page(message=''):
+        aviso = f'<p style="color:#b3261e">{message}</p>' if message else ''
+        return (
+            '<!doctype html><meta charset="utf-8"/>'
+            '<meta name="viewport" content="width=device-width,initial-scale=1"/>'
+            '<title>Fabrica TikTok</title>'
+            '<body style="font-family:system-ui;margin:0;display:grid;place-items:center;min-height:100dvh;background:#f6f5fa">'
+            '<form method="POST" action="/lan-unlock" style="background:#fff;padding:28px;border-radius:14px;'
+            'border:1px solid #e5e1ed;width:min(340px,90vw);text-align:center">'
+            '<h1 style="font-size:19px;margin:0 0 6px">Fabrica TikTok</h1>'
+            '<p style="color:#706b7e;font-size:14px;margin:0 0 18px">Digite o PIN mostrado no computador.</p>'
+            f'{aviso}'
+            '<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autofocus '
+            'style="width:100%;font-size:26px;text-align:center;letter-spacing:.4em;padding:12px;'
+            'border:1px solid #ded7e8;border-radius:9px"/>'
+            '<button style="margin-top:14px;width:100%;padding:12px;border:0;border-radius:9px;'
+            'background:#7047eb;color:#fff;font-size:15px;font-weight:600">Entrar</button>'
+            '</form></body>'
+        )
+
+    @app.post('/lan-unlock')
+    def lan_unlock():
+        given = (request.form.get('pin') or '').strip()
+        if given != lan_pin():
+            return unlock_page('PIN incorreto.'), 401
+        from flask import make_response
+        response = make_response('', 303)
+        response.headers['Location'] = '/'
+        response.set_cookie('fabrica_pin', given, max_age=60*60*24*30, samesite='Lax', httponly=True)
+        return response
 
     @app.get('/assets/<path:filename>')
     def static_asset(filename):

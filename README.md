@@ -21,10 +21,18 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 - Renomeie o rótulo de cada foto para achar rápido depois.
 - **Ficha de consistência de personagem**: gera um prompt mestre (com lista de negativos contra troca de rosto, CGI e mãos malformadas) e abre o Grok já pronto para criar a ficha de referência da modelo.
 
+### Argumento de venda (objeção e oferta)
+- Dois campos opcionais no briefing mudam bastante o roteiro:
+  - **O que mais segura a compra?** — com ele preenchido, o hook passa a falar da dor do cliente e o meio do roteiro vira a prova que derruba a dúvida.
+  - **Oferta real** — só preencha se for verdade. É o único caso em que o roteiro usa urgência; prazo ou estoque inventado é propaganda enganosa.
+- Sem esses campos, o gerador usa o motor de **desejo**, que não afirma nada além do que está no briefing.
+
 ### Roteiros 15s inteligentes
 - Produto único também tem **Atualizar hook + legenda** e **Atualizar fala inteira**. Salve edições manuais antes de regenerar. A imagem aprovada é preservada; novas falas exigem revisão do roteiro e um novo vídeo.
 - O hook usa uma abertura completa com janela sugerida de 4s. Confira o tempo total com leitura em voz alta.
 - Hook (0–4s), desenvolvimento (4–12s) e CTA (12–15s) **variam por cor**.
+- **Orçamento de fala por trecho**, com contador colorido no editor: hook 10–12 palavras, desenvolvimento 20–24, CTA 7–9, total de 38 a 45 (português falado rende ~2,8 palavras por segundo).
+- O desenvolvimento segue três batidas: prova → objeção quebrada → posse. Se o roteiro estoura o tempo, a posse cai primeiro — a prova nunca é descartada.
 - Botões **Atualizar hook + legenda** e **Atualizar fala inteira** para gerar outra variação sem recomeçar a campanha.
 - Edição manual por campo, com prompt de vídeo recalculado a partir das falas.
 
@@ -82,7 +90,7 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 
 | Camada | Tecnologia |
 |---|---|
-| UI | React + Vite (stepper de etapas, navegação por hash) |
+| UI | React + Vite (stepper de etapas, navegação por hash, tema claro/escuro) |
 | API | Flask (Python) |
 | Banco | SQLite (`data/fabrica_tiktok.db`) |
 | Mídia | Pasta `media/campanha-XXXX/` |
@@ -110,6 +118,14 @@ Duplo clique em **`reiniciar-fabrica.bat`**: encerra o processo do app naquela p
 O iniciador imprime o endereço de LAN (algo como `http://192.168.0.10:5050`). Abra esse endereço no celular conectado à mesma rede. A interface se adapta à tela, e os botões de Grok / Flow / TikTok viram links nativos, abrindo o app instalado em vez do perfil de Chrome do PC.
 
 Isso **não** é hospedagem na nuvem: o servidor continua sendo o seu PC, que precisa estar ligado. Para restringir o acesso a `127.0.0.1`, defina `FABRICA_LAN=0`.
+
+### Backup automático
+
+A cada inicialização o app copia o banco para `data/backups/fabrica-AAAA-MM-DD.db` e mantém os últimos 10 dias. `data/` fica fora do Git de propósito, então essa cópia é a única proteção contra perder campanhas, playbook e histórico.
+
+### PIN para acesso pela rede
+
+Quando você abre a Fábrica pelo celular, o app pede um **PIN de 4 dígitos**. Ele aparece no cabeçalho (só neste computador), é impresso pelo iniciador e fica guardado em `data/lan_pin.txt`. Sem isso, qualquer pessoa na mesma Wi-Fi que chegasse à porta 5050 poderia editar ou excluir campanhas. Acesso pelo próprio computador (`127.0.0.1`) nunca pede PIN.
 
 ### Instalação em outro computador
 

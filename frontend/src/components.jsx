@@ -1195,7 +1195,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
 
   async function runPeriodAudit(days){
     setBatchDays(days);
-    setLoading(true);onBusy?.(true);
+    setLoading(true);
     try{
       const r=await studioAudit({days,min_views:100});
       setBatchReport(r);
@@ -1212,7 +1212,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
         if(built?.playbook) setPlaybook(built.playbook);
       }catch(e){/* optional */}
     }catch(e){onError?.(e.message||String(e))}
-    finally{setLoading(false);onBusy?.(false);setBatchDays(null)}
+    finally{setLoading(false);setBatchDays(null)}
   }
 
   async function createBrief(index){
@@ -1226,22 +1226,22 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
     finally{setCreatingIdx(null); onBusy?.(false)}
   }
   async function buildPlaybook(){
-    setPbBusy(true);onBusy?.(true);
+    setPbBusy(true);
     try{
       const built=await studioPlaybookBuild({days:batchReport?.days});
       setPlaybook(built.playbook);
       onFlash?.(`Playbook atualizado com ${built.playbook?.sample_n||0} videos do lote.`);
     }catch(e){onError?.(e.message||String(e))}
-    finally{setPbBusy(false);onBusy?.(false)}
+    finally{setPbBusy(false)}
   }
 
   async function openStudio(){
-    setOpening(true);onBusy?.(true);
+    setOpening(true);
     try{
       const r=await openStudioFree();
       onFlash?.(r.message||'TikTok Studio aberto.');
     }catch(e){onError?.(e.message||String(e))}
-    finally{setOpening(false);onBusy?.(false)}
+    finally{setOpening(false)}
   }
   async function analyze(){
     if(!url.trim()){onError?.('Cole o link do video no TikTok.');return}
@@ -1254,7 +1254,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
     await runAnalyze(u, (item.note||'').trim());
   }
   async function runAnalyze(link, noteText){
-    setLoading(true);onBusy?.(true);
+    setLoading(true);
     try{
       const r=await analyzePublishedLink({url:link,note:noteText||''});
       const list=r.items||[r.item].filter(Boolean);
@@ -1262,7 +1262,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       if(list[0]) setOpenId(list[0].id||list[0].url);
       onFlash?.(r.item?.message||'Metricas do link coletadas.');
     }catch(e){onError?.(e.message||String(e))}
-    finally{setLoading(false);onBusy?.(false)}
+    finally{setLoading(false)}
   }
 
   function pctNum(r){
