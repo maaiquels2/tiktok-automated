@@ -185,7 +185,7 @@ class WorkflowTests(unittest.TestCase):
         prompts=generate(campaign)
         self.assertIn('transparente',prompts['hook'].lower())
         self.assertIn('contra a luz',prompts['development'].lower())
-        self.assertIn('produto marcado',prompts['cta'].lower())
+        self.assertRegex(prompts['cta'].lower(),r'carrinho|link t[áa] (aqui )?embaixo')
 
     def test_offer_is_the_only_source_of_urgency(self):
         base=dict(model_name='Micaela',product='legging cintura alta',outfit='legging',color='preto',
@@ -193,7 +193,9 @@ class WorkflowTests(unittest.TestCase):
                   style='natural',details='',movements='',generator='flow',niche='academia')
         sem_oferta=generate(base)
         falas=' '.join(sem_oferta[k] for k in ('hook','development','cta')).lower()
-        for palavra in ('últimas','ultimas','acaba','só hoje','so hoje','corre'):
+        # 'corre' saiu da lista: e imperativo entusiasmado, nao afirmacao sobre
+        # estoque. O que nao pode e inventar prazo, quantidade ou preco.
+        for palavra in ('últimas','ultimas','acaba hoje','só hoje','so hoje','desconto','off'):
             self.assertNotIn(palavra,falas)
         com_oferta=generate({**base,'offer':'20% até domingo'})
         self.assertIn('20%',' '.join(com_oferta[k] for k in ('hook','cta')))
@@ -452,6 +454,32 @@ class WorkflowTests(unittest.TestCase):
         com_urgencia={**honesto,'cta':'Corre que acaba hoje, toque no produto'}
         self.assertTrue(any('urgência' in p for p in audit(com_urgencia,brief)))
 
+    def test_cta_speaks_like_tiktok_shop(self):
+        # "Produto marcado" e linguagem de painel; quem fala com a camera diz
+        # carrinho e "o link ta aqui embaixo".
+        base=dict(model_name='Micaela',product='Legging cintura alta',outfit='legging',
+                  audience='mulheres que treinam',benefit='tem cós largo',angle='mostrar o cós',
+                  tone='direta',style='natural',details='',movements='',generator='grok',niche='academia')
+        for i in range(4):
+            cta=generate({**base,'color':'preto'},variant_index=i)['cta'].lower()
+            self.assertNotIn('produto marcado',cta)
+            self.assertRegex(cta,r'carrinho|link t[áa] (aqui )?embaixo')
+        com_dor=generate({**base,'color':'preto','objection':'Parece barata de perto'},variant_index=0)['cta']
+        self.assertRegex(com_dor.lower(),r'carrinho|link')
+
+    def test_corre_is_enthusiasm_not_a_false_claim(self):
+        # Bloquear urgencia serve para impedir afirmacao falsa sobre estoque,
+        # prazo ou preco -- nao para proibir imperativo entusiasmado.
+        from services.copywriter import audit
+        brief=dict(product='Legging',outfit='legging',benefit='tem cós largo',angle='',
+                   details='',objection='',offer='')
+        com_corre=dict(hook='Se você já desistiu da legging por parecer barata de perto, olha isto',
+                       development='O cós largo segura firme no lugar. Agachei aqui três vezes e continua opaca. Uso no treino e depois na rua',
+                       cta='Corre garantir a tua, o link tá aqui embaixo',caption='legging #legging')
+        self.assertEqual(audit(com_corre,brief),[])
+        com_mentira={**com_corre,'cta':'Corre que são as últimas peças do estoque'}
+        self.assertTrue(any('urgência' in p for p in audit(com_mentira,brief)))
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})
@@ -699,7 +727,7 @@ class WorkflowTests(unittest.TestCase):
                       details='caption_seed: Vestido midi azul com caimento leve para usar no dia a dia.',
                       movements='',generator='flow')
         caption=build_caption(campaign, color='azul', variation_index=0)
-        self.assertRegex(caption.lower(), r'(toque|confira|produto marcado|shop)')
+        self.assertRegex(caption.lower(), r'(toque|confira|confere|carrinho|link|shop)')
 
     def test_niche_defaults_keep_spoken_script_within_fifteen_seconds(self):
         from services.model_library import NICHE_DEFAULTS

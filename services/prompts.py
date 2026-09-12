@@ -642,12 +642,12 @@ def _product_nick(product: str) -> str:
 
 def _caption_cta(i: int = 0) -> str:
     options = [
-        "Produto marcado aqui embaixo.",
-        "Confira os detalhes no produto marcado.",
-        "Quer? Toque no produto marcado.",
-        "Veja a peça no produto marcado.",
-        "Confira tamanhos e disponibilidade na loja.",
-        "Toque no produto e confira.",
+        "O link tá no carrinho aqui embaixo.",
+        "Se gostou, dá uma conferida no carrinho.",
+        "Corre garantir a tua, link aqui embaixo.",
+        "Tá no carrinho, é só tocar.",
+        "Confere tamanhos e cores no carrinho.",
+        "Pega a tua no carrinho aqui embaixo.",
     ]
     return options[int(i) % len(options)]
 
@@ -681,7 +681,7 @@ def build_caption(c, color=None, cta=None, variation_index=0):
     all_colors = color_variants(c.get('color'))
     shop_cta = _pt_br(cta) if cta else ''
     if not shop_cta:
-        shop_cta = ('Toque no produto marcado e escolha a sua cor.'
+        shop_cta = ('Escolhe a tua cor no carrinho aqui embaixo.'
                     if len(all_colors) > 1 else _caption_cta(i))
 
     seed = _caption_seed_from_details(c.get('details') or '')
@@ -974,26 +974,38 @@ def _development_line(c, detail, features, forms, index):
 
 def _cta_pool(c, forms):
     # Orcamento do CTA: 7 a 9 palavras.
+    #
+    # Vocabulario real do TikTok Shop: o botao e o carrinho laranja e o link
+    # fica embaixo do video. "Produto marcado" e linguagem de painel, nao de
+    # quem fala com a camera - por isso o CTA soava de aviso institucional.
     piece, dem, art = forms['piece'], forms['dem'], forms['art']
     colors = color_variants(c.get('color'))
     pain, _check = _objection_parts(c)
     offer = _offer_text(c)
     direto = [
-        'Toque no produto marcado e confira os detalhes.',
-        'Toque no produto marcado e veja os tamanhos.',
-        f'Quer {art} {piece}? Está no produto marcado.',
+        'Se você também gostou, dá uma conferida no carrinho.',
+        'O link tá aqui embaixo, é só tocar no carrinho.',
+        'Dá uma olhada no carrinho aqui embaixo.',
+        f'Quer {art} {piece}? Tá no carrinho aqui embaixo.',
     ]
     if len(colors) > 1:
         direto = [
-            'Toque no produto marcado e escolha a sua cor.',
-            'As cores estão todas no produto marcado.',
-            'Escolha a sua cor no produto marcado.',
+            'As cores tão todas no carrinho aqui embaixo.',
+            'Escolhe a tua cor no carrinho aqui embaixo.',
+            'Corre ver as cores no carrinho aqui embaixo.',
         ] + direto
-    condicional = [f'Se isso te incomoda, está no produto marcado.'] if pain else []
-    escassez = [_sentence(f'{offer}. Confira no produto marcado')] if offer else []
+    condicional = [
+        'Se isso te incomoda também, olha no carrinho.',
+        'Se você já passou por isso, o link tá embaixo.',
+    ] if pain else []
+    escassez = [
+        _sentence(f'{offer}. Corre no carrinho aqui embaixo'),
+        _sentence(f'{offer}. O link tá aqui embaixo'),
+    ] if offer else []
     posse = [
-        'Pega a sua no produto marcado.',
-        f'Leve {dem} {piece} pelo produto marcado.',
+        'Corre garantir a tua, o link tá aqui embaixo.',
+        'Pega a tua no carrinho aqui embaixo.',
+        f'Garante {art} tu{"a" if art == "a" else "o"} no carrinho aqui embaixo.',
     ]
     motor = _dominant_motor(c)
     order = ([condicional, direto, posse] if motor == 'necessidade' else [posse, direto, condicional])

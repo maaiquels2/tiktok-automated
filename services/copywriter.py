@@ -52,7 +52,6 @@ URGENCY_PATTERNS = (
     r'\bacab(?:a|ou|ando|ar)\b',
     r'\besgot\w*\b',
     r'\bs[óo]\s+hoje\b',
-    r'\bcorre\b', r'\bcorra\b',
     r'\brel[âa]mpago\b',
     r'\bpor\s+tempo\s+limitado\b',
     r'\bdesconto\w*\b',
@@ -72,7 +71,7 @@ Escreve como uma pessoa real falando com o celular na mão — não como anúnci
 ESTRUTURA (obrigatória)
 - hook (0–4s, 10 a 12 palavras): cria tensão e NÃO pode resolvê-la. Se você faz uma pergunta, não responda na mesma frase.
 - development (4–12s, 20 a 24 palavras): três batidas curtas — prova (um fato visível), quebra da objeção (demonstração, não promessa), e onde a pessoa vai usar.
-- cta (12–15s, 7 a 9 palavras): uma ação só, citando o produto marcado.
+- cta (12–15s, 7 a 9 palavras): uma ação só, no vocabulário real do TikTok Shop — "carrinho", "o link tá aqui embaixo", "garante a tua". Exemplos do tom certo: "Se você também gostou, dá uma conferida no carrinho." / "Corre garantir a tua, o link tá aqui embaixo." Nunca diga "produto marcado": isso é linguagem de painel, não de quem fala com a câmera.
 - caption: uma frase de gancho + o que é o produto, e no máximo 5 hashtags no fim.
 
 REGRAS INEGOCIÁVEIS
@@ -82,6 +81,7 @@ REGRAS INEGOCIÁVEIS
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
 6. Fale na primeira pessoa, com a naturalidade de quem comprou e está mostrando.
+7. "Corre", "garante a tua" e afins são entusiasmo e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "acaba hoje", "50% off", "promoção relâmpago".
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"hook": "...", "development": "...", "cta": "...", "caption": "..."}"""
