@@ -402,6 +402,49 @@ def _spoken_line(value, fallback='') -> str:
 # Acoes que terminam com os bracos no alto. Se uma delas cair no fim da
 # coreografia, ela acontece exatamente na janela do CTA - foi o que produziu o
 # aceno involuntario no primeiro video de teste.
+_PROOF_GESTURES = {
+    'sem transparência': 'gira de costas para a câmera com a luz de frente, para a cobertura do tecido aparecer',
+    'tecido leve': 'movimenta a peça com a mão e deixa o tecido responder sozinho ao movimento',
+    'tecido macio': 'passa a mão na superfície devagar, bem perto da lente',
+    'tecido encorpado': 'segura a barra da peça e solta, deixando o tecido cair sozinho',
+    'cós largo': 'puxa o cós para a frente e solta',
+    'cintura alta': 'passa a mão na cintura mostrando onde a peça termina',
+    'bolso lateral': 'coloca a mão dentro do bolso e tira',
+    'bolso interno': 'abre o bolso com a mão e mostra o interior',
+    'bolso': 'coloca a mão dentro do bolso e tira',
+    'costura': 'aproxima a peça da lente e passa o dedo na costura',
+    'acabamento': 'aproxima a peça da lente e passa o dedo no acabamento',
+    'recorte': 'gira de lado devagar até o recorte ficar visível',
+    'estampa': 'abre a peça com as duas mãos, de frente para a lente',
+    'alça': 'ajusta a alça com um dedo e solta',
+    'decote': 'ajusta a peça no ombro, sem puxar',
+    'barra': 'segura a barra da peça e solta',
+    'zíper': 'abre e fecha o zíper uma vez',
+    'botão': 'toca o botão com a ponta do dedo',
+    'botões': 'passa o dedo pelos botões, de cima para baixo',
+    'forro': 'afasta a peça levemente do corpo para o forro aparecer',
+    'elástico': 'estica a peça rapidamente para um lado e solta',
+    'compressão': 'passa a mão na peça já no corpo, sem esticar',
+    'secagem rápida': 'passa a mão no tecido, na altura da cintura',
+    'gola': 'ajusta a gola com um dedo',
+    'punho': 'aproxima o punho da lente',
+    'cordão': 'puxa o cordão e solta',
+    'capuz': 'ajusta o capuz com uma das mãos, sem erguer os dois braços',
+}
+
+
+def _proof_gestures(features, limit=3):
+    """Converte cada fato confirmado no gesto que o demonstra na camera."""
+    plan = []
+    for label in features or []:
+        gesture = _PROOF_GESTURES.get(label)
+        if gesture and gesture not in plan:
+            plan.append(f'{label} → {gesture}')
+        if len(plan) >= limit:
+            break
+    return plan
+
+
 _ARM_ACTIONS = ('alongar', 'along', 'braco', 'braço', 'levantar', 'erguer',
                 'acenar', 'maos para cima', 'mãos para cima', 'comemor')
 
@@ -1122,6 +1165,11 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     scene_lock = _scene_lock(c, fallback=dirn['setting'])
     forms = _piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
+    gestures = _proof_gestures(_product_features(c, limit=4))
+    proof_block = (
+        'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s: '
+        + '; '.join(gestures) + '.\n'
+    ) if gestures else ''
     closing_hands = (
         f"com as duas mãos tocando {anchor} {forms['de']} {forms['piece']}, "
         "como quem ajusta a peça, ou apoiadas na cintura"
@@ -1141,14 +1189,17 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"CÂMERA: {dirn['camera']}. "
         f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
         f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
+        f"{proof_block}"
+        "MÃOS: uma das mãos mantém contato com a peça o tempo todo (na cintura, no cós ou na barra) e a outra é a que mostra os detalhes. "
+        "As duas nunca ficam soltas ao mesmo tempo. "
         f"COREOGRAFIA / AÇÕES (executar nesta ordem, TODAS entre 0s e 11s; no máximo uma ação por beat, ritmo natural): {moves}. "
         f"ENCERRAMENTO (12–15s), posição obrigatória: a modelo está de frente para a lente, {closing_hands}. "
         "As mãos permanecem ocupadas nessa posição até o último quadro, na altura da cintura ou abaixo dela. "
         "O corpo fica parado e estável; apenas o rosto e o olhar se movem."
         f"{extras}\n"
         f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
-        f"0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; "
-        f"micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"{hook}\"\n"
+        f"0–4s HOOK: a modelo se aproxima um passo da câmera, como quem vai contar um segredo; plano médio frontal, "
+        f"olhar na lente, produto já visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
         f"4–12s DESENVOLVIMENTO — uma única fala, dita de forma contínua e natural neste intervalo; "
         f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
         f"   · 4–6s PROVA 1 (somente câmera, sem nova fala): aproxima OU mostra de perto o detalhe que vende "
@@ -1158,6 +1209,10 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"   · 11–12s DESEJO (somente câmera, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
         f"12–15s CTA: manter a posição de encerramento descrita acima, olhar firme na lente; o produto marcado é indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
         f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
+        "ENQUADRAMENTO: não altere o enquadramento entre os beats; use jogo de câmeras apenas se for necessário, mantendo a mesma cena. "
+        "Realize movimentos laterais quando precisar mostrar o produto completo no corpo. "
+        "Evite movimentos artificiais de IA: as expressões e os gestos acompanham as falas, no ritmo delas. "
+        "As três falas formam um único discurso contínuo, dito pela mesma pessoa sem pausa artificial entre os trechos. "
         f"Estilo visual: {style}. Tom de performance: {tone}. "
         f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
         f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "

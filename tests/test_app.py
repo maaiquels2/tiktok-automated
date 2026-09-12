@@ -305,6 +305,30 @@ class WorkflowTests(unittest.TestCase):
         if 'sem transparência' in falas:
             self.assertIn('tecido sem transparência',falas)
 
+    def test_each_confirmed_fact_gets_the_gesture_that_proves_it(self):
+        # Movimento generico ("mostrar o caimento") nao demonstra nada. O gesto
+        # especifico e a prova - padrao tirado dos prompts que funcionavam.
+        campaign=dict(model_name='Micaela',product='Legging sem transparência com bolso lateral e cós largo',
+                      outfit='legging',color='preto',audience='mulheres que treinam',
+                      benefit='tem cós largo',angle='mostrar o cós',tone='direta',style='natural',
+                      details='',movements='caminhar; girar',generator='grok',niche='academia')
+        video=generate(campaign)['video']
+        self.assertIn('PROVA VISUAL',video)
+        self.assertIn('coloca a mão dentro do bolso e tira',video)
+        self.assertIn('puxa o cós para a frente e solta',video)
+        self.assertIn('gira de costas para a câmera',video)
+
+    def test_scene_locks_and_hand_anchor_are_present(self):
+        campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',
+                      audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',tone='natural',
+                      style='natural',details='',movements='',generator='flow',niche='casual')
+        video=generate(campaign)['video']
+        self.assertIn('não altere o enquadramento',video)
+        self.assertIn('Evite movimentos artificiais de IA',video)
+        self.assertIn('um único discurso contínuo',video)
+        self.assertIn('MÃOS:',video)
+        self.assertIn('como quem vai contar um segredo',video)
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})
