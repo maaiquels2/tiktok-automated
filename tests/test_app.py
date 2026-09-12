@@ -386,6 +386,36 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('premium',problemas)
         self.assertIn('urgência',problemas)
 
+    def test_openai_retries_without_the_parameter_the_model_refuses(self):
+        # Modelos de raciocinio recusam temperature diferente do padrao. O codigo
+        # tira o parametro recusado e tenta de novo, em vez de exigir que o
+        # operador descubra qual modelo aceita o que.
+        from services import copywriter as cw
+        chamadas=[]
+        def falso(url,payload,headers):
+            chamadas.append(dict(payload))
+            if 'temperature' in payload:
+                raise cw._describe_error(400,json.dumps({'error':{
+                    'message':"Unsupported value: 'temperature' does not support 0.9 with this model. Only the default (1) value is supported.",
+                    'param':'temperature'}}))
+            return {'choices':[{'message':{'content':'{"hook":"a","development":"b","cta":"c","caption":"d"}'}}]}
+        with patch('services.copywriter._post_json',side_effect=falso):
+            saida=cw._call_openai({'model':'gpt-5-mini','api_key':'k'},'sys','user')
+        self.assertIn('"hook"',saida)
+        self.assertEqual(len(chamadas),2)
+        self.assertIn('temperature',chamadas[0])
+        self.assertNotIn('temperature',chamadas[1])
+
+    def test_provider_error_message_reaches_the_operator(self):
+        from services import copywriter as cw
+        def falso(url,payload,headers):
+            raise cw._describe_error(401,json.dumps({'error':{'message':'Incorrect API key provided'}}))
+        with patch('services.copywriter._post_json',side_effect=falso):
+            pack,motivo=cw.write_script({'product':'x','color':'y'},{'provider':'openai','api_key':'k','model':'m'},attempts=1)
+        self.assertIsNone(pack)
+        self.assertIn('401',motivo)
+        self.assertIn('Incorrect API key',motivo)
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})

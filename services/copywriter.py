@@ -209,11 +209,61 @@ def audit(pack: dict, c: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------- provedores
+class ProviderError(Exception):
+    """Erro vindo do provedor, ja com o corpo da resposta lido.
+
+    HTTPError so deixa ler o corpo uma vez; sem isto a mensagem util se perde
+    no caminho e sobra um numero seco na tela.
+    """
+
+    def __init__(self, message: str, status: int = 0, param: str = ''):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+        self.param = param
+
+
+def _describe_error(status: int, corpo: str) -> ProviderError:
+    mensagem, param = '', ''
+    try:
+        dados = json.loads(corpo)
+        erro = dados.get('error') if isinstance(dados, dict) else None
+        if isinstance(erro, dict):
+            mensagem = str(erro.get('message') or '')
+            param = str(erro.get('param') or '')
+        elif isinstance(erro, str):
+            mensagem = erro
+    except ValueError:
+        pass
+    if not mensagem:
+        mensagem = (corpo or '').strip()[:400]
+    if not param:
+        # Alguns provedores nomeiam o parametro so na frase.
+        achado = re.search(r"'([A-Za-z_][A-Za-z0-9_]*)'\s*(?:does not support|is not supported|nao suportado)", mensagem)
+        if achado:
+            param = achado.group(1)
+    return ProviderError(mensagem, status=status, param=param)
+
+
 def _post_json(url: str, payload: dict, headers: dict) -> dict:
     data = json.dumps(payload).encode('utf-8')
     request = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json', **headers})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        return json.loads(response.read().decode('utf-8'))
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        try:
+            corpo = exc.read().decode('utf-8', 'ignore')
+        except Exception:
+            corpo = ''
+        raise _describe_error(exc.code, corpo) from exc
+
+
+# Parametros que um modelo pode recusar. Os modelos de raciocinio mais novos,
+# por exemplo, so aceitam temperature no padrao. Em vez de exigir que o operador
+# adivinhe qual modelo aceita o que, o codigo tira o parametro recusado e tenta
+# de novo -- o essencial e o texto, nao o ajuste fino.
+_OPTIONAL_OPENAI = ('temperature', 'response_format', 'top_p')
 
 
 def _call_openai(settings: dict, system: str, user: str) -> str:
@@ -223,9 +273,20 @@ def _call_openai(settings: dict, system: str, user: str) -> str:
         'temperature': 0.9,
         'response_format': {'type': 'json_object'},
     }
-    out = _post_json('https://api.openai.com/v1/chat/completions', body,
-                     {'Authorization': f"Bearer {settings['api_key']}"})
-    return out['choices'][0]['message']['content']
+    for _ in range(len(_OPTIONAL_OPENAI) + 1):
+        try:
+            out = _post_json('https://api.openai.com/v1/chat/completions', body,
+                             {'Authorization': f"Bearer {settings['api_key']}"})
+            return out['choices'][0]['message']['content']
+        except ProviderError as exc:
+            alvo = exc.param if exc.param in body else next(
+                (nome for nome in _OPTIONAL_OPENAI
+                 if nome in body and nome in (exc.message or '').casefold()), '')
+            if exc.status == 400 and alvo:
+                body.pop(alvo, None)
+                continue
+            raise
+    raise ProviderError('o modelo recusou todos os parametros enviados', status=400)
 
 
 def _call_gemini(settings: dict, system: str, user: str) -> str:
@@ -237,8 +298,24 @@ def _call_gemini(settings: dict, system: str, user: str) -> str:
         'contents': [{'role': 'user', 'parts': [{'text': user}]}],
         'generationConfig': {'temperature': 0.9, 'responseMimeType': 'application/json'},
     }
-    out = _post_json(url, body, {})
-    return out['candidates'][0]['content']['parts'][0]['text']
+    for tentativa in range(3):
+        try:
+            out = _post_json(url, body, {})
+            return out['candidates'][0]['content']['parts'][0]['text']
+        except ProviderError as exc:
+            baixo = (exc.message or '').casefold()
+            if exc.status == 400 and 'responsemimetype' in baixo and 'responseMimeType' in body.get('generationConfig', {}):
+                body['generationConfig'].pop('responseMimeType')
+                continue
+            if exc.status == 400 and 'systeminstruction' in baixo and 'systemInstruction' in body:
+                body.pop('systemInstruction')
+                body['contents'][0]['parts'][0]['text'] = system + '\n\n' + user
+                continue
+            if exc.status == 400 and 'temperature' in baixo:
+                body.get('generationConfig', {}).pop('temperature', None)
+                continue
+            raise
+    raise ProviderError('o modelo recusou todos os parametros enviados', status=400)
 
 
 CALLERS = {'openai': _call_openai, 'gemini': _call_gemini}
@@ -267,13 +344,10 @@ def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | Non
         try:
             bruto = caller(settings, SYSTEM_PROMPT, user)
             pack = _parse(bruto)
-        except urllib.error.HTTPError as exc:
-            detalhe = ''
-            try:
-                detalhe = exc.read().decode('utf-8', 'ignore')[:200]
-            except Exception:
-                pass
-            return None, f'o provedor respondeu {exc.code}. {detalhe}'.strip()
+        except ProviderError as exc:
+            if exc.status:
+                return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
+            return None, exc.message[:400]
         except urllib.error.URLError as exc:
             return None, f'nao foi possivel falar com o provedor ({exc.reason})'
         except (ValueError, KeyError, IndexError) as exc:
