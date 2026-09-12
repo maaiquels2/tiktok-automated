@@ -1,17 +1,51 @@
+import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink } from 'lucide-react';
+import { modelLibrary, uploadModelLibrary, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet } from './api';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
   return <dialog ref={ref} className="dialog" onCancel={e=>{e.preventDefault();onClose()}} aria-label={title}><div className="dialog-heading"><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20}/></button></div>{children}</dialog>;
 }
+export async function copyText(text){
+  if(!text) return false;
+  try{
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch(_){ /* LAN pages on phones are usually not a secure context. */ }
+  // Some mobile browsers still allow the legacy command during the tap.
+  try{
+    const field=document.createElement('textarea');
+    field.value=text;
+    field.setAttribute('readonly','');
+    field.style.position='fixed';
+    field.style.top='0';
+    field.style.left='0';
+    field.style.opacity='0.01';
+    document.body.appendChild(field);
+    field.focus();
+    field.select();
+    field.setSelectionRange(0,field.value.length);
+    const copied=document.execCommand?.('copy')===true;
+    field.remove();
+    return copied;
+  }catch(_){ return false; }
+}
+
 export function CopyButton({text,onError,label='Copiar'}){
   const [copied,setCopied]=useState(false);
   const timer=useRef();
   useEffect(()=>()=>clearTimeout(timer.current),[]);
-  return <button className="copy-button" disabled={!text} onClick={async()=>{try{await navigator.clipboard.writeText(text);setCopied(true);clearTimeout(timer.current);timer.current=setTimeout(()=>setCopied(false),1800)}catch{onError('Não foi possível copiar. Selecione o texto e pressione Ctrl+C.')}}}>{copied?<Check size={14}/>:<Copy size={14}/>} {copied?'Copiado':label}</button>;
+  const markCopied=()=>{setCopied(true);clearTimeout(timer.current);timer.current=setTimeout(()=>setCopied(false),1800)};
+  return <button className="copy-button" disabled={!text} onClick={async()=>{
+    if(await copyText(text)){markCopied();return}
+    const manual=window.prompt('Toque e segure no campo para selecionar e copiar:',text);
+    if(manual!==null) markCopied();
+    else onError?.('Toque e segure no texto para selecionar e copiar.');
+  }}>{copied?<Check size={14}/>:<Copy size={14}/>} {copied?'Copiado':label}</button>;
 }
 export function TextEditor({title,value,field,onSave,busy,onError,onDirty,readOnly=false,rows=5}){
   const [draft,setDraft]=useState(value||'');
@@ -241,7 +275,7 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
     </>)}
   </section>;
 }
-export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRefreshVariant}){
+export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRefreshVariant,onSaveCaption,onRefreshCaption}){
   const videos=c.assets.filter(a=>a.kind==='video');
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const slotMap=(c.checklist&&c.checklist.slots)||{};
@@ -251,6 +285,8 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
   });
   const [checks,setChecks]=useState({});
   const [publishedUrl,setPublishedUrl]=useState('');
+  const [captionDraft,setCaptionDraft]=useState('');
+  const [editingCaption,setEditingCaption]=useState(false);
   useEffect(()=>{
     const pending=variants.find(v=>!slotMap[v.color||'default']?.published);
     if(pending&&slotMap[active||'default']?.published) setActive(pending.color);
@@ -259,36 +295,64 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
   const video=videos.find(v=>(v.slot||v.metadata?.color)===variant?.color) || videos[0];
   const done=!!slotMap[variant?.color||'default']?.published;
   const caption=variant?.prompts?.caption||c.prompts?.caption||'';
+  useEffect(()=>{ setCaptionDraft(caption||''); setEditingCaption(false); },[caption, variant?.color, c.id, c.version]);
   const remaining=variants.filter(v=>!slotMap[v.color||'default']?.published).length;
   const check=(key,label)=><label className="check-row" key={key}><input type="checkbox" checked={!!checks[key]} disabled={busy||immutable||done} onChange={e=>setChecks(old=>({...old,[key]:e.target.checked}))}/><span>{label}</span></label>;
-  return <section className="publish-queue">
-    <div className="notice"><strong>Publique uma cor por vez.</strong> Escolha o produto/cor, copie a legenda, suba o MP4 no Studio e registre. Depois passe para a próxima.</div>
-    <div className="publish-slot-tabs">
-      {variants.map(v=>{
-        const key=v.color||'default';
-        const ok=!!slotMap[key]?.published;
-        return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setChecks({});setPublishedUrl(slotMap[key]?.url||'')}}>
-          {ok?'✓ ':''}{v.color||'Produto'}
-        </button>;
-      })}
-    </div>
-    <div className="service-box"><strong>TikTok Studio</strong>
-      <button disabled={busy} onClick={()=>onOpen('studio','publish')}><ExternalLink size={16}/> Abrir perfil do Studio</button>
-      <p>Um botão só para o Studio. Troque o vídeo/legenda conforme a cor selecionada acima.</p>
-    </div>
-    {video?<AssetView asset={video} title={`MP4 · ${variant?.color||''}`}/>:<div className="notice">Sem vídeo para esta cor.</div>}
-    <div className="variant-prompt">
-      <div className="section-title"><strong>Legenda TikTok · {variant?.color}</strong>
-        <span className="publish-caption-actions">
-          <CopyButton text={caption} onError={onError}/>
-          {onRefreshVariant&&variant?.id&&variant.id!=='main'&&!immutable&&!done&&
-            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['caption'])}>Nova legenda</button>}
-        </span>
+  const canRegister = ['account','product','caption','review','published'].every(k=>checks[k]);
+  return <section className="publish-queue publish-queue-compact">
+    <div className="publish-topbar">
+      <div className="publish-slot-tabs">
+        {variants.map(v=>{
+          const key=v.color||'default';
+          const ok=!!slotMap[key]?.published;
+          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setChecks({});setPublishedUrl(slotMap[key]?.url||'')}}>
+            {ok?'✓ ':''}{v.color||'Produto'}
+          </button>;
+        })}
       </div>
-      <p className="caption-preview">{caption||'-'}</p>
-      <small className="help">Legenda alinhada ao produto, benefício e hashtags do nicho. Atualize se quiser outra variação.</small>
+      <TikTokLaunchButtons className="button publish-open-studio" disabled={busy} onOpenStudio={event=>onOpen('studio','publish',event)}/>
     </div>
-    <CopyButton text={video?.local_path} label="Copiar caminho do MP4" onError={onError}/>
+    <p className="publish-hint">{isMobileDevice()?'Salve o vídeo no celular e copie a legenda. Abra o TikTok, confira a conta e publique; depois volte para registrar o link.':'Uma cor por vez: copie legenda → suba o MP4 no Studio → registre o link.'}</p>
+
+    <div className="publish-grid">
+      <div className="publish-media">
+        {video?<AssetView asset={video} title={`MP4 · ${variant?.color||''}`} compact/>:<div className="notice">Sem vídeo para esta cor.</div>}
+        <CopyButton text={video?.local_path} label="Copiar caminho do MP4" onError={onError}/>
+      </div>
+      <div className="publish-copy">
+        <div className="section-title"><strong>Legenda · {variant?.color}</strong>
+          <span className="publish-caption-actions">
+            <CopyButton text={editingCaption?captionDraft:caption} onError={onError}/>
+            {!immutable&&!done&&!editingCaption&&
+              <button type="button" disabled={busy} onClick={()=>{setCaptionDraft(caption||'');setEditingCaption(true)}}>Editar</button>}
+            {!immutable&&!done&&(
+              (onRefreshVariant&&variant?.id&&variant.id!=='main')
+                ? <button type="button" disabled={busy||editingCaption} onClick={()=>onRefreshVariant(variant.id,['caption'])}>Nova</button>
+                : (onRefreshCaption
+                    ? <button type="button" disabled={busy||editingCaption} onClick={()=>onRefreshCaption(['caption'])}>Nova</button>
+                    : null)
+            )}
+          </span>
+        </div>
+        {editingCaption && !immutable && !done ? (
+          <>
+            <textarea className="caption-editor" aria-label="Legenda TikTok" rows={4} maxLength={12000} value={captionDraft} disabled={busy} onChange={e=>setCaptionDraft(e.target.value)}/>
+            <div className="publish-caption-edit-actions">
+              <button type="button" className="primary" disabled={busy||!captionDraft.trim()||captionDraft.trim()===caption}
+                onClick={()=>{
+                  if(variant?.id && variant.id!=='main') onSaveCaption?.({caption: captionDraft.trim(), _variantId: variant.id});
+                  else onSaveCaption?.({caption: captionDraft.trim()});
+                  setEditingCaption(false);
+                }}>Salvar</button>
+              <button type="button" disabled={busy} onClick={()=>{setCaptionDraft(caption||'');setEditingCaption(false)}}>Cancelar</button>
+            </div>
+          </>
+        ) : (
+          <p className="caption-preview">{caption||'-'}</p>
+        )}
+      </div>
+    </div>
+
     {immutable&&variants.every(v=>slotMap[v.color||'default']?.published)?
       <div className="notice success"><Check size={18}/><strong>Todas as cores foram publicadas.</strong>
         <div className="publish-links">{variants.map(v=>{
@@ -298,20 +362,22 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
         })}</div>
       </div>:
       done?<div className="notice success"><Check size={16}/> Cor <strong>{variant?.color}</strong> já registrada. Escolha a próxima ({remaining} restante{remaining===1?'':'s'}).</div>:
-      <><h3>Checklist · {variant?.color}</h3>
-        {check('account','Conferi que estou na conta TikTok certa.')}
-        {check('product',`Selecionei manualmente o produto no Shop: ${c.product} (${variant?.color}).`)}
-        {check('caption','Subi este MP4 e colei a legenda desta cor.')}
-        {check('review','Revisei vídeo, áudio, produto e direitos de uso.')}
-        {check('published','Já publiquei manualmente no TikTok Studio esta cor.')}
-        <label>Link do vídeo (opcional)<input type="url" value={publishedUrl} onChange={e=>setPublishedUrl(e.target.value)} placeholder="https://www.tiktok.com/@…/video/…"/></label>
-        <button className="primary full" disabled={busy||!['account','product','caption','review','published'].every(k=>checks[k])}
+      <div className="publish-register">
+        <div className="publish-checks">
+          {check('account','Conta TikTok certa')}
+          {check('product',`Produto Shop: ${c.product} (${variant?.color})`)}
+          {check('caption','MP4 + legenda desta cor')}
+          {check('review','Revisei vídeo/áudio/direitos')}
+          {check('published','Já publiquei no Studio')}
+        </div>
+        <label className="publish-link-field">Link do vídeo (opcional)<input type="url" value={publishedUrl} onChange={e=>setPublishedUrl(e.target.value)} placeholder="https://www.tiktok.com/@…/video/…"/></label>
+        <button className="primary full" disabled={busy||!canRegister}
           onClick={()=>onPublishSlot({color:variant?.color,checklist:checks,published_url:publishedUrl})}>
           Registrar publicação · {variant?.color}
         </button>
-        <small className="help">Registra só esta cor. Quando todas estiverem feitas, a campanha fecha como publicada.</small>
-      </>}
+      </div>}
   </section>;
+
 }
 
 
@@ -621,7 +687,7 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
 
       <div className="studio-metrics-actions">
         <button type="button" className="primary" disabled={busy||!onFetchStudioMetrics} onClick={()=>onFetchStudioMetrics&&onFetchStudioMetrics(active||variants[0]?.color)}>Coletar métricas</button>
-        <button type="button" className="button" disabled={busy||!onOpenStudio} onClick={()=>onOpenStudio&&onOpenStudio()}>Abrir Studio</button>
+        <TikTokLaunchButtons disabled={busy||!onOpenStudio} onOpenStudio={event=>onOpenStudio?.(event)}/>
         <button type="button" className="button" disabled={busy||!onAuditStudioPosts} onClick={()=>onAuditStudioPosts&&onAuditStudioPosts()}>Auditar publicados (8)</button>
       </div>
       <p className="studio-metrics-tip">Na 1ª coleta, feche o Chrome (copia a sessão do perfil configurado). Depois pode deixar o Chrome normal aberto.</p>
@@ -681,6 +747,8 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
 }
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
+  const [nicheOptions,setNicheOptions]=useState(NICHES);
+  useEffect(()=>{let alive=true;(async()=>{try{const mn=draft?.model_name||campaign?.model_name||'Micaela'; const data=await modelLibrary(mn); if(!alive)return; const rows=data.niches||[]; if(rows.length) setNicheOptions(rows.map(n=>({id:n.niche,label:n.label})));}catch(_){}})(); return()=>{alive=false}; },[draft?.model_name, campaign?.model_name]);
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [showAdvanced,setShowAdvanced]=useState(false);
   const published=campaign?.status==='published';
@@ -726,17 +794,30 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
       <label>Nicho da modelo *
         <select value={draft.niche||''} onChange={e=>applyNiche(e.target.value)} required>
           <option value="">Escolha o nicho</option>
-          {NICHES.map(n=><option key={n.id} value={n.id}>{n.label}</option>)}
+          {nicheOptions.map(n=><option key={n.id} value={n.id}>{n.label}</option>)}
         </select>
         <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
       </label>
       <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>
+      <section className="generator-choice" aria-label="Escolha do gerador">
+        <div className="section-title"><h3>Gerador</h3><span className="help">Escolha como criar imagem e vídeo</span></div>
+        <p className="help generator-choice-help">A opção fica visível para você trocar entre os dois serviços antes de salvar o briefing.</p>
+        <div className="generator-options" role="radiogroup" aria-label="Gerador de imagem e vídeo">
+          <label className={'generator-option '+(draft.generator==='flow'?'selected':'')}>
+            <input type="radio" name="generator" value="flow" checked={(draft.generator||'flow')==='flow'} onChange={e=>change('generator',e.target.value)}/>
+            <span><strong>Google Flow</strong><small>Imagem e vídeo em 1080p</small></span>
+          </label>
+          <label className={'generator-option '+(draft.generator==='grok'?'selected':'')}>
+            <input type="radio" name="generator" value="grok" checked={draft.generator==='grok'} onChange={e=>change('generator',e.target.value)}/>
+            <span><strong>Grok Imagine</strong><small>Imagem em 720p</small></span>
+          </label>
+        </div>
+      </section>
       <button type="button" className="button full" disabled={busy||published} onClick={()=>setShowAdvanced(v=>!v)}>{showAdvanced?'Ocultar ajustes do nicho':'Ver / editar o que o nicho preencheu'}</button>
       {showAdvanced && (
         <div className="niche-advanced">
           <div className="notice"><strong>Preenchido pelo nicho.</strong> Pode editar se quiser — o padrão já está otimizado pra TikTok Shop.</div>
           <div className="form-grid">{advanced.map(([k,l,p])=>field(k,l,p))}</div>
-          <label>Gerador<select value={draft.generator||'flow'} onChange={e=>change('generator',e.target.value)}><option value="flow">Google Flow · alvo 1080p</option><option value="grok">Grok Imagine · alvo 720p</option></select></label>
           <label>Detalhes adicionais<textarea rows={3} value={draft.details||''} onChange={e=>change('details',e.target.value)} placeholder="Enquadramento, gestos e detalhes do produto" maxLength={5000}/></label>
           <label>Movimentos para mostrar<textarea rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós" maxLength={1500}/><small className="help">Movimentos que devem aparecer no vídeo deste produto</small></label>
         </div>
@@ -863,17 +944,34 @@ export function DailyQueueCard({busy,onError,onFlash,onCreate}){
 export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
   const [items,setItems]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [selectedNiche,setSelectedNiche]=useState('');
+  const [sheetBusy,setSheetBusy]=useState(false);
+  const [lightbox,setLightbox]=useState(null);
+  const [renaming,setRenaming]=useState(null);
+  const [renameDraft,setRenameDraft]=useState('');
   const fileRefs=useRef({});
   async function load(){
     setLoading(true);
     try{
       const data=await modelLibrary(modelName);
-      setItems(data.niches||[]);
+      const niches=data.niches||[];
+      setItems(niches);
+      setSelectedNiche(prev=>{
+        if(prev && niches.some(n=>n.niche===prev && n.has_photo)) return prev;
+        const first=niches.find(n=>n.has_photo);
+        return first?first.niche:'';
+      });
     }catch(e){onError?.(e.message||String(e))}
     finally{setLoading(false)}
   }
   useEffect(()=>{load()},[modelName]);
-  async function onPick(niche,file){
+  useEffect(()=>{
+    if(!lightbox) return;
+    const onKey=e=>{ if(e.key==='Escape') setLightbox(null); };
+    window.addEventListener('keydown', onKey);
+    return ()=>window.removeEventListener('keydown', onKey);
+  },[lightbox]);
+  async function onPick(niche,file,inputEl){
     if(!file)return;
     const form=new FormData();
     form.set('model_name',modelName);
@@ -881,36 +979,167 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     form.set('file',file);
     try{
       await uploadModelLibrary(form);
-      onFlash?.('Foto padrao salva: '+niche);
+      onFlash?.('Foto padrão salva: '+niche);
       await load();
+      setSelectedNiche(niche);
     }catch(e){onError?.(e.message||String(e))}
+    finally{
+      if(inputEl) inputEl.value='';
+      else if(fileRefs.current[niche]) fileRefs.current[niche].value='';
+    }
   }
+  function beginRename(item,e){
+    e?.stopPropagation?.();
+    setRenaming(item.niche);
+    setRenameDraft(item.label||'');
+  }
+  async function saveRename(e){
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if(!renaming) return;
+    const label=(renameDraft||'').trim();
+    if(!label){onError?.('Informe o nome da moda.');return}
+    try{
+      await renameModelLibraryLabel({model_name:modelName,niche:renaming,label});
+      onFlash?.('Moda renomeada: '+label);
+      setRenaming(null);
+      await load();
+    }catch(err){onError?.(err.message||String(err))}
+  }
+  async function copySheet(){
+    if(!selectedNiche){onError?.('Selecione um nicho com foto.');return}
+    setSheetBusy(true);
+    try{
+      const data=await characterSheet(modelName,selectedNiche);
+      const text=data.prompt||'';
+      try{
+        await navigator.clipboard.writeText(text);
+        onFlash?.(data.message||'Ficha de consistência copiada.');
+      }catch(_){
+        window.prompt('Toque e segure no campo para selecionar e copiar:', text);
+        onFlash?.('Prompt exibido para cópia manual.');
+      }
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setSheetBusy(false)}
+  }
+  async function openSheetGrok(){
+    if(isMobileDevice())return;
+    if(!selectedNiche){onError?.('Selecione um nicho com foto.');return}
+    const ok=window.confirm(
+      'Abrir o Grok com a ficha de consistência?\n\n'+
+      'O prompt será copiado para a área de transferência. No Grok, anexe a foto da biblioteca e cole o prompt.'
+    );
+    if(!ok)return;
+    setSheetBusy(true);
+    try{
+      const data=await openCharacterSheet({model_name:modelName,niche:selectedNiche,confirmed:true});
+      onFlash?.(data.message||'Grok aberto. Anexe a foto e cole o prompt.');
+      if(data.prompt){
+        try{await navigator.clipboard.writeText(data.prompt)}catch(_){/* backend may already have copied */}
+      }
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setSheetBusy(false)}
+  }
+  const selected=items.find(x=>x.niche===selectedNiche);
   return (
     <section className="model-library">
       <div className="home-hero" style={{marginBottom:12}}>
         <div>
           <span className="eyebrow">MODELO FIXA · {(items.filter(x=>x.has_photo).length)}/{(items.length||6)} nichos</span>
-          <h2>Fotos padrao por nicho — {modelName}</h2>
-          <p>Uma foto por nicho. Em campanhas novas do mesmo nicho, a referencia entra sozinha.</p>
+          <h2>Fotos padrão por nicho — {modelName}</h2>
+          <p>Uma foto por nicho. Clique na foto para ver em tela cheia. Pode renomear cada moda.</p>
         </div>
       </div>
       {loading && <div className="notice">Carregando biblioteca…</div>}
       <div className="model-library-grid">
         {items.map(item=>(
-          <article className={'model-niche-card'+(item.has_photo?' has-photo':'')} key={item.niche}>
-            <strong>{item.label}</strong>
+          <article
+            className={'model-niche-card'+(item.has_photo?' has-photo':'')+(selectedNiche===item.niche?' is-selected':'')}
+            key={item.niche}
+            onClick={()=>{ if(item.has_photo) setSelectedNiche(item.niche); }}
+            role={item.has_photo?'button':undefined}
+            tabIndex={item.has_photo?0:undefined}
+            onKeyDown={e=>{ if(item.has_photo && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); setSelectedNiche(item.niche);} }}
+          >
+            {renaming===item.niche ? (
+              <form className="niche-rename-row" onClick={e=>e.stopPropagation()} onSubmit={saveRename}>
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  maxLength={60}
+                  aria-label="Novo nome da moda"
+                  onChange={e=>setRenameDraft(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==='Escape'){ e.preventDefault(); setRenaming(null);} }}
+                />
+                <button type="submit" className="primary" disabled={busy||loading}>Salvar</button>
+                <button type="button" disabled={busy||loading} onClick={()=>setRenaming(null)}>Cancelar</button>
+              </form>
+            ) : (
+              <div className="niche-title-row" onClick={e=>e.stopPropagation()}>
+                <strong>{item.label}</strong>
+                <button type="button" className="icon-button btn-rename" title="Renomear moda" aria-label="Renomear moda" disabled={busy||loading} onClick={e=>beginRename(item,e)}>
+                  <Pencil size={14}/>
+                </button>
+              </div>
+            )}
             <div className="model-niche-preview">
-              {item.has_photo ? <img src={item.url} alt={item.label}/> : <span className="help">Sem foto ainda</span>}
+              {item.has_photo ? (
+                <button
+                  type="button"
+                  className="model-niche-thumb"
+                  title="Ver em tela cheia"
+                  onClick={e=>{e.stopPropagation();setSelectedNiche(item.niche);setLightbox({url:item.url,label:item.label,name:item.original_name||''});}}
+                >
+                  <img key={item.url||item.updated_at||item.niche} src={item.url} alt={item.label}/>
+                </button>
+              ) : <span className="help">Sem foto ainda</span>}
             </div>
-            <small className="help">{item.original_name||'Envie a foto padrao deste look'}</small>
-            <input ref={el=>{fileRefs.current[item.niche]=el}} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e=>onPick(item.niche,e.target.files?.[0])}/>
-            <button type="button" className="button" disabled={busy||loading} onClick={()=>fileRefs.current[item.niche]?.click()}>{item.has_photo?'Trocar foto':'Enviar foto padrao'}</button>
+            <small className="help">{item.original_name||'Envie a foto padrão deste look'}{item.updated_at?` · atualizada`:''}</small>
+            <input ref={el=>{fileRefs.current[item.niche]=el}} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e=>onPick(item.niche,e.target.files?.[0],e.target)}/>
+            <button type="button" className="button" disabled={busy||loading} onClick={e=>{e.stopPropagation();fileRefs.current[item.niche]?.click()}}>{item.has_photo?'Trocar foto':'Enviar foto padrão'}</button>
           </article>
         ))}
       </div>
+      <div className="character-sheet-box">
+        <div>
+          <strong>Gerar ficha de consistência</strong>
+          <p className="help">
+            Selecione um nicho com foto. Copie o prompt mestre de identidade ou abra o Grok:
+            cole o prompt e anexe a foto da biblioteca como referência.
+            {selected ? <> Nicho selecionado: <em>{selected.label}</em>.</> : <> Nenhum nicho com foto selecionado.</>}
+          </p>
+        </div>
+        <div className="character-sheet-actions">
+          <button type="button" className="button" disabled={busy||loading||sheetBusy||!selectedNiche} onClick={copySheet}>
+            Copiar ficha de consistência
+          </button>
+          <ServiceLaunch service="grok" className="button primary" disabled={busy||loading||sheetBusy||!selectedNiche} onClick={openSheetGrok}>
+            {isMobileDevice()?'Abrir Grok no celular':'Abrir no Grok'}
+          </ServiceLaunch>
+        </div>
+        {isMobileDevice()&&<p className="help">Copie a ficha primeiro. Depois abra o Grok, cole o texto e anexe a foto da biblioteca.</p>}
+      </div>
+      {lightbox && (
+        <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label={lightbox.label} onClick={()=>setLightbox(null)}>
+          <div className="photo-lightbox-inner" onClick={e=>e.stopPropagation()}>
+            <div className="photo-lightbox-bar">
+              <div>
+                <strong>{lightbox.label}</strong>
+                {lightbox.name ? <small className="help">{lightbox.name}</small> : null}
+              </div>
+              <div className="photo-lightbox-actions">
+                <a className="button" href={lightbox.url} target="_blank" rel="noreferrer">Abrir original</a>
+                <button type="button" className="icon-button" aria-label="Fechar" onClick={()=>setLightbox(null)}><X size={20}/></button>
+              </div>
+            </div>
+            <img src={lightbox.url} alt={lightbox.label}/>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
+
 
 
 export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTab,onCreateFromPlaybook,onOpenProduce,onOpenCampaignResults}){
@@ -1238,10 +1467,10 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
           <div className="results-quick-header">
             <div>
               <span className="eyebrow">STUDIO</span>
-              <h2>Abrir Studio e analisar link</h2>
-              <p className="help">Sem passar por Produzir. Abra o TikTok Studio desta creator ou analise qualquer video ja publicado so com o link.</p>
+              <h2>{isMobileDevice()?'Abrir TikTok e analisar link':'Abrir Studio e analisar link'}</h2>
+              <p className="help">{isMobileDevice()?'Abra o TikTok na conta conectada no celular ou cole o link de um vídeo publicado para analisar.':'Sem passar por Produzir. Abra o TikTok Studio desta creator ou analise qualquer video ja publicado so com o link.'}</p>
             </div>
-            <button type="button" className="primary" disabled={busy||opening} onClick={openStudio}>{opening?'Abrindo…':'Abrir TikTok Studio'}</button>
+            <TikTokLaunchButtons className="button primary" disabled={busy||opening} opening={opening} onOpenStudio={openStudio}/>
           </div>
           <Collapse id="analyze-link" title="Analisar link antigo" defaultOpen={true}>
             <div className="analyze-link-box flat">

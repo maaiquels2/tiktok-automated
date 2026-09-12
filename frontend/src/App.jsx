@@ -1,7 +1,9 @@
+import { getDeviceInfo } from './device';
+import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2 } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
 
 
@@ -26,12 +28,14 @@ export default function App(){
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
   const [renaming,setRenaming]=useState(false),[renameDraft,setRenameDraft]=useState('');
   const [identity,setIdentity]=useState(null);
+  const [lanUrls,setLanUrls]=useState([]);
   const lock=useRef(false),noticeTimer=useRef();
   useEffect(()=>{
     let active=true;
     (async()=>{try{
-      const [list,refs,ident]=await Promise.all([api('/campaigns'),api('/references'),studioIdentity().catch(()=>null)]);
+      const [list,refs,ident,h]=await Promise.all([api('/campaigns'),api('/references'),studioIdentity().catch(()=>null),health().catch(()=>null)]);
       if(ident) setIdentity(ident);
+      if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
       const first=list[0]?await api('/campaigns/'+list[0].id):null;
       if(active){
         setCampaigns(list);setReferences(refs);
@@ -249,11 +253,23 @@ export default function App(){
   }
   function refreshSingleScript(fields){
     if(dirty){setError('Salve as alterações do roteiro antes de gerar outras frases.');return}
-    const action=()=>run(()=>post('/prompts/refresh',{fields}),'Novas frases geradas. Revise o roteiro.','script');
+    const list = Array.isArray(fields) ? fields : ['hook','caption'];
+    const onlyCaption = list.length === 1 && list[0] === 'caption';
+    if(onlyCaption){
+      // Studio: swap caption only — stay on publish step, no roteiro rewind.
+      return run(()=>post('/prompts/refresh',{fields:list}),'Nova legenda gerada.','studio');
+    }
+    const action=()=>run(()=>post('/prompts/refresh',{fields:list}),'Novas frases geradas. Revise o roteiro.','script');
     if(states.indexOf(c.status)>=3)confirm('Gerar novas frases?','A imagem aprovada será mantida. O roteiro e o vídeo precisarão de nova revisão.',action,'Gerar frases');else action();
   }
   function refreshVariant(variantId,fields){
-    return run(()=>api(`/campaigns/${c.id}/variants/${variantId}/refresh`,{method:'POST',body:{fields,version:c.version}}),'Nova variação de fala gerada.');
+    const list = Array.isArray(fields) ? fields : ['hook','caption'];
+    const onlyCaption = list.length === 1 && list[0] === 'caption';
+    return run(
+      ()=>api(`/campaigns/${c.id}/variants/${variantId}/refresh`,{method:'POST',body:{fields:list,version:c.version}}),
+      onlyCaption ? 'Nova legenda gerada.' : 'Nova variação de fala gerada.',
+      onlyCaption ? 'studio' : undefined
+    );
   }
   function mixVideos(payload){
     return run(()=>api(`/campaigns/${c.id}/videos/mix`,{method:'POST',body:{...payload,version:c.version}}),'Mix gerado. Revise o MP4 no slot escolhido.','video');
@@ -299,8 +315,27 @@ export default function App(){
     if(dirty){setError('Salve os textos alterados antes de avançar.');return}
     return run(()=>post('/transition',{target,confirmed:true,...extra}),'Etapa concluída.',{image_approved:'script',script_ready:'video',video_approved:'studio',ready_to_publish:'studio',published:'studio'}[target]);
   }
-  function openService(service,stage){
-    if(dirty){setError('Salve o texto antes de abrir o serviço.');return}
+  function openFreeService(service,event){
+    if(mobileServiceUrl(service))return;
+    event?.preventDefault();
+    const label = service==='studio'?'TikTok Studio':service==='flow'?'Google Flow (Labs)':'Grok Imagine';
+    const account = service==='studio'
+      ?(identity?.chrome_profile_hint?`perfil Chrome "${identity.chrome_profile_hint}"`:'perfil Chrome da creator')
+      :(service==='grok'?(identity?.grok_account_hint||'conta Grok'):(identity?.flow_account_hint||'conta Flow'));
+    confirm(
+      `Abrir ${label}?`,
+      `Abre no perfil dedicado (${account}), sem campanha. ${service==='studio'?'Studio usa o Chrome da Micaela.':'Grok e Flow abrem como abas na mesma janela do perfil de geracao.'}`,
+      ()=>run(async()=>{
+        const result = await openBrowserFree(service);
+        flash(result.message|| (label+' aberto.'));
+        return null;
+      }, label+' solicitado.'),'Abrir'
+    );
+  }
+    function openService(service,stage,event){
+    if(dirty){event?.preventDefault();setError('Salve o texto antes de abrir o serviço.');return}
+    if(mobileServiceUrl(service))return;
+    event?.preventDefault();
     const account=service==='studio'
       ?(identity?.chrome_profile_hint?`perfil Chrome "${identity.chrome_profile_hint}"`:'perfil Chrome da creator')
       :(service==='grok'?(identity?.grok_account_hint||'conta Grok configurada'):(identity?.flow_account_hint||'conta Flow configurada'));
@@ -312,6 +347,8 @@ export default function App(){
     if(busy)return;
     try{await api(`/campaigns/${c.id}/layout`,{method:'PATCH',body:{layout}});setC(old=>({...old,layout}));}catch(e){setError(e.message)}
   }
+  const device=getDeviceInfo();
+  const DeviceIcon=device.type==='phone'?Smartphone:device.type==='tablet'?Tablet:Monitor;
   const current=c?stageInfo.find(s=>s.id===nextStage(c)):null;
   const stage=stageInfo.find(s=>s.id===selected);
   return <><header className="header"><div className="brand"><span className="logo">?</span><span>Fábrica TikTok</span><span className="brand-divider"/><span className="workspace-name">{identity?.studio_name||'Estúdio'}</span></div>
@@ -321,11 +358,13 @@ export default function App(){
       <button type="button" className={mode==='results'?'active':''} disabled={busy} onClick={()=>goMode('results','agora')}>Resultados</button>
     </nav>
     <div className="header-right">
+      <span className="device-badge" aria-label={`Dispositivo de acesso: ${device.label}`} title={`Acessando por ${device.label}. Os dados ficam no computador que executa a fábrica.`}><DeviceIcon size={15} aria-hidden="true"/><span>{device.label}</span></span>
       <button type="button" className="identity-icon-btn" title="Identidade do estudio" aria-label="Identidade do estudio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estudio'})}}>
         <UserCog size={18}/>
         <span className="identity-icon-label">{identity?.model_name||'Identidade'}</span>
       </button>
-      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':'Dados neste computador'}</span>
+      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':'Dados no computador'}</span>
+      {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash('Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
     </div></header>
     
     {mode==='home' && (
@@ -343,7 +382,23 @@ export default function App(){
             <button type="button" className="button" disabled={busy||!campaigns.length} onClick={()=>{const pub=campaigns.find(x=>x.status==='published')||campaigns[0]; if(pub) chooseCampaign(pub.id,{openResults:true})}}>Auditar / métricas</button>
           </div>
         </div>
-        <SetupChecklist busy={busy} onError={setError}/>
+
+        <div className="home-launchers" aria-label="Atalhos de servicos">
+          <span className="home-launchers-label">Abrir serviços</span>
+          <div className="home-launchers-row">
+            <ServiceLaunch service="grok" className="home-launch-btn is-grok" disabled={busy} onClick={event=>openFreeService('grok',event)} title="Grok Imagine">
+              <BrandMark kind="grok" size={20} tone="white"/>
+              <span>Grok</span>
+            </ServiceLaunch>
+            <ServiceLaunch service="flow" className="home-launch-btn is-flow" disabled={busy} onClick={event=>openFreeService('flow',event)} title="Google Flow / Labs">
+              <BrandMark kind="labs" size={20}/>
+              <span>Flow Labs</span>
+            </ServiceLaunch>
+            <TikTokLaunchButtons className="home-launch-btn is-studio" disabled={busy} onOpenStudio={event=>openFreeService('studio',event)}/>
+          </div>
+          <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.'}</small>
+        </div>
+<SetupChecklist busy={busy} onError={setError}/>
         <DailyQueueCard busy={busy} onError={setError} onFlash={flash} onCreate={createFromPlaybook}/>
         <ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
         <div className="home-grid">
@@ -371,38 +426,48 @@ export default function App(){
     </main>
     )}
 
-{mode==='produce' && (<main className="workspace produce-workspace" aria-busy={loading}>
-      <aside className="queue"><div className="queue-heading"><div><span className="eyebrow">PRODUÇÃO</span><h2>Campanhas <span className="count">{campaigns.length}</span></h2></div></div><button className="primary" disabled={busy||loading} onClick={()=>{if(discard()){setError('');setModal({type:'create'})}}}><Plus size={17}/> Nova campanha</button>
+{mode==='produce' && (<main className="workspace produce-workspace produce-dense" aria-busy={loading}>
+      <aside className="queue produce-queue"><div className="queue-heading"><div><span className="eyebrow">PRODUÇÃO</span><h2>Campanhas <span className="count">{campaigns.length}</span></h2></div></div><button className="primary" disabled={busy||loading} onClick={()=>{if(discard()){setError('');setModal({type:'create'})}}}><Plus size={17}/> Nova campanha</button>
         <div className="campaign-list">{campaigns.map(item=><div className={'campaign '+(c?.id===item.id?'active':'')} key={item.id}><button className="campaign-select" disabled={busy} onClick={()=>chooseCampaign(item.id)} aria-pressed={c?.id===item.id}><span className="campaign-id">CAMPANHA {String(item.id).padStart(4,'0')}</span><strong>{item.name}</strong><small>{item.product||item.model_name}</small><span className={'status-pill '+(item.status==='published'?'success':'')}>{statusLabels[item.status]}</span></button><div className="campaign-actions"><button type="button" title="Editar campanha" aria-label={`Editar ${item.name}`} disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button><button type="button" title="Copiar campanha" aria-label={`Copiar ${item.name}`} disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button><button type="button" className="danger-action" title="Excluir campanha" aria-label={`Excluir ${item.name}`} disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button></div></div>)}</div>
         <div className="queue-bottom"><FolderHeart size={20}/><strong>Uma modelo, novos looks.</strong><p>Reutilize a referência para preservar a identidade em cada campanha.</p></div>
       </aside>
       <section className="canvas-panel">{loading?<div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando seu estúdio…</h1></div>:c?<>
-        <div className="canvas-header"><div><span className="eyebrow">CANVAS DE PRODUÇÃO <span className="slash">/</span> {String(c.id).padStart(4,'0')}</span>{renaming?(
-            <div className="campaign-rename">
-              <input autoFocus value={renameDraft} disabled={busy} onChange={e=>setRenameDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveRename();if(e.key==='Escape')setRenaming(false)}} aria-label="Novo nome da campanha"/>
-              <button type="button" className="primary" disabled={busy} onClick={saveRename}>Salvar</button>
-              <button type="button" disabled={busy} onClick={()=>setRenaming(false)}>Cancelar</button>
-            </div>
-          ):(
-            <h1 className="campaign-title-row">{c.name}<button type="button" className="icon-button btn-rename" title="Renomear campanha" aria-label="Renomear campanha" disabled={busy} onClick={beginRename}><Pencil size={16}/></button></h1>
-          )}<div className="campaign-facts"><span>{c.model_name}</span><span>15s · 9:16</span><span>{c.generator==='flow'?'Flow · 1080p':'Grok · 720p'}</span></div></div><div className="export-actions"><button className="button" onClick={editCampaign} disabled={busy} title={c.status==='published'?'Criar uma nova versão editável':'Editar o briefing'}><RefreshCw size={16}/> Editar campanha</button><button className="button" onClick={beginRename} disabled={busy||renaming} title="Renomear esta campanha"><Pencil size={16}/> Renomear</button><a className="button" href={`/api/campaigns/${c.id}/package.txt`} title="Baixar prompts, roteiro e legenda">TXT</a><a className="button" href={`/api/campaigns/${c.id}/package.zip`} title="Baixar textos, referência e mídias aprovadas"><Download size={16}/> Pacote ZIP</a></div></div>
-        {c.migration_note&&<div className="migration-note"><AlertCircle size={17}/>{c.migration_note}</div>}
-        <div className="next-action"><div><span className="eyebrow">{c.status==='published'?'CONCLUÍDA':'PRÓXIMA AÇÃO'}</span><strong>{c.status==='published'?'Publicação registrada':current?.title}</strong></div><button disabled={busy||(c.status!=='published'&&!current)} onClick={()=>c.status==='published'?openPublication():choose(current.id)}>{c.status==='published'?'Ver publicação':'Continuar'}<ArrowRight size={16}/></button></div>
-                <div className="generator-launch">
-          <div className="generator-launch-copy">
-            <span className="eyebrow">GERADOR</span>
-            <strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong>
-            <small>{c.generator==='flow'?(identity?.flow_account_hint||'Flow'):(identity?.grok_account_hint||'Grok')} · etapa {stage?.title||selected}</small>
+        <div className="canvas-header produce-chrome">
+          <div className="produce-chrome-main">
+            <span className="eyebrow">#{String(c.id).padStart(4,'0')} · {c.model_name} · {c.generator==='flow'?'Flow':'Grok'} · 15s</span>
+            {renaming?(
+              <div className="campaign-rename">
+                <input autoFocus value={renameDraft} disabled={busy} onChange={e=>setRenameDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveRename();if(e.key==='Escape')setRenaming(false)}} aria-label="Novo nome da campanha"/>
+                <button type="button" className="primary" disabled={busy} onClick={saveRename}>Salvar</button>
+                <button type="button" disabled={busy} onClick={()=>setRenaming(false)}>Cancelar</button>
+              </div>
+            ):(
+              <h1 className="campaign-title-row">{c.name}<button type="button" className="icon-button btn-rename" title="Renomear" aria-label="Renomear campanha" disabled={busy} onClick={beginRename}><Pencil size={14}/></button></h1>
+            )}
           </div>
-          <button type="button" className={'generator-open-btn '+(c.generator==='flow'?'is-flow':'is-grok')} disabled={busy||c.status==='published'} onClick={()=>openService(c.generator, selected==='video'||selected==='video_approval'?'video':'image')} title={c.generator==='flow'?'Abrir Google Flow (Labs)':'Abrir Grok Imagine'}>
-            <BrandMark kind={c.generator==='flow'?'labs':'grok'} size={22} tone={c.generator==='flow'?'auto':'white'}/>
-            <span className="generator-open-text"><strong>Abrir {c.generator==='flow'?'Flow':'Grok'}</strong></span>
-            <ExternalLink size={15} className="generator-open-ext"/>
+          <div className="export-actions produce-chrome-actions">
+            <button className="button" onClick={editCampaign} disabled={busy} title={c.status==='published'?'Criar versão editável':'Editar briefing'}><RefreshCw size={14}/> Editar</button>
+            <a className="button" href={`/api/campaigns/${c.id}/package.txt`} title="Baixar textos">TXT</a>
+            <a className="button" href={`/api/campaigns/${c.id}/package.zip`} title="Baixar pacote"><Download size={14}/> ZIP</a>
+            <ServiceLaunch service={c.generator} className={'generator-open-btn compact '+(c.generator==='flow'?'is-flow':'is-grok')} disabled={busy||c.status==='published'} onClick={event=>openService(c.generator, selected==='video'||selected==='video_approval'?'video':'image',event)} title={c.generator==='flow'?'Abrir Flow':'Abrir Grok'}>
+              <BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/>
+              <span className="generator-open-text"><strong>{c.generator==='flow'?'Flow':'Grok'}</strong></span>
+            </ServiceLaunch>
+          </div>
+        </div>
+        {c.migration_note&&<div className="migration-note"><AlertCircle size={15}/>{c.migration_note}</div>}
+        <div className="produce-toolbar">
+          <div className="produce-toolbar-next">
+            <span className="eyebrow">{c.status==='published'?'CONCLUÍDA':'AGORA'}</span>
+            <strong>{c.status==='published'?'Publicada':(current?.title||stage?.title||'Continuar')}</strong>
+          </div>
+          <button type="button" className="button produce-continue" disabled={busy||(c.status!=='published'&&!current)} onClick={()=>c.status==='published'?openPublication():choose(current.id)}>
+            {c.status==='published'?'Ver publicação':'Continuar'}<ArrowRight size={14}/>
           </button>
         </div>
         <Canvas key={c.id} campaign={c} selected={selected} onSelect={choose} busy={busy} stages={produceStages}/>
         </>:<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><span className="eyebrow">SEU CANVAS DE PRODUÇÃO</span><h1>Crie sua primeira campanha</h1><p>Defina o produto e o look, anexe a modelo e acompanhe cada aprovação até o TikTok.</p><button className="primary" onClick={()=>setModal({type:'create'})}><Plus size={17}/> Nova campanha</button></div>}</section>
-      <aside className="inspector"><div className="inspector-heading"><span className="eyebrow">{c?'ETAPA SELECIONADA':'COMECE POR AQUI'}</span><h2>{c?stage.title:'Do briefing à publicação'}</h2><p>{c?stage.subtitle:'Toda a produção organizada em um só lugar.'}</p>{c&&<span className="status-pill">{statusLabels[c.status]}</span>}</div>
+      <aside className="inspector"><div className="inspector-heading produce-inspector-head"><div><span className="eyebrow">{c?'ETAPA':'INÍCIO'}</span><h2>{c?stage.title:'Produção'}</h2></div>{c&&<span className="status-pill">{statusLabels[c.status]}</span>}</div>
         {c?<Panel key={`${c.id}-${c.version}-${selected}`} c={c} identity={identity} selected={selected} busy={busy} references={references} onDirty={setDirty} onError={setError} onSaveBrief={saveBrief} onSaveTexts={saveTexts} onUpload={upload} onTransition={transition} onOpen={openService}
           onGenerate={()=>{if(dirty){setError('Salve o briefing antes de gerar os textos.');return}run(()=>post('/generate'),'Prompts, roteiro e legenda gerados localmente.','image')}}
           onGenerateVariants={generateVariants}
@@ -414,7 +479,7 @@ export default function App(){
             onSavePerformance={savePerformance}
             onGenerateInsights={generateInsights}
             onGotoScript={gotoScript}
-            onOpenStudio={()=>openService('studio','publish')}
+            onOpenStudio={event=>openService('studio','publish',event)}
             onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport}
           onApplyLibraryReference={applyLibraryReference} onSaveNichePhoto={saveNichePhoto}
            onReuse={id=>confirm('Reutilizar esta referência?','A mesma imagem será copiada para esta campanha. Esta ação reinicia a produção e as aprovações seguintes.',()=>run(()=>post('/reference',{asset_id:Number(id)}),'Referência reutilizada.','look'),'Usar referência')}/>:<div className="notice">Crie uma campanha, use a referência fixa da modelo e revise imagem e vídeo antes de preparar a publicação.</div>}
@@ -463,7 +528,7 @@ export default function App(){
               </div>
             </div>
             {c.assets.some(a=>a.kind==='video') && <VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}
-            <PerformancePanel c={c} busy={busy} immutable={c.status==='published'} onError={setError} onSavePerformance={savePerformance} onGenerateInsights={generateInsights} onRefreshVariant={refreshVariant} onGotoScript={()=>{goMode('produce');gotoScript()}} onOpenStudio={()=>openService('studio','publish')} onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport} onSavePublishedLink={savePublishedLink}/>
+            <PerformancePanel c={c} busy={busy} immutable={c.status==='published'} onError={setError} onSavePerformance={savePerformance} onGenerateInsights={generateInsights} onRefreshVariant={refreshVariant} onGotoScript={()=>{goMode('produce');gotoScript()}} onOpenStudio={event=>openService('studio','publish',event)} onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport} onSavePublishedLink={savePublishedLink}/>
           </>
         ))}
       </section>
@@ -506,13 +571,13 @@ function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,
   const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
   const check=(key,label)=><label className="check-row" key={key}><input type="checkbox" checked={!!checks[key]} disabled={busy||immutable} onChange={e=>setChecks(old=>({...old,[key]:e.target.checked}))}/><span>{label}</span></label>;
   const editor=(field,title,rows=7)=><TextEditor title={title} field={field} value={c.prompts[field]} onSave={onSaveTexts} onDirty={onDirty} onError={onError} busy={busy} readOnly={immutable} rows={rows}/>;
-  const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>Perfil: {c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok')}</small></div></div><button disabled={busy||immutable} onClick={()=>onOpen(c.generator,stage)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>Abrir {c.generator==='flow'?'Flow':'Grok'} para {stage==='image'?'imagem':'video'}</span> <ExternalLink size={15}/></button><p>{c.generator==='grok'?'Mesma janela do Flow (abas). Interacao manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
+  const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>{isMobileDevice()?'Conta conectada no celular':'Perfil: '}{!isMobileDevice()&&(c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok'))}</small></div></div><ServiceLaunch service={c.generator} disabled={busy||immutable} onClick={event=>onOpen(c.generator,stage,event)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>{isMobileDevice()?(c.generator==='grok'?'Abrir Grok no celular':'Abrir Flow no navegador'):`Abrir ${c.generator==='flow'?'Flow':'Grok'} para ${stage==='image'?'imagem':'vídeo'}`}</span> <ExternalLink size={15}/></ServiceLaunch><p>{isMobileDevice()?(c.generator==='grok'?'Abre o app Grok quando permitido pelo iOS; caso contrário, abre o site. Copie o prompt e anexe as referências no Grok.':'Abre no navegador do celular. Cole o prompt e anexe as referências.'):c.generator==='grok'?'Mesma janela do Flow (abas). Interacao manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
   if(selected==='model')return <><AssetView asset={reference} title="Referência fixa da modelo"/>
     <div className="notice"><strong>Nicho:</strong> {c.niche||'nao definido'} — use a foto padrao deste nicho para manter o mesmo rosto/corpo.</div>
     {c.niche && onApplyLibraryReference && <button type="button" className="primary full" disabled={busy||immutable} onClick={()=>onApplyLibraryReference(c.niche)}>Usar foto padrao do nicho ({c.niche})</button>}
     <Uploader kind="reference" exists={!!reference} busy={busy} disabled={immutable} onUpload={onUpload}/><div className="notice">Preserve rosto, cabelo, corpo e tom de pele. Mude apenas roupa e cor.</div>{!immutable&&<section className="reuse-section"><h3>Reutilizar referência</h3><label>Referências de {c.model_name}<select value={reuse} onChange={e=>setReuse(e.target.value)}><option value="">Escolha uma imagem salva</option>{references.filter(r=>r.model_name.toLocaleLowerCase()===c.model_name.toLocaleLowerCase()&&r.id!==reference?.id).map(r=><option key={r.id} value={r.id}>{r.campaign_name} · {r.original_name}</option>)}</select></label><button disabled={!reuse||busy} onClick={()=>onReuse(reuse)}>Usar a mesma imagem</button></section>}</>;
   if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p><button className="primary full" disabled={busy||!reference||c.status!=='briefing'} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
-  if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
+  if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}{image&&<AssetView asset={image} title="Imagem gerada" compact/>}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
   if(selected==='image_approval')return <>{c.assets.filter(a=>a.kind==='image').length?<><div className="notice">Confira cada cor. A aprovação libera os roteiros de 15s personalizados por imagem.</div><div className="comparison-grid">{c.assets.filter(a=>a.kind==='image').map(img=><div key={img.id} className="comparison-card"><span>{img.slot||img.metadata?.color||'Imagem'}</span><AssetView asset={img} title={img.slot||'Imagem'} compact/>{img.approved_at&&<p className="approved-label"><Check size={14}/>Aprovada</p>}</div>)}</div><div className="comparison"><div><span>Referência</span><AssetView asset={reference} title="Modelo fixa" compact/></div></div>{c.assets.filter(a=>a.kind==='image').every(a=>a.approved_at)?<div className="notice success"><Check size={17}/> Todas as imagens aprovadas.</div>:<><h3>Confira antes de aprovar</h3>{check('identity','Rosto, cabelo, corpo e tom de pele correspondem à referência em todas as cores.')}{check('look','Roupa, cor, produto e mãos estão corretos em cada imagem.')}<button className="primary full" disabled={busy||c.status!=='image_ready'||!checks.identity||!checks.look} onClick={()=>onTransition('image_approved')}><Check size={17}/> Aprovar todas as imagens</button>{c.status!=='image_ready'&&<small className="help">Anexe a imagem de cada cor na etapa Criar imagem.</small>}</>}</>:<div className="notice">Anexe o resultado de cada cor na etapa Criar imagem.</div>}</>;
   if(selected==='script')return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onRefreshVariant={onRefreshVariant} busy={busy} immutable={immutable}/>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript}/>}<div className="notice">Leia em voz alta. A legenda do TikTok fica no <strong>Studio</strong>. Aqui use <strong>Atualizar hook</strong> ou <strong>Atualizar fala inteira</strong>.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
   if(selected==='video')return <>{index>=3?<>{c.assets.some(a=>a.kind==='video')&&<VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}<div className="notice"><strong>Um vídeo por cor.</strong> Anexe todos os MP4 de 15s. Use a imagem da mesma cor como referência.</div>{service('video')}{!immutable&&onMixVideos&&<VideoMixer c={c} busy={busy} immutable={immutable} onError={onError} onMix={onMixVideos}/>}{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} videos={c.assets} onError={onError} focus="video" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('video','Prompt de vídeo')}<AssetView asset={image} title="Imagem aprovada para anexar" compact/><Uploader kind="video" exists={!!video} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<div className="notice">Exporte cada vídeo com 15 segundos em {c.generator==='flow'?'1080 × 1920':'720 × 1280'}.</div></>:<div className="notice">Aprove as imagens e conclua o roteiro antes de criar o vídeo.</div>}</>;
@@ -524,14 +589,17 @@ function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,
     const missing=slots.filter(s=>s && !bySlot[s]);
     const allPresent=slots.length===1 && !slots[0] ? vids.length>0 : (slots.length?slots.every(s=>!!bySlot[s]):vids.length>0);
     const statusOk=c.status==='video_ready';
+    const alreadyAdvanced=['video_approved','ready_to_publish','published'].includes(c.status);
+    const needsLegacyRepair=alreadyAdvanced&&allPresent&&vids.some(a=>!a.approved_at);
+    const approveLabel=vids.length===1?'Aprovar vídeo':'Aprovar todos os vídeos';
     return <>{vids.length?<><VideoTimelinePreview asset={vids[0]} variant={(c.variants||[])[0]} c={c}/>
       <div className="notice">Confira <strong>cada cor</strong>. ~15s e 9:16 são recomendadas, mas não bloqueiam.</div>
       <div className="comparison-grid">{vids.map(vid=><div key={vid.id} className="comparison-card"><span>{vid.slot||vid.metadata?.color||'Vídeo'}</span><AssetView asset={vid} title={vid.slot||'Vídeo'} compact/>{vid.approved_at&&<p className="approved-label"><Check size={14}/>Aprovado</p>}</div>)}</div>
       {!!slots.filter(Boolean).length && <ul className="color-checklist">{slots.filter(Boolean).map(s=><li key={s}>{bySlot[s]?`✓ ${s}: vídeo anexado`:`✗ ${s}: falta anexar`}</li>)}</ul>}
-      {vids.every(a=>a.approved_at)?<div className="notice success"><Check size={16}/>Todos os vídeos aprovados.</div>:<><p>Alvo: 15 segundos · {c.generator==='flow'?'1080 × 1920':'720 × 1280'} · MP4.</p>
+      {vids.every(a=>a.approved_at)?<div className="notice success"><Check size={16}/>{vids.length===1?'Vídeo aprovado.':'Todos os vídeos aprovados.'}</div>:needsLegacyRepair?<div className="notice success"><Check size={16}/><div><strong>Esta aprovação já foi registrada.</strong><p>O arquivo ficou sem a marca de aprovação por uma versão anterior da fábrica. Continue para a publicação para corrigir o registro.</p>{c.status==='video_approved'&&<button type="button" className="primary" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Continuar para publicação <ArrowRight size={16}/></button>}</div></div>:<><p>Alvo: 15 segundos · {c.generator==='flow'?'1080 × 1920':'720 × 1280'} · MP4.</p>
       {check('visual','Assisti a todos os vídeos. Identidade, look, produto e movimentos estão corretos em cada cor.')}
       {check('audio','Revisei áudio, falas, sincronização e duração em cada cor.')}
-      <button className="primary full" disabled={busy||!allPresent||!statusOk||!checks.visual||!checks.audio} onClick={()=>onTransition('video_approved')}><Check size={17}/> Aprovar todos os vídeos</button>
+      <button className="primary full" disabled={busy||!allPresent||!statusOk||!checks.visual||!checks.audio} onClick={()=>onTransition('video_approved')}><Check size={17}/> {approveLabel}</button>
       {!allPresent&&<small className="help">Falta vídeo em: {missing.join(', ')||'—'}. Em <strong>Criar vídeo</strong>, anexe 1 MP4 por cor. Não misture cores diferentes no Misturar.</small>}
       {allPresent&&!statusOk&&<small className="help">Os arquivos estão aí, mas o status ainda não é video_ready (agora: {c.status}). Reanexe um dos MP4s em Criar vídeo ou recarregue.</small>}
       {allPresent&&statusOk&&(!checks.visual||!checks.audio)&&<small className="help">Marque as duas caixas acima para liberar o botão.</small>}
@@ -541,7 +609,7 @@ function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,
     <div className="notice"><strong>Metricas ficam em Resultados.</strong> Use a aba Resultados no topo para coletar do Studio, auditar publicados e gerar insights.</div>
     <p className="help">Produzir fica so com briefing, imagem, roteiro, video e publicacao.</p>
   </>;
-  return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant}/>}{index>=6&&<div className="notice">Métricas e Crítico: abra <strong>Resultados</strong> no topo da página.</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;
+  return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant} onRefreshCaption={onRefreshScript} onSaveCaption={(prompts)=>prompts?._variantId?onSaveVariant?.(prompts._variantId,{caption:prompts.caption}):onSaveTexts(prompts)}/>}{index>=6&&<div className="notice">Métricas e Crítico: abra <strong>Resultados</strong> no topo da página.</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;
 }
 
 function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh}){
@@ -550,4 +618,3 @@ function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh}){
   const changed=Object.keys(draft).some(k=>draft[k]!==c.prompts[k]);
   return <div className="script-editor">{c.status!=='published'&&onRefresh&&<div className="script-refresh-actions"><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'])}>Atualizar hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'])}>Atualizar fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<div className="script-word-count">{Object.values(draft).join(' ').trim().split(/\s+/).length} palavras · confirme o tempo com uma leitura</div></div>;
 }
-

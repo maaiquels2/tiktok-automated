@@ -1,7 +1,7 @@
 """Assisted navigation only. No generation clicks, login, product selection or posting.
 
-Flow and Grok share one Playwright persistent Chromium (tabs). Studio uses the Micaela CDP clone.
-Interaction on Grok/Flow stays manual (no scripted generation).
+Flow and Grok open in plain Chrome (no Playwright) so downloads never crash the window.
+Studio still uses the Micaela CDP clone. Interaction on Grok/Flow stays manual.
 """
 import asyncio
 import atexit
@@ -125,7 +125,10 @@ def existing_chrome_profile():
 def chrome_profile_busy(chrome_root):
     """True if Chrome appears to hold the User Data lock (must be closed for Playwright)."""
     root = Path(chrome_root)
-    for name in ('SingletonLock', 'lockfile'):
+    # `lockfile` is left behind by some Chrome builds in dedicated profiles
+    # even after the browser closes. The Singleton files are the reliable
+    # indicators that a live Chrome process still owns the directory.
+    for name in ('SingletonLock', 'SingletonCookie', 'SingletonSocket'):
         if (root / name).exists():
             return True
     try:
@@ -235,7 +238,15 @@ def ensure_micaela_cdp_user_data(profile_root, chrome_root, chrome_profile):
     src = Path(chrome_root) / chrome_profile
     if not src.is_dir():
         raise RuntimeError(f"Perfil Chrome nao encontrado: {src}. Ajuste Perfil Chrome na Identidade (pasta ex.: Profile 7).")
-    need_seed = (not marker.exists()) or (not (default_dir / "Cookies").exists() and not (default_dir / "Network" / "Cookies").exists())
+    expected_marker = f"{Path(chrome_root).resolve()}|{chrome_profile}"
+    try:
+        marker_value = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        marker_value = ""
+    need_seed = (
+        marker_value != expected_marker
+        or (not (default_dir / "Cookies").exists() and not (default_dir / "Network" / "Cookies").exists())
+    )
     if need_seed:
         if chrome_profile_busy(chrome_root):
             raise RuntimeError(
@@ -254,7 +265,7 @@ def ensure_micaela_cdp_user_data(profile_root, chrome_root, chrome_profile):
         local_state = dest / "Local State"
         if not local_state.exists():
             local_state.write_text('{"profile":{"last_used":"Default","info_cache":{"Default":{"name":"Micaela CDP"}}}}', encoding="utf-8")
-        marker.write_text(f"{chrome_root}|{chrome_profile}", encoding="utf-8")
+        marker.write_text(expected_marker, encoding="utf-8")
     return dest
 
 
@@ -294,6 +305,9 @@ class BrowserAssistant:
         self.native = {}
         self.page_campaigns = {}
         self.download_tasks = set()
+        self.active_gen_campaign_id = 0
+        self._dl_watch_task = None
+        self._dl_seen = set()
         self.playwright = None
         self.lock = threading.Lock()
         self.closed = False
@@ -310,6 +324,18 @@ class BrowserAssistant:
 
     def open_grok_for_video(self,campaign_id):
         return self._request('grok',campaign_id)
+
+    def open_grok_character_sheet(self):
+        """Open Grok Imagine for consistency sheet; downloads land in campanha-0000."""
+        return self._request('grok', 0)
+    def open_grok_free(self):
+        """Open Grok Imagine in the gen profile (no campaign)."""
+        return self._request('grok', 0)
+
+    def open_flow_free(self):
+        """Open Google Flow / Labs in the gen profile (no campaign)."""
+        return self._request('flow', 0)
+
 
     def open_tiktok_studio(self,campaign_id):
         return self._request('studio',campaign_id)
@@ -332,113 +358,405 @@ class BrowserAssistant:
         finally:
             self.lock.release()
 
-    async def _save_download(self,download,campaign_id):
-        folder=self.media_root/f'campanha-{campaign_id:04d}'/'downloads'
-        folder.mkdir(parents=True,exist_ok=True)
-        name=secure_filename(download.suggested_filename) or 'download.bin'
+    def _sniff_ext(self, path):
+        """Guess extension from magic bytes when Grok omits one. Never raises."""
         try:
-            await download.save_as(folder/f'{uuid.uuid4().hex[:8]}-{name}')
+            with open(path, 'rb') as fh:
+                head = fh.read(16)
+        except Exception:
+            return ''
+        if not head:
+            return ''
+        if head.startswith(b'\xff\xd8\xff'):
+            return '.jpg'
+        if head.startswith(b'\x89PNG\r\n\x1a\n'):
+            return '.png'
+        if len(head) >= 12 and head[:4] == b'RIFF' and head[8:12] == b'WEBP':
+            return '.webp'
+        if len(head) >= 8 and head[4:8] == b'ftyp':
+            return '.mp4'
+        if head.startswith(b'PK\x03\x04'):
+            return '.zip'
+        return ''
+
+    def _ensure_ext(self, dest):
+        """Rename dest in-place only when it has no usable suffix. Soft-fail."""
+        try:
+            dest = Path(dest)
+            if not dest.is_file():
+                return dest
+            suffix = (dest.suffix or '').lower()
+            if suffix and suffix not in {'.bin', '.download', '.tmp', '.crdownload'}:
+                return dest
+            ext = self._sniff_ext(dest)
+            if not ext:
+                return dest
+            renamed = dest.with_name(dest.stem + ext) if suffix else dest.with_name(dest.name + ext)
+            if renamed == dest:
+                return dest
+            if renamed.exists():
+                renamed = dest.with_name(f'{dest.stem}-{uuid.uuid4().hex[:4]}{ext}')
+            dest.replace(renamed)
+            return renamed
+        except Exception:
+            return Path(dest)
+
+    def _native_dl_dir(self):
+        folder = self.media_root / '_browser_downloads'
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder
+
+    def _seed_chrome_download_prefs(self, user_data_dir, dl_dir):
+        """Point Chromium Default profile at our folder; never prompt. Soft-fail."""
+        import json
+        try:
+            prefs_path = Path(user_data_dir) / 'Default' / 'Preferences'
+            prefs_path.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if prefs_path.is_file():
+                try:
+                    data = json.loads(prefs_path.read_text(encoding='utf-8'))
+                except Exception:
+                    data = {}
+            download = data.setdefault('download', {})
+            download['default_directory'] = str(Path(dl_dir).resolve())
+            download['prompt_for_download'] = False
+            download['directory_upgrade'] = True
+            # Also disable dangerous "open pdf externally" flakiness
+            data.setdefault('plugins', {})['always_open_pdf_externally'] = False
+            prefs_path.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
         except Exception:
             import logging
-            logging.getLogger(__name__).exception('Não foi possível guardar o download da campanha %s',campaign_id)
+            logging.getLogger(__name__).exception('seed chrome download prefs failed')
 
-    def _download(self,download,page):
-        task=asyncio.create_task(self._save_download(download,self.page_campaigns[page]))
-        self.download_tasks.add(task)
-        task.add_done_callback(self.download_tasks.discard)
+    async def _enable_native_downloads(self, context, dl_dir):
+        """CDP allow + path. Do NOT use Playwright Download artifacts (they crash Grok)."""
+        import logging
+        log = logging.getLogger(__name__)
+        path = str(Path(dl_dir).resolve())
+        for page in list(context.pages):
+            if page.is_closed():
+                continue
+            try:
+                client = await context.new_cdp_session(page)
+                try:
+                    await client.send(
+                        'Browser.setDownloadBehavior',
+                        {'behavior': 'allow', 'downloadPath': path, 'eventsEnabled': False},
+                    )
+                except Exception:
+                    await client.send(
+                        'Page.setDownloadBehavior',
+                        {'behavior': 'allow', 'downloadPath': path},
+                    )
+            except Exception as exc:
+                log.warning('native download CDP failed: %s', exc)
+
+    def _route_native_file(self, src: Path):
+        """Copy a finished Chrome download into the active campaign downloads folder."""
+        import logging
+        import shutil
+        log = logging.getLogger(__name__)
+        try:
+            if not src.is_file():
+                return
+            name = src.name.lower()
+            if name.endswith(('.crdownload', '.tmp', '.partial')):
+                return
+            key = str(src.resolve())
+            if key in self._dl_seen:
+                return
+            # Wait until size stable
+            size = src.stat().st_size
+            if size <= 0:
+                return
+            self._dl_seen.add(key)
+            cid = int(self.active_gen_campaign_id or 0)
+            dest_dir = self.media_root / f'campanha-{cid:04d}' / 'downloads'
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            suggested = secure_filename(src.name) or f'download-{uuid.uuid4().hex[:8]}'
+            dest = dest_dir / f'{uuid.uuid4().hex[:8]}-{suggested}'
+            shutil.copy2(src, dest)
+            dest = self._ensure_ext(dest)
+            log.info('native download routed -> %s', dest)
+        except Exception:
+            log.exception('route native download failed')
+
+    async def _watch_native_downloads(self):
+        """Poll Chrome's download folder; never touch Playwright Download APIs."""
+        import logging
+        log = logging.getLogger(__name__)
+        folder = self._native_dl_dir()
+        while True:
+            try:
+                await asyncio.sleep(1.5)
+                for src in folder.iterdir():
+                    if not src.is_file():
+                        continue
+                    # size must be stable across a short pause
+                    try:
+                        s1 = src.stat().st_size
+                    except OSError:
+                        continue
+                    await asyncio.sleep(0.35)
+                    try:
+                        s2 = src.stat().st_size
+                    except OSError:
+                        continue
+                    if s1 != s2 or s1 <= 0:
+                        continue
+                    self._route_native_file(src)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception('download watcher tick failed')
+
+    def _ensure_dl_watcher(self):
+        try:
+            if self._dl_watch_task and not self._dl_watch_task.done():
+                return
+            self._dl_watch_task = asyncio.create_task(self._watch_native_downloads())
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('could not start download watcher')
+
+    def _gen_profile_dir(self):
+        """Shared Grok+Flow profile (prefer legacy flow-maaiquels if gen missing)."""
+        flow_legacy = self.profile_root / 'flow-maaiquels'
+        gen_dir = self.profile_root / 'gen-maaiquels'
+        if flow_legacy.is_dir() and not gen_dir.is_dir():
+            return 'flow-maaiquels', flow_legacy
+        gen_dir.mkdir(parents=True, exist_ok=True)
+        return 'gen-maaiquels', gen_dir
+
+    def _shared_generation_profile(self):
+        """Find the app-owned profile already used by Flow/Grok.
+
+        Studio normally clones the user's real Chrome profile. When Windows
+        denies access to Chrome's global User Data/Local State, reuse the
+        same app-owned Flow/Grok profile instead of forcing an environment
+        variable that the user should not need to know about.
+        """
+        for name in ('flow-maaiquels', 'gen-maaiquels', 'grok-maaiquels'):
+            directory = self.profile_root / name
+            if (directory / 'Default').is_dir() and (directory / 'Local State').is_file():
+                return directory, 'Default'
+        return None
+
+    def _existing_factory_cdp_profile(self):
+        """Return an already-seeded Studio clone when one is available."""
+        try:
+            from services.studio_identity import load_identity
+            folder = load_identity().get('cdp_folder') or 'micaela-cdp'
+        except Exception:
+            folder = 'micaela-cdp'
+        directory = self.profile_root / folder
+        default = directory / 'Default'
+        has_cookies = (default / 'Cookies').is_file() or (default / 'Network' / 'Cookies').is_file()
+        return directory if default.is_dir() and has_cookies else None
+
+    def _kill_gen_chrome_processes(self):
+        """Force-stop Chromium holding the gen/flow/grok factory profiles."""
+        import logging
+        log = logging.getLogger(__name__)
+        needles = (
+            'browser_profiles\\flow-maaiquels',
+            'browser_profiles\\gen-maaiquels',
+            'browser_profiles\\grok-maaiquels',
+            'browser_profiles/flow-maaiquels',
+            'browser_profiles/gen-maaiquels',
+            'browser_profiles/grok-maaiquels',
+        )
+        try:
+            ps = (
+                "$needles=@('flow-maaiquels','gen-maaiquels','grok-maaiquels');"
+                "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | ForEach-Object {"
+                "  $c=$_.CommandLine; if(-not $c){return};"
+                "  foreach($n in $needles){ if($c -like ('*browser_profiles*'+$n+'*')){"
+                "    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; break }}}"
+            )
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, text=True, timeout=25,
+            )
+        except Exception:
+            log.exception('kill gen chrome failed')
+        # Drop tracked native handles
+        for key in list(self.native):
+            if key in ('flow-maaiquels', 'gen-maaiquels', 'grok-maaiquels'):
+                proc = self.native.pop(key, None)
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+
+    async def _close_playwright_gen_contexts(self):
+        """Detach any Playwright-owned gen windows (they are the crash source)."""
+        for key in list(self.contexts):
+            if key not in ('flow-maaiquels', 'gen-maaiquels', 'grok-maaiquels'):
+                continue
+            ctx = self.contexts.pop(key, None)
+            if ctx is None:
+                continue
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+
+    async def _open_gen_native_chrome(self, service, campaign_id):
+        """Open Grok/Flow with system Chrome — zero Playwright attachment."""
+        import logging
+        log = logging.getLogger(__name__)
+        executable = installed_browser()
+        profile, directory = self._gen_profile_dir()
+        dl_dir = self._native_dl_dir()
+
+        # If a Playwright context still owns this profile, close it first.
+        await self._close_playwright_gen_contexts()
+
+        # Preferences only apply on a fresh Chrome start for that user-data-dir.
+        busy = profile_dir_busy(directory)
+        if busy:
+            self._kill_gen_chrome_processes()
+            await asyncio.sleep(1.0)
+
+        self._seed_chrome_download_prefs(directory, dl_dir)
+        try:
+            self.active_gen_campaign_id = int(campaign_id or 0)
+        except Exception:
+            self.active_gen_campaign_id = 0
+
+        url = URLS[service]
+        args = [
+            executable,
+            f'--user-data-dir={directory}',
+            '--profile-directory=Default',
+            '--no-first-run',
+            '--no-default-browser-check',
+            '--disable-session-crashed-bubble',
+            '--new-window',
+            url,
+        ]
+        try:
+            proc = subprocess.Popen(
+                args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            self.native[profile] = proc
+        except OSError as exc:
+            code = getattr(exc, 'winerror', None) or exc.errno
+            raise RuntimeError(
+                f'O Windows nao conseguiu abrir o Chrome do gerador (erro {code}).'
+            ) from exc
+
+        # Watcher runs on our asyncio loop (no Playwright needed).
+        self._ensure_dl_watcher()
+        # Also watch the Windows Downloads folder as fallback if prefs were ignored.
+        self._ensure_user_downloads_fallback()
+
+        label = 'Grok Imagine' if service == 'grok' else 'Google Flow'
+        other = 'Flow' if service == 'grok' else 'Grok'
+        log.info('opened %s via native Chrome profile=%s cid=%s', service, profile, campaign_id)
+        return dict(
+            message=(
+                f'{label} aberto no Chrome da fabrica (sem Playwright). '
+                f'Downloads vao para a pasta da campanha e para media/_browser_downloads. '
+                f'Pode abrir o {other} depois na mesma conta.'
+            ),
+            url=url,
+            profile=profile,
+            mode='native_chrome',
+            downloads=str(dl_dir),
+        )
+
+    def _user_downloads_dir(self):
+        home = Path.home() / 'Downloads'
+        return home if home.is_dir() else None
+
+    def _ensure_user_downloads_fallback(self):
+        """Also poll ~/Downloads for brand-new image/video files (Grok sometimes ignores prefs)."""
+        try:
+            if getattr(self, '_dl_user_watch_task', None) and not self._dl_user_watch_task.done():
+                return
+            self._dl_user_watch_task = asyncio.create_task(self._watch_user_downloads())
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('user downloads watcher failed to start')
+
+    async def _watch_user_downloads(self):
+        import logging
+        import time
+        log = logging.getLogger(__name__)
+        folder = self._user_downloads_dir()
+        if folder is None:
+            return
+        # Only consider files created after watcher start
+        started = time.time()
+        while True:
+            try:
+                await asyncio.sleep(2.0)
+                for src in folder.iterdir():
+                    if not src.is_file():
+                        continue
+                    name = src.name.lower()
+                    if not name.endswith(('.jpg', '.jpeg', '.png', '.webp', '.mp4', '.gif', '.bin')):
+                        # Grok often saves extensionless UUID files
+                        if '.' in src.name and not name.endswith(('.crdownload', '.tmp')):
+                            continue
+                    try:
+                        st = src.stat()
+                    except OSError:
+                        continue
+                    if st.st_mtime < started - 2:
+                        continue
+                    if name.endswith(('.crdownload', '.tmp', '.partial')):
+                        continue
+                    await asyncio.sleep(0.4)
+                    try:
+                        if src.stat().st_size != st.st_size:
+                            continue
+                    except OSError:
+                        continue
+                    self._route_native_file(src)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception('user downloads watcher tick failed')
+
+    def _open_studio_native(self):
+        """Open the manual publishing page without waiting for metrics automation."""
+        executable = installed_browser()
+        try:
+            directory, profile = existing_chrome_profile()
+        except RuntimeError:
+            if os.environ.get('FABRICA_CHROME_USER_DATA'):
+                raise
+            directory = self._existing_factory_cdp_profile()
+            profile = 'Default'
+            if directory is None:
+                shared = self._shared_generation_profile()
+                if shared is None:
+                    raise
+                directory, profile = shared
+        args = [executable, f'--user-data-dir={directory}',
+                f'--profile-directory={profile}', '--no-first-run',
+                '--no-default-browser-check', URLS['studio']]
+        # Chrome forwards this URL to the running profile when it is already open.
+        # Do not terminate Chrome, copy cookies or attach Playwright for this action.
+        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return dict(message='Abertura do TikTok Studio solicitada ao Chrome.',
+                    url=URLS['studio'], profile=str(directory), mode='existing')
 
     async def _open(self,service,campaign_id):
+
         try:
             executable = installed_browser()
             if service == 'studio':
-                page, browser, user_data, chrome_profile = await self._connect_micaela_cdp(
-                    URLS[service], new_tab=True
-                )
-                return dict(
-                    message='TikTok Studio aberto no Chrome da fabrica (perfil Micaela). Pode deixar aberto — Analisar link abre outra aba.',
-                    url=URLS[service],
-                    profile=str(user_data),
-                    mode='cdp_micaela',
-                )
+                return self._open_studio_native()
 
-            # Grok + Flow share ONE dedicated Chromium window (tabs).
-            # Prefer existing Flow profile folder so login cookies stay; else gen-maaiquels.
-            profile = 'gen-maaiquels'
-            flow_legacy = self.profile_root / 'flow-maaiquels'
-            gen_dir = self.profile_root / profile
-            if flow_legacy.is_dir() and not gen_dir.is_dir():
-                profile = 'flow-maaiquels'
-                directory = flow_legacy
-            else:
-                directory = gen_dir
-                directory.mkdir(parents=True, exist_ok=True)
+            # Grok + Flow: PLAIN Chrome only. Playwright download hooks kill the window.
+            return await self._open_gen_native_chrome(service, campaign_id)
 
-            # Stale native Chrome (old Grok-only launcher) locks the folder for Playwright.
-            for key in list(self.native):
-                proc = self.native.get(key)
-                if proc and proc.poll() is None and key in (profile, 'flow-maaiquels', 'grok-maaiquels', 'gen-maaiquels'):
-                    raise RuntimeError(
-                        'Ha um Chrome antigo do perfil dedicado ainda aberto. '
-                        'Feche essa janela uma vez e clique de novo — Grok e Flow passam a abrir como abas na mesma janela.'
-                    )
-
-            if profile_dir_busy(directory) and profile not in self.contexts:
-                raise RuntimeError(
-                    'O perfil dedicado de geracao esta em uso por outro Chrome. '
-                    'Feche janelas extras desse perfil (nao o Chrome normal da Micaela) e tente de novo.'
-                )
-
-            if self.playwright is None:
-                from playwright.async_api import async_playwright
-                self.playwright = await async_playwright().start()
-
-            context = self.contexts.get(profile)
-            if context is None:
-                context = await self.playwright.chromium.launch_persistent_context(
-                    str(directory),
-                    executable_path=executable,
-                    headless=False,
-                    accept_downloads=True,
-                    no_viewport=True,
-                    args=['--start-maximized'],
-                    timeout=25000,
-                )
-                self.contexts[profile] = context
-                context.on('close', lambda *_: self.contexts.pop(profile, None))
-
-            url = URLS[service]
-            pages = [p for p in context.pages if not p.is_closed()]
-            # Reuse an existing tab for the same service URL when possible.
-            page = next((p for p in pages if (p.url or '').startswith(url)), None)
-            if page is None:
-                # Prefer campaign-tagged blank/about for this campaign
-                page = next(
-                    (p for p in pages if p.url.startswith(url) and self.page_campaigns.get(p) == campaign_id),
-                    None,
-                )
-            if page is None:
-                blank = next((p for p in pages if (p.url or '') in ('about:blank', 'chrome://newtab/', 'chrome://new-tab-page/')), None)
-                page = blank or await context.new_page()
-                await page.goto(url, wait_until='domcontentloaded', timeout=20000)
-
-            if page not in self.page_campaigns:
-                page.on('download', lambda download: self._download(download, page))
-                page.on('close', lambda *_: self.page_campaigns.pop(page, None))
-            self.page_campaigns[page] = campaign_id
-            await page.bring_to_front()
-
-            label = 'Grok Imagine' if service == 'grok' else 'Google Flow'
-            other = 'Flow' if service == 'grok' else 'Grok'
-            return dict(
-                message=(
-                    f'{label} aberto na mesma janela do perfil dedicado. '
-                    f'Pode abrir o {other} depois — vira outra aba, sem segundo navegador. '
-                    'Gerar conteudo continua manual (cole o prompt e anexe os arquivos).'
-                ),
-                url=url,
-                profile=profile,
-                mode='assisted_tabs',
-            )
         except RuntimeError:
             raise
         except OSError as exc:
@@ -457,9 +775,27 @@ class BrowserAssistant:
         """Reuse (or launch) the factory CDP clone of Micaela Chrome. Optionally open a URL in a new tab."""
         from services.studio_metrics import CONTENT_URL
         executable = installed_browser()
-        chrome_root, chrome_profile = existing_chrome_profile()
+        direct_cdp = None
+        try:
+            chrome_root, chrome_profile = existing_chrome_profile()
+        except RuntimeError:
+            # Only fall back when the user did not explicitly configure a
+            # different Chrome User Data directory. The shared generation
+            # profile is the same account used by Flow and Grok in this app.
+            if os.environ.get('FABRICA_CHROME_USER_DATA'):
+                raise
+            direct_cdp = self._existing_factory_cdp_profile()
+            if direct_cdp is not None:
+                # This clone is already isolated and can be opened directly;
+                # do not copy it onto itself or ask for the global User Data.
+                chrome_root, chrome_profile = direct_cdp, 'Default'
+            else:
+                fallback = self._shared_generation_profile()
+                if fallback is None:
+                    raise
+                chrome_root, chrome_profile = fallback
         profile_key = "tiktok-micaela-metrics"
-        user_data = ensure_micaela_cdp_user_data(self.profile_root, chrome_root, chrome_profile)
+        user_data = direct_cdp or ensure_micaela_cdp_user_data(self.profile_root, chrome_root, chrome_profile)
         target_url = open_url or CONTENT_URL
 
         if self.playwright is None:

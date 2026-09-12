@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image
 from app import create_app
-from services.prompts import generate
+from services.prompts import build_caption, generate, refresh_script_fields
 
 
 def image_bytes():
@@ -355,6 +355,128 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('legging de treino cintura alta com bolso lateral',prompts['image'])
         self.assertIn('caminhar dois passos, virar de lado e ajustar o cós',prompts['video'])
         self.assertGreaterEqual(len(' '.join(prompts[k] for k in ('hook','development','cta')).split()),28)
+
+    def test_generated_development_is_speech_and_fits_15_second_budget(self):
+        campaign=dict(model_name='Micaela',product='legging de treino cintura alta com bolso lateral',
+                      outfit='legging roxa',color='roxo',audience='mulheres que treinam',
+                      benefit='veste muito bem no corpo e é leve',angle='mostrar o cós e o bolso lateral',
+                      tone='conversacional',style='natural',details='',movements='virar de lado',generator='flow')
+        prompts=generate(campaign)
+        spoken=' '.join(prompts[k] for k in ('hook','development','cta'))
+        self.assertLessEqual(len(spoken.split()),45)
+        self.assertNotIn('Mostre ', prompts['development'])
+        self.assertNotIn('Aproxime a câmera', prompts['development'])
+        self.assertIn('mulheres que treinam', prompts['development'])
+
+    def test_negative_attributes_are_not_presented_as_features(self):
+        campaign=dict(model_name='Micaela',product='legging sem bolso lateral e sem compressão',
+                      outfit='legging',color='preta',audience='mulheres',benefit='não possui bolso',
+                      angle='mostrar o caimento',tone='direto',style='realista',details='',movements='',generator='flow')
+        prompts=generate(campaign)
+        self.assertNotIn('FATOS DO PRODUTO A PRESERVAR: bolso lateral', prompts['image'])
+        self.assertNotIn('a peça tem', prompts['development'].lower())
+
+    def test_negative_product_fact_overrules_conflicting_angle(self):
+        campaign=dict(model_name='Micaela',product='legging sem bolso lateral',outfit='legging',
+                      color='preta',audience='mulheres',benefit='não possui bolso',
+                      angle='mostrar bolso lateral',tone='direto',style='realista',details='',
+                      movements='',generator='flow')
+        prompts=generate(campaign)
+        self.assertNotIn('bolso lateral', prompts['image'].split('FATOS DO PRODUTO A PRESERVAR:')[1].split('.')[0])
+        self.assertIn('caimento', prompts['hook'].lower())
+        self.assertIn('não inventar', prompts['video'].lower())
+
+    def test_playbook_caption_seed_always_keeps_a_shop_action(self):
+        campaign=dict(product='vestido midi',outfit='vestido',color='azul',audience='mulheres',
+                      benefit='caimento visível',angle='mostrar o caimento',tone='direto',style='realista',
+                      details='caption_seed: Vestido midi azul com caimento leve para usar no dia a dia.',
+                      movements='',generator='flow')
+        caption=build_caption(campaign, color='azul', variation_index=0)
+        self.assertRegex(caption.lower(), r'(toque|confira|produto marcado|shop)')
+
+    def test_niche_defaults_keep_spoken_script_within_fifteen_seconds(self):
+        from services.model_library import NICHE_DEFAULTS
+        for niche, defaults in NICHE_DEFAULTS.items():
+            campaign=dict(model_name='Micaela', product='vestido midi', color='azul', niche=niche,
+                          generator='flow', **defaults)
+            prompts=generate(campaign)
+            spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta'))
+            self.assertLessEqual(len(spoken.split()), 45, niche)
+
+    def test_explicit_sales_angles_make_copy_persuasive_without_invention(self):
+        campaign=dict(model_name='Micaela', product='vestido midi', outfit='vestido', color='preto',
+                      audience='mulheres que trabalham e saem com as amigas',
+                      benefit='bom custo-benefício, produto de qualidade e versátil para trabalho e passeio',
+                      angle='mostrar o caimento', tone='conversacional', style='natural', details='',
+                      movements='', generator='flow')
+        prompts=generate(campaign)
+        spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta')).lower()
+        self.assertRegex(spoken, r'(econom|qualidade|versátil|versatil)')
+        self.assertLessEqual(len(spoken.split()), 45)
+
+    def test_material_components_and_unisex_language_are_preserved(self):
+        campaign=dict(model_name='Micaela', product='calça unissex de poliamida com botões e bolsos',
+                      outfit='activewear', color='preto', audience='pessoas',
+                      benefit='produto de qualidade e versátil para várias formas de uso',
+                      angle='mostrar qualidade e versatilidade', tone='conversacional', style='natural',
+                      details='Cenário: mesma sala com janela, fundo nítido.', movements='', generator='flow')
+        prompts=generate(campaign)
+        spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta')).lower()
+        self.assertIn('poliamida', prompts['image'])
+        self.assertIn('botões', prompts['image'])
+        self.assertIn('modelagem: unissex', prompts['image'].lower())
+        self.assertIn('mesma sala', prompts['image'].lower())
+        self.assertNotRegex(spoken, r'\b(workout|activewear|beachwear)\b')
+
+    def test_custom_script_drops_silent_directions_from_spoken_development(self):
+        campaign=dict(model_name='Micaela', product='legging grossa sem transparência', outfit='legging',
+                      color='branco', audience='mulheres que treinam', benefit='caimento firme',
+                      angle='mostrar o caimento', tone='direto', style='realista', details='',
+                      movements='', generator='flow')
+        old_development=('Mostre Demonstrar o produto em movimento real de treino com um close e depois um giro. '
+                         'Para mulheres que treinam, a peça tem caimento firme.')
+        prompts=generate(campaign, script={'hook':'Veja a peça no corpo.', 'development':old_development,
+                                            'cta':'Gostou? Toque no produto marcado.'})
+        self.assertNotIn('Mostre', prompts['development'])
+        self.assertNotIn('close', prompts['development'].lower())
+        self.assertIn('caimento firme', prompts['development'])
+        self.assertIn('movimentos, câmera, shot list', prompts['video'])
+        self.assertNotIn('caption_seed', prompts['video'])
+        self.assertNotIn('caption_seed', prompts['image'])
+
+    def test_image_prompt_does_not_include_video_beats_or_cta_notes(self):
+        campaign=dict(
+            model_name='Micaela', product='legging grossa sem transparência', outfit='legging',
+            color='preto', audience='mulheres que treinam', benefit='sem transparência',
+            angle='demonstrar o produto em movimento real de treino (agachar, caminhar, alongar) sem perder o visual',
+            tone='energética, motivacional e direta', style='Fitness clean, academia',
+            details=('0–1s: produto + problema na cara (FYP). 3–10s: prova no corpo — 1 cor por take. '
+                     '(2) produto no frame 0. (5) evitar hook vago. Prova no corpo. CTA loja.'),
+            movements='', generator='flow', product_assets=[{'original_name': 'produto.png'}],
+        )
+        image=generate(campaign)['image'].casefold()
+        for forbidden in ('fyp', 'agachar', 'caminhar', 'alongar', 'produto no frame',
+                          'prova no corpo', 'cta loja', 'hook vago', '15 segundos'):
+            self.assertNotIn(forbidden, image)
+        self.assertIn('apenas uma imagem estática', image)
+
+    def test_single_product_photo_uses_singular_instruction(self):
+        campaign=dict(model_name='Micaela', product='vestido midi', outfit='vestido', color='azul',
+                      audience='mulheres', benefit='caimento visível', angle='mostrar o caimento',
+                      tone='direto', style='realista', details='', movements='', generator='flow',
+                      product_assets=[{'original_name': 'produto.png'}])
+        prompts=generate(campaign)
+        self.assertIn('depois 1 foto do produto', prompts['image'])
+        self.assertNotIn('1 fotos', prompts['image'])
+
+    def test_caption_only_refresh_preserves_custom_video_prompt(self):
+        campaign=dict(model_name='Micaela',product='vestido midi',outfit='vestido',color='azul',
+                      audience='mulheres',benefit='caimento leve',angle='mostrar o caimento',
+                      tone='conversacional',style='natural',details='',movements='',generator='flow')
+        current=generate(campaign)
+        current['video']='PROMPT DE VÍDEO EDITADO MANUALMENTE'
+        refreshed=refresh_script_fields(campaign,'azul',current,fields=['caption'])
+        self.assertEqual(refreshed['video'], current['video'])
 
     
     def test_generate_auto_splits_multiple_colors(self):

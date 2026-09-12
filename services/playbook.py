@@ -246,20 +246,41 @@ def brief_from_playbook_item(item: dict, *, model_name: str = "Micaela") -> dict
         "Checklist: (1) query no falado 0–2s; (2) produto no frame 0; "
         "(3) 1 cor = 1 MP4; (4) legenda = caption_seed; (5) evitar hook vago."
     )
+    # Niche defaults fill sellable brief fields; keep shot/howto out of color/angle/benefit
+    # so auto captions never paste production notes into TikTok.
+    try:
+        from services.model_library import NICHE_DEFAULTS
+        defaults = dict(NICHE_DEFAULTS.get(niche) or {})
+    except Exception:
+        defaults = {}
+    benefit = (defaults.get("benefit") or "").strip() or f"Caimento e detalhes visíveis de {title}"
+    angle = (defaults.get("angle") or "").strip() or "Prova no corpo + close do produto + CTA Shop"
+    audience = (defaults.get("audience") or "").strip()
+    outfit = (defaults.get("outfit") or "").strip()
+    tone = (defaults.get("tone") or "Conversacional").strip()
+    style = (defaults.get("style") or "Natural e realista").strip()
+    movements = (defaults.get("movements") or shot or "Close produto; prova no corpo; CTA final.").strip()
+    details_bits = [
+        howto,
+        checklist,
+        f"Hook falado (playbook): {hook}" if hook else "",
+        f"Shot list: {shot}" if shot else "",
+        f"caption_seed: {caption}" if caption else "",
+    ]
     return {
         "name": f"Playbook · {title}"[:120],
         "model_name": model_name or "Micaela",
         "niche": niche,
         "product": title[:200],
-        "outfit": "",
-        "color": "Definir 1–3 cores",
-        "audience": "",
-        "benefit": hook[:500],
-        "angle": shot[:800] or f"Replicar query '{hook}' com prova visual forte.",
-        "tone": "Conversacional",
-        "style": "Natural e realista",
-        "details": f"{howto} {checklist} Legenda sugerida: {caption}"[:2000],
-        "movements": shot[:1000] or "Close produto; prova no corpo; CTA final.",
+        "outfit": outfit[:500],
+        "color": "",
+        "audience": audience[:500],
+        "benefit": benefit[:500],
+        "angle": angle[:800],
+        "tone": tone[:200],
+        "style": style[:200],
+        "details": " ".join(b for b in details_bits if b)[:2000],
+        "movements": movements[:1000],
         "generator": "flow",
         "playbook_meta": {
             "spoken_hook": hook,

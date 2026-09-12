@@ -7,6 +7,28 @@ def _phrase(value):
     return ' '.join(str(value or '').strip().rstrip('.').split())
 
 
+def _pt_br(value):
+    """Normalize common production/marketing English before spoken copy is built."""
+    text = _phrase(value)
+    if not text:
+        return ''
+    replacements = (
+        (r'\bworkout\b', 'treino de academia'),
+        (r'\bactivewear\b', 'roupa de treino'),
+        (r'\bbeachwear\b', 'moda praia'),
+        (r'\bstreetwear\b', 'moda urbana'),
+        (r'\bwalk[- ]and[- ]talk\b', 'caminhada falando com a câmera'),
+        (r'\blow[- ]angle\b', 'ângulo baixo'),
+        (r'\bclose[- ]up\b', 'detalhe de perto'),
+        (r'\bclose\b', 'detalhe de perto'),
+        (r'\blook\b', 'visual'),
+        (r'\bshop\b', 'loja'),
+    )
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.I)
+    return text
+
+
 def _focus(c):
     """Pick concrete attributes that are actually present in the briefing."""
     source = ' '.join(_phrase(c.get(key)).casefold() for key in ('product', 'outfit', 'details', 'angle'))
@@ -29,6 +51,371 @@ def _focus(c):
     return 'o caimento e os detalhes da peça'
 
 
+_PRODUCT_FEATURES = (
+    ('bolso lateral', ('bolso lateral', 'bolsos laterais')),
+    ('bolso interno', ('bolso interno', 'bolsos internos')),
+    ('bolso', ('bolso', 'bolsos')),
+    ('botões', ('botões', 'botoes')),
+    ('cós largo', ('cós largo', 'cos largo')),
+    ('cintura alta', ('cintura alta',)),
+    ('cintura média', ('cintura média', 'cintura media')),
+    ('cintura baixa', ('cintura baixa',)),
+    ('tecido leve', ('tecido leve',)),
+    ('tecido macio', ('tecido macio',)),
+    ('tecido encorpado', ('tecido encorpado',)),
+    ('secagem rápida', ('secagem rápida', 'secagem rapida')),
+    ('compressão', ('compressão', 'compressao')),
+    ('sem transparência', ('sem transparência', 'sem transparencia')),
+    ('decote', ('decote',)),
+    ('alça', ('alça', 'alca')),
+    ('manga', ('manga',)),
+    ('barra', ('barra',)),
+    ('recorte', ('recorte',)),
+    ('costura', ('costura',)),
+    ('estampa', ('estampa',)),
+    ('acabamento', ('acabamento',)),
+    ('forro', ('forro',)),
+    ('zíper', ('zíper', 'ziper')),
+    ('botão', ('botão', 'botao')),
+    ('cordão', ('cordão', 'cordao')),
+    ('elástico', ('elástico', 'elastico')),
+    ('capuz', ('capuz',)),
+    ('gola', ('gola',)),
+    ('punho', ('punho',)),
+    ('poliamida', ('poliamida',)),
+    ('courino', ('courino', 'couro sintético', 'couro sintetico')),
+    ('algodão', ('algodão', 'algodao')),
+    ('lã', ('lã',)),
+    ('elastano', ('elastano',)),
+    ('poliéster', ('poliéster', 'poliester')),
+)
+
+_MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster'}
+
+
+def _product_features(c, limit=3):
+    """Return only attributes literally present in the user's brief.
+
+    This is deliberately conservative: a local generator is more useful when it
+    omits an unconfirmed selling point than when it invents one.
+    """
+    source = ' '.join(_phrase(c.get(key)).casefold() for key in
+                      ('product', 'outfit', 'details', 'angle', 'benefit'))
+    # The product description and benefit are authoritative. An angle such as
+    # "mostrar bolso" must not turn "legging sem bolso" into a fake feature.
+    negative_source = ' '.join(_phrase(c.get(key)).casefold() for key in
+                               ('product', 'outfit', 'details', 'benefit'))
+    found = []
+    for label, needles in _PRODUCT_FEATURES:
+        # Do not report a broad feature after its more precise form ("bolso"
+        # after "bolso lateral"). It wastes words and weakens the hook.
+        if label == 'bolso' and any(item.startswith('bolso ') for item in found):
+            continue
+        negative_needles = list(needles)
+        if ' ' in label:
+            negative_needles.append(label.split()[0])
+        if label != 'sem transparência' and any(
+            re.search(rf'\b(?:sem|não|nao)(?:\s+(?:possui|tem|oferece))?\s+(?:um|uma|o|a)?\s*{re.escape(needle)}\b', negative_source, re.I)
+            for needle in negative_needles
+        ):
+            continue
+        if any(_feature_present(source, needle, label) for needle in needles) and label not in found:
+            found.append(label)
+        if len(found) >= limit:
+            break
+    return found
+
+
+def _material_facts(c):
+    """Keep composition visible even when several other features fill the focus list."""
+    return [item for item in _product_features(c, limit=50) if item in _MATERIAL_LABELS]
+
+
+def _feature_present(source: str, needle: str, label: str = '') -> bool:
+    """Match an attribute while ignoring explicit negations such as 'sem bolso'."""
+    escaped = re.escape(needle)
+    if not re.search(rf'\b{escaped}\b', source, re.I):
+        return False
+    if label.startswith('sem '):
+        return True
+    negative = rf'\b(?:sem|não|nao)(?:\s+(?:possui|tem|oferece))?\s+(?:um|uma|o|a)?\s*{escaped}\b'
+    return not re.search(negative, source, re.I)
+
+
+def _focus_parts(c):
+    """Turn the angle and explicit product attributes into readable focus text."""
+    features = _product_features(c, limit=2)
+    angle = _pt_br(c.get('angle'))
+    cleaned = re.sub(r'^(mostrar|mostre|destacar|destaque|focar em)\s+', '', angle,
+                     flags=re.I).strip(' .,:;')
+    directional = re.search(
+        r'\b(demonstrar|demonstra|mostrar|mostre|prova social|antes/depois|rotina|revela|revelar|movimento real)\b',
+        cleaned, re.I,
+    )
+    # Long angle paragraphs are production direction, not a product detail to
+    # repeat in a hook. Prefer verified features from the brief in that case.
+    if cleaned and not directional and len(cleaned.split()) <= 9 and not _focus_is_contradictory(c, cleaned) and cleaned.casefold() not in {
+        'detalhes', 'os detalhes', 'o caimento e os detalhes', 'caimento e detalhes',
+        'qualidade', 'versatilidade', 'economia', 'autoestima', 'confiança',
+        'confianca', 'custo-benefício', 'custo beneficio', 'bom custo-benefício',
+        'bom custo beneficio'
+    }:
+        return cleaned, features
+    if features:
+        if len(features) == 1:
+            return features[0], features
+        if len(features) == 2:
+            return f'{features[0]} e {features[1]}', features
+        return f'{features[0]}, {features[1]} e {features[2]}', features
+    return 'o caimento e os detalhes visíveis', []
+
+
+def _focus_is_contradictory(c, focus: str) -> bool:
+    """Reject a short angle that asks for an attribute explicitly negated in the brief."""
+    source = ' '.join(_phrase(c.get(key)).casefold() for key in
+                      ('product', 'outfit', 'details', 'benefit'))
+    target = _phrase(focus).casefold()
+    for label, needles in _PRODUCT_FEATURES:
+        if label.startswith('sem '):
+            continue
+        negative_needles = list(needles)
+        if ' ' in label:
+            negative_needles.append(label.split()[0])
+        negated = any(re.search(rf'\b(?:sem|não|nao)(?:\s+(?:possui|tem|oferece))?\s+(?:um|uma|o|a)?\s*{re.escape(needle)}\b', source, re.I)
+                      for needle in negative_needles)
+        if negated and any(re.search(rf'\b{re.escape(needle)}\b', target, re.I) for needle in needles):
+            return True
+    return False
+
+
+def _persuasion_signals(c):
+    """Return selling angles explicitly present in the operator's brief.
+
+    These signals make the copy persuasive without turning a niche default or
+    a generic adjective into an invented product promise.
+    """
+    blob = ' '.join(_phrase(c.get(key)).casefold() for key in
+                    ('product', 'outfit', 'benefit', 'angle', 'details'))
+    occasion_blob = f"{blob} {_phrase(c.get('audience')).casefold()}"
+    signals = []
+    if re.search(r'\b(econom|custo|preço|preco|barat|rende|bom negócio|bom negocio)\w*', blob):
+        signals.append('economia')
+    if re.search(r'\b(qualidade|premium|duráv|durav|resistent)\w*', blob):
+        signals.append('qualidade')
+    if re.search(r'\b(versátil|versatil|multiuso|várias formas|varias formas|2 em 1|combina com tudo)\b', blob):
+        signals.append('versatilidade')
+    if re.search(r'\b(autoestima|confiança|confianca|valoriza o corpo|se sentir bem)\b', blob):
+        signals.append('autoestima')
+    if (re.search(r'\b(trabalho|escritório|escritorio|home office)\b', occasion_blob)
+            and re.search(r'\b(amigas|sair|saída|saida|dia a dia|cotidiano|encontro)\b', occasion_blob)):
+        signals.append('ocasiões')
+    return signals
+
+
+def _is_unisex(c) -> bool:
+    """Detect an explicitly unisex product so spoken articles stay neutral."""
+    blob = ' '.join(_phrase(c.get(key)).casefold() for key in
+                    ('product', 'outfit', 'audience', 'details'))
+    return bool(re.search(r'\bunissex\b|\bunisex\b', blob, re.I))
+
+
+def _with_article(value):
+    """Make a short attribute usable after verbs such as 'veja' or 'mostre'."""
+    value = _phrase(value)
+    if not value or re.match(r'^(o|a|os|as)\b', value, re.I):
+        return value
+    articles = {
+        'bolso': 'o', 'bolso lateral': 'o', 'bolso interno': 'o',
+        'cós': 'o', 'cós largo': 'o', 'caimento': 'o', 'tecido leve': 'o',
+        'tecido macio': 'o', 'tecido encorpado': 'o', 'recorte': 'o',
+        'acabamento': 'o', 'decote': 'o', 'detalhe': 'o', 'estampa': 'a',
+        'alça': 'a', 'manga': 'a', 'barra': 'a', 'costura': 'a',
+        'compressão': 'a', 'cintura alta': 'a', 'cintura média': 'a',
+        'cintura baixa': 'a', 'secagem rápida': 'a', 'sem transparência': 'a',
+        'forro': 'o', 'zíper': 'o', 'botão': 'o', 'cordão': 'o',
+        'elástico': 'o', 'capuz': 'o', 'gola': 'a', 'punho': 'o',
+        'botões': 'os', 'poliamida': 'a', 'courino': 'o', 'algodão': 'o',
+        'lã': 'a', 'elastano': 'o', 'poliéster': 'o',
+    }
+    if value.casefold() in articles:
+        return f"{articles[value.casefold()]} {value}"
+    if ' e ' in value or ',' in value:
+        return value
+    return f'o detalhe de {value}'
+
+
+def _with_em(value):
+    """Put a visible attribute after ``em`` with the correct contraction."""
+    value = _with_article(value)
+    if not value:
+        return value
+    return re.sub(r'^(o|a|os|as)\b', lambda m: {'o': 'no', 'a': 'na', 'os': 'nos', 'as': 'nas'}[m.group(1).casefold()], value, flags=re.I)
+
+
+def _benefit_clause(c):
+    """Create a grammatical, bounded benefit clause without adding claims."""
+    raw = _pt_br(c.get('benefit')).rstrip('.').strip()
+    if not raw or _is_meta_field(raw):
+        # Preserve concrete claims when a default also contains one noisy
+        # platform promise (for example "caimento firme ... e visual que
+        # motiva postar no FYP"). Remove only the noisy clause.
+        raw = re.sub(
+            r'\s+e\s+(?:o\s+)?(?:visual|look)(?:\s+\w+){0,3}\s+que\s+(?:motiva postar|chama atenção|chama atencao).*$',
+            '', raw, flags=re.I,
+        ).strip(' ,;')
+        clauses = [part.strip(' ,;') for part in raw.split(',') if part.strip(' ,;')]
+        clauses = [part for part in clauses if not _is_meta_field(part)]
+        raw = ', '.join(clauses)
+    if not raw:
+        return ''
+    # A negative product statement is useful as a constraint, not as a benefit
+    # to repeat in a sales line (e.g. "não possui bolso").
+    if (re.match(r'^(não|nao)\s+(possui|tem|oferece)', raw, re.I)
+            or (re.match(r'^sem\s+', raw, re.I) and not re.match(r'^sem transparência\b', raw, re.I))):
+        return ''
+    # Keep the spoken middle inside the 15-second budget even when a niche
+    # default contains a long marketing paragraph.
+    words = raw.split()
+    if len(words) > 12:
+        # Prefer complete comma-separated claims over cutting a sentence in the
+        # middle of a verb ("motiva postar…").
+        clauses = [part.strip(' ,;:') for part in raw.split(',') if part.strip(' ,;:')]
+        compact = []
+        for clause in clauses:
+            candidate = ', '.join(compact + [clause])
+            if len(candidate.split()) > 12:
+                break
+            compact.append(clause)
+        raw = ', '.join(compact) if compact else ' '.join(words[:12]).rstrip(' ,;:')
+    raw = re.sub(r'^produto de qualidade\b', 'qualidade', raw, flags=re.I)
+    raw = re.sub(r'\s+e\s+versát(?:il|eis)\b', ' e é versátil', raw, flags=re.I)
+    raw = raw[0].lower() + raw[1:] if raw else raw
+    # Benefits commonly arrive as a noun phrase ("caimento firme") or as a
+    # sentence ("veste muito bem..."). Handle both without guessing facts.
+    verb_start = re.match(
+        r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega|não\b)',
+        raw, re.I)
+    if re.match(r'^versát(?:il|eis)\b', raw, re.I) or re.match(r'^versat(?:il|eis)\b', raw, re.I):
+        return f'A peça é {raw}'
+    if verb_start:
+        return f'A peça {raw}'
+    return f'A peça tem {raw}'
+
+
+def _sentence(value):
+    value = _phrase(value)
+    if not value:
+        return ''
+    return value if value.endswith(('.', '!', '?')) else value + '.'
+
+
+def _image_details(details: str) -> str:
+    """Keep only visual notes; never leak a shot list or spoken-video brief."""
+    text = _pt_br(details)
+    if not text:
+        return ''
+    # Timing beats and action directions belong to the video prompt. Keep the
+    # image prompt about the visible subject, product and set only.
+    timing = re.compile(r'^\s*\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*s?\s*:', re.I)
+    video_hints = (
+        'vídeo', 'video', '15 segundos', '15s', 'ugc', 'fala', 'frases',
+        'jogo de câmera', 'jogo de cameras', 'enquadramento', 'movimentos de ia',
+        'movimento', 'agachar', 'caminhar', 'alongar', 'girar', 'senta', 'sentar',
+        'shot list', 'câmera fixa', 'camera fixa', 'câmera', 'camera', 'frame',
+        'quadro', 'take', 'clipe', 'duração', 'duracao', 'roteiro', 'ação:', 'acao:',
+        'prova no corpo', 'produto no frame', 'cta', 'hook', 'fyp', 'query quente',
+        'legenda', 'caption', 'loja', 'chamada para ação', 'chamada para acao',
+    )
+    metadata_hints = ('caption_seed', 'checklist:', 'hook falado', 'howto:', '1 cor =')
+    chunks = [part.strip(' .;') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+|\|', text)]
+    kept = [
+        part for part in chunks
+        if part
+        and not timing.search(part)
+        and not part.casefold().startswith(('detalhes do briefing:', 'detalhes do briefing'))
+        and not any(h in part.casefold() for h in video_hints + metadata_hints)
+    ]
+    return '. '.join(kept).strip()
+
+
+def _image_angle(value: str) -> str:
+    """Convert a video-oriented sales angle into a static visual angle."""
+    text = _pt_br(value)
+    if not text:
+        return ''
+    video_markers = (
+        'movimento', 'agachar', 'caminhar', 'alongar', 'girar', 'vídeo', 'video',
+        'ugc', 'fala', 'hook', 'cta', 'frame', 'take', 'prova no corpo',
+    )
+    if any(marker in text.casefold() for marker in video_markers):
+        return 'mostrar a peça no corpo, o caimento e os detalhes visíveis'
+    return text
+
+
+def _video_details(details: str) -> str:
+    """Keep useful operator notes, excluding playbook metadata and shot lists."""
+    text = _pt_br(details)
+    if not text:
+        return ''
+    chunks = [part.strip(' .;') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+|\|', text) if part.strip(' .;')]
+    meta = ('howto', 'checklist:', 'shot list:', 'caption_seed:', 'hook falado',
+            'legenda sugerida:', 'query quente', '1 cor = 1 mp4')
+    timing = re.compile(r'^\s*\d+(?:[.–-]\d+)?s?\s*:', re.I)
+    kept = [part for part in chunks if not any(h in part.casefold() for h in meta) and not timing.search(part)]
+    return '. '.join(kept).strip()
+
+
+def _spoken_line(value, fallback='') -> str:
+    """Extract a sentence the presenter can say, dropping silent directions."""
+    text = _pt_br(value)
+    if not text:
+        return _phrase(fallback)
+    chunks = [part.strip(' .;,:') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+|\|', text) if part.strip(' .;,:')]
+    silent_start = re.compile(
+        r'^(mostre|mostrar|mostra|demonstre|demonstrar|aproxime|aproximar|gire|girar|ajuste|ajustar|'
+        r'faça|faca|use a direção|use a direcao|câmera|camera|plano|shot list|checklist|instruções|instrucoes)\b',
+        re.I,
+    )
+    meta = ('hook falado:', 'fala (pt-br):', 'desenvolvimento:', 'cta:', 'caption_seed:', 'shot list:')
+    kept = [part for part in chunks if not silent_start.search(part) and not any(m in part.casefold() for m in meta)]
+    cleaned = '. '.join(kept).strip()
+    if not cleaned:
+        return _phrase(fallback)
+    return cleaned
+
+
+def _movement_plan(value: str, limit: int = 6) -> str:
+    """Keep the action list executable without flooding a video model."""
+    raw = _phrase(value)
+    if not raw:
+        return ''
+    chunks = [part.strip(' .,:;') for part in re.split(r'\s*;\s*|\n+', raw) if part.strip(' .,:;')]
+    if len(chunks) <= 1:
+        return raw[:600]
+    return '; '.join(chunks[:limit])[:900]
+
+
+def _scene_lock(c, fallback='a mesma locação da imagem aprovada'):
+    """Extract one positive scene cue and turn it into a continuity constraint."""
+    text = _pt_br('. '.join(_phrase(c.get(key)) for key in ('details', 'style') if _phrase(c.get(key))))
+    chunks = [part.strip(' .;,:') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+', text) if part.strip(' .;,:')]
+    scene_words = ('cenário', 'cenario', 'fundo', 'ambiente', 'locação', 'locacao',
+                   'quarto', 'sala', 'cozinha', 'rua', 'café', 'cafe', 'praia',
+                   'piscina', 'academia', 'estúdio', 'estudio', 'varanda', 'deck')
+    blocked = ('evitar', 'não usar', 'nao usar', 'sem fundo', 'não desfocar', 'nao desfocar',
+               'caption_seed', 'checklist:', 'shot list:', 'hook falado', 'howto')
+    for chunk in chunks:
+        low = chunk.casefold()
+        if any(word in low for word in scene_words) and not any(word in low for word in blocked):
+            candidate = ' '.join(chunk.split()[:24])
+            # Niche defaults often list alternatives; lock to the first one so
+            # each generated colour cannot choose a different location.
+            candidate = re.split(r'\s+ou\s+', candidate, maxsplit=1, flags=re.I)[0].strip(' ,;')
+            return candidate
+    candidate = _phrase(fallback)
+    return re.split(r'\s+ou\s+', candidate, maxsplit=1, flags=re.I)[0].strip(' ,;')
+
+
 
 def _slug_tag(value, limit=28):
     tag = ''.join(ch for ch in unicodedata.normalize('NFKD', _phrase(value)) if not unicodedata.combining(ch))
@@ -40,7 +427,7 @@ def _niche_hashtags(c, color):
     """Build product-aware hashtags (TikTok Shop / UGC style, pt-BR)."""
     blob = ' '.join(_phrase(c.get(k)).casefold() for k in ('product', 'outfit', 'audience', 'angle', 'benefit', 'details'))
     color = _phrase(color)
-    tags = ['Achadinhos', 'TikTokShop', 'AchadinhoTikTok', 'ForYou']
+    specific = []
     rules = [
         (('legging', 'calça', 'calca', 'legging'), ['Legging', 'LeggingFitness', 'LookAcademia']),
         (('top', 'cropped', 'crop'), ['TopFitness', 'Cropped', 'LookTreino']),
@@ -60,48 +447,180 @@ def _niche_hashtags(c, color):
     for needles, extra in rules:
         if any(n in blob for n in needles):
             for t in extra:
-                if t not in tags:
-                    tags.append(t)
-    product_tag = _slug_tag(c.get('product'), 24)
+                if t not in specific:
+                    specific.append(t)
+    # Use the readable product nickname, otherwise long catalogue names become
+    # broken-looking tags such as #Leggingcinturaaltacombol.
+    product_tag = _slug_tag(_product_nick(c.get('product')), 18)
     color_tag = _slug_tag(color, 16)
-    if product_tag and product_tag not in tags:
-        tags.insert(0, product_tag)
-    if color_tag:
-        tags.append(color_tag)
-    # Keep caption readable: 5 tags max
+    if product_tag and product_tag not in specific:
+        specific.insert(0, product_tag)
+    ordered = specific + ([color_tag] if color_tag else []) + ['TikTokShop', 'Achadinhos', 'ModaFeminina', 'ForYou']
+    # Keep caption readable: 5 tags max, prioritizing searchable product terms.
     uniq = []
-    for t in tags:
-        if t and t not in uniq:
+    seen = set()
+    for t in ordered:
+        key = t.casefold() if t else ''
+        if t and key not in seen:
             uniq.append(t)
+            seen.add(key)
     return uniq[:5]
 
 
+
+def _is_meta_field(value: str) -> bool:
+    """True when a brief field looks like UI placeholder / production note, not sell copy."""
+    v = _phrase(value).casefold()
+    if not v:
+        return True
+    needles = (
+        "definir 1", "1-3 cores", "1–3 cores", "empurrar search", "replicar query",
+        "shot list", "checklist:", "howto", "caption_seed", "problema →", "problema ->",
+        "playbook", "query '", "fyp", "for you", "parece caro", "chama atenção",
+        "chama atencao", "motiva postar",
+    )
+    if any(n in v for n in needles):
+        return True
+    if ("→" in (value or "")) or ("->" in (value or "")):
+        if any(k in v for k in ("peca", "peça", "search", "query", "vibe", "prova")):
+            return True
+    # Category crumbs that are not a real benefit sentence
+    thin = {"maio feminino", "moda praia", "moda academia", "moda casual", "feminino", "masculino"}
+    if v in thin or (len(v.split()) <= 2 and not any(ch in v for ch in ".!?")):
+        # two-word labels without punctuation are usually tags, not benefits
+        if v in thin or v.startswith("maio ") or v.startswith("moda "):
+            return True
+    return False
+
+
+def _caption_seed_from_details(details: str) -> str:
+    text = str(details or "")
+
+    def _ok(seed: str) -> bool:
+        seed = _phrase(seed)
+        if not seed or len(seed) < 24:
+            return False
+        if _is_meta_field(seed):
+            return False
+        # Reject tag-only / crumb seeds ("maio feminino #x")
+        plain = re.sub(r"#\S+", "", seed).strip()
+        if len(plain.split()) < 5:
+            return False
+        return True
+
+    m = re.search(r"caption_seed:\s*(.+?)(?:\s+Checklist:|\s+Hook falado|\s+Shot list:|$)", text, re.I | re.S)
+    if m and _ok(m.group(1)):
+        return _phrase(m.group(1))
+    m = re.search(r"Legenda sugerida:\s*(.+?)(?:\s+Checklist:|$)", text, re.I | re.S)
+    if m and _ok(m.group(1)):
+        return _phrase(m.group(1))
+    return ""
+
+
+
+def _product_nick(product: str) -> str:
+    """Readable product name for captions (drop slash aliases / catalogue noise)."""
+    p = _phrase(product)
+    if not p:
+        return "essa peça"
+    # "Maiô autoestima / mamãe" -> prefer left side, then soft nick
+    if "/" in p:
+        p = p.split("/", 1)[0].strip() or p
+    low = p.casefold()
+    if "maiô" in low or "maio" in low:
+        return "maiô"
+    if "legging" in low:
+        return "legging"
+    if "vestido" in low:
+        return "vestido"
+    if "conjunto" in low:
+        return "conjunto"
+    if "biquíni" in low or "biquini" in low:
+        return "biquíni"
+    if len(p) > 36:
+        return p[:34].rstrip(" ,-") + "…"
+    return p
+
+
+def _caption_cta(i: int = 0) -> str:
+    options = [
+        "Produto marcado aqui embaixo.",
+        "Confira os detalhes no produto marcado.",
+        "Quer? Toque no produto marcado.",
+        "Veja a peça no produto marcado.",
+        "Confira tamanhos e disponibilidade na loja.",
+        "Toque no produto e confira.",
+    ]
+    return options[int(i) % len(options)]
+
+
 def build_caption(c, color=None, cta=None, variation_index=0):
-    """Natural TikTok caption aligned to product + color + benefit."""
-    product = _phrase(c.get('product'))
-    benefit = _phrase(c.get('benefit')).rstrip('.')
-    audience = _phrase(c.get('audience'))
-    focus = _focus(c)
-    color = _phrase(color or c.get('color')) or 'essa cor'
-    cta = _phrase(cta) or 'Toque no produto marcado e confira.'
-    openings = [
-        f'{product} na cor {color}  -  {benefit}.',
-        f'Olha o caimento dessa {product.lower()} {color}: {benefit}.',
-        f'Pra quem busca {focus}: {product} {color}.',
-        f'{color} ficou incrível nessa {product.lower()}. {benefit}.',
-        f'Achadinho: {product} ({color}). {benefit}.',
-        f'Se você é {audience.lower()}, essa {product.lower()} {color} é pra você.' if audience else f'{product} {color} no corpo real. {benefit}.',
-    ]
-    bridges = [
-        f'Destaque em {focus}.',
-        'Testei no corpo real, sem filtro de catálogo.',
-        'UGC direto do dia a dia.',
-        f'Ideal para {audience.lower()}.' if audience else 'Fácil de combinar no dia a dia.',
-    ]
+    """Build a factual, product-aware TikTok caption using local rules only.
+
+    The old rotating copy used unverifiable first-person claims, price claims and
+    scenery that did not come from the brief. Captions now have a clear promise,
+    one observable detail and a Shop action; every assertion comes from a field
+    the operator supplied.
+    """
+    full_product = _pt_br(c.get('product')) or 'essa peça'
+    nick = _product_nick(full_product)
+    color_raw = _phrase(color or c.get('color'))
+    parts = color_variants(color_raw)
+    color = parts[0] if parts else color_raw
+    color_word = f' na versão {color}' if color else ''
+    benefit = _benefit_clause(c)
+    # _benefit_clause already limits this to complete words. Avoid slicing by
+    # characters, which used to produce broken endings such as "posta..".
+    focus, features = _focus_parts(c)
+    detail = _with_article(features[0] if features else focus)
     i = int(variation_index or 0)
-    body = f'{openings[i % len(openings)]} {bridges[i % len(bridges)]} {cta}'
-    tags = ' '.join(f'#{t}' for t in _niche_hashtags(c, color))
-    return f'{body} {tags}'.replace('  ', ' ').strip()
+    all_colors = color_variants(c.get('color'))
+    shop_cta = _pt_br(cta) if cta else ''
+    if not shop_cta:
+        shop_cta = ('Toque no produto marcado e escolha a sua cor.'
+                    if len(all_colors) > 1 else _caption_cta(i))
+
+    seed = _caption_seed_from_details(c.get('details') or '')
+    if seed and i % 7 == 0:
+        body = seed
+        if not re.search(r'\b(toque|confira|veja|escolha|acesse|compre|salve|marcado|shop)\b', body, re.I):
+            body += f' {shop_cta}'
+    else:
+        openings = [
+            f'Quer escolher uma {nick} pelo caimento? Olha esta {nick}{color_word}.',
+            f'Antes de decidir pela {nick}, veja este detalhe{color_word}: {detail}.',
+            f'Uma mesma {nick} muda muito no corpo conforme a cor. Esta é a versão {color}.',
+            f'Você usaria esta {nick}{color_word}? Repara {_with_em(detail)}.',
+            f'Para quem procura {nick}{color_word}, o ponto principal é observar {detail}.',
+            f'Olha a {nick}{color_word} em movimento e confere {detail}.',
+        ] if color else [
+            f'Quer escolher uma {nick} pelo caimento? Repara {_with_em(detail)}.',
+            f'Antes de decidir pela {nick}, veja este detalhe: {detail}.',
+            f'Você usaria esta {nick}? Olha como ela veste no corpo.',
+            f'Para quem procura {nick}, o ponto principal é observar {detail}.',
+            f'Olha a {nick} em movimento e confere {detail}.',
+            f'Essa {nick} merece um olhar de perto: {detail}.',
+        ]
+        persuasion_captions = {
+            'economia': f'Quer economizar sem abrir mão do visual? Olha esta {nick}{color_word}.',
+            'qualidade': f'Quer ver qualidade nos detalhes? Repara nesta {nick}{color_word}: {detail}.',
+        'versatilidade': f'Uma {nick}, vários momentos: olha esta {nick}{color_word} em movimento.',
+            'autoestima': f'Quando o caimento ajuda na confiança, o detalhe aparece: olha esta {nick}{color_word}.',
+            'ocasiões': f'Do trabalho ao encontro com as amigas, esta {nick}{color_word} acompanha o movimento.',
+        }
+        for signal in reversed(_persuasion_signals(c)):
+            if signal in persuasion_captions:
+                openings.insert(0, persuasion_captions[signal])
+        opening = openings[i % len(openings)]
+        body = opening
+        if benefit and i % 2 == 0:
+            body += f' {benefit}.'
+        body += f' {shop_cta}'
+
+    body = re.sub(r'\s+', ' ', body).replace(' .', '.').strip()
+    body = re.sub(r'\bna cor\s+\.', '.', body)
+    tags = ' '.join(f'#{t}' for t in _niche_hashtags(c, color or nick))
+    return f'{body} {tags}'.strip()
 
 
 def color_variants(value):
@@ -115,46 +634,164 @@ def color_variants(value):
 
 
 def _script_variation(c, color, index=0):
-    """Build hook/development/CTA that feel different per color."""
-    product = _phrase(c['product'])
-    benefit = _phrase(c['benefit'])
-    audience = _phrase(c.get('audience'))
-    focus = _focus(c)
+    """Build a varied 15-second script from explicit product evidence.
+
+    Variation changes the persuasion angle (question, comparison, proof or
+    objection), while keeping the same facts. This makes regeneration useful
+    without pretending that the creator tested the item or that it has a detail
+    which was never entered.
+    """
+    product = _pt_br(c.get('product')) or 'produto'
     color = _phrase(color) or _phrase(c.get('color')) or 'essa cor'
-    # Keep catalogue titles out of the opening sentence: a hook has about 4s.
-    piece = next((name for name in ('legging', 'vestido', 'conjunto', 'camiseta', 'blusa', 'calça', 'saia', 'short', 'top')
-                  if re.search(r'\b'+name+r'\b', product.casefold())), 'look')
-    feminine = piece in {'legging', 'camiseta', 'blusa', 'calça', 'saia'}
-    demonstrative = 'essa' if feminine else 'esse'
-    contracted = 'nessa' if feminine else 'nesse'
-    possessive = 'sua' if feminine else 'seu'
+    focus, features = _focus_parts(c)
+    benefit = _benefit_clause(c)
+    audience = _pt_br(c.get('audience'))
+    piece = next((name for name in (
+        'legging', 'vestido', 'conjunto', 'camiseta', 'blusa', 'calça', 'saia', 'short', 'top', 'maiô', 'biquíni'
+    ) if re.search(r'\b' + name + r'\b', product.casefold())), 'produto')
+    unisex = _is_unisex(c)
+    if unisex:
+        piece = 'peça'
+    feminine = unisex or piece in {'legging', 'camiseta', 'blusa', 'calça', 'saia', 'legging', 'camisa'}
+    article = 'essa' if feminine else 'esse'
+    prep = 'nessa' if feminine else 'nesse'
+    # Keep hooks short with one hero detail; let the development demonstrate
+    # the complete angle entered by the operator.
+    hook_detail = _with_article(features[0] if features else focus if focus else 'o caimento')
+    detail = _with_article(focus if focus else 'o caimento')
+    # Four-second hooks are intentionally complete and specific. Keep the
+    # sentences short enough to speak naturally, but longer than a label.
     hooks = [
-        f'Quer ver {demonstrative} {piece} no corpo? Repara no caimento em {color}.',
-        f'Como fica {demonstrative} {piece} em movimento? Olha a versão em {color}.',
-        f'Pensando {contracted} {piece}? Veja de perto como fica na cor {color}.',
-        f'Você usaria {demonstrative} {piece} em {color}? Olha os detalhes no corpo.',
-        f'Antes de escolher {possessive} {piece}, confira o caimento desta versão em {color}.',
-        f'O que observar {contracted} {piece}? Veja o acabamento e a cor {color}.',
+        f'Quer ver {article} {piece} no corpo? Veja {hook_detail} na versão {color}.',
+        f'Como fica {article} {piece} em movimento? Olha {hook_detail} em {color}.',
+        f'Pensando {prep} {piece}? Veja de perto {hook_detail} antes de escolher a versão {color}.',
+        f'Você usaria {article} {piece} em {color}? Olha {hook_detail} no corpo.',
+        f'Antes de escolher {article} {piece}, confira {hook_detail} nesta versão {color}.',
+        f'O que vale observar {prep} {piece}? {hook_detail.capitalize()} na versão {color}.',
+        f'Quer conferir como {article} {piece} veste? Repara {_with_em(hook_detail)} na cor {color}.',
+        f'Dá para notar {hook_detail} logo no primeiro olhar para {article} {piece} em {color}.',
+        f'Essa versão {color} mostra {hook_detail} sem esconder os detalhes da peça.',
+        f'Se você procura {article} {piece} para treinar, observe {hook_detail} em {color}.',
+        f'Repara no que muda no visual: {hook_detail} nesta {piece} {color}.',
+        f'Vale observar {hook_detail} antes de escolher {article} {piece} na cor {color}.',
     ]
-    developments = [
-        f'Em {color}, ela {benefit.lower()}. Veja {focus} e o caimento em movimento.',
-        f'A versão {color} destaca {focus}. Ela {benefit.lower()}.',
-        f'Olha o movimento em {color}: {focus}, sem marcar demais.',
-        (f'Para {audience.lower()}, o {color} {benefit.lower()}. Veja {focus}.'
-         if audience else f'O {color} {benefit.lower()}. Veja {focus}.'),
-        f'Detalhe a detalhe na peça {color}: {focus}. Ela {benefit.lower()}.',
-        f'Giro completo na {color}: caimento, bolso e acabamento. Ela {benefit.lower()}.',
+    persuasion_hooks = {
+        'economia': f'Quer economizar sem abrir mão do visual? Veja {hook_detail} na versão {color}.',
+        'qualidade': f'Quer conferir a qualidade? Observe {hook_detail} de perto na versão {color}.',
+        'versatilidade': f'Uma peça, vários momentos: veja {hook_detail} na versão {color}.',
+        'autoestima': f'Um bom caimento muda a confiança? Veja {hook_detail} na versão {color}.',
+        'ocasiões': f'Do trabalho ao encontro com as amigas: veja {hook_detail} na versão {color}.',
+    }
+    # Put the strongest explicit angle first, then deduplicate while retaining
+    # twelve useful regeneration options and the concrete product detail.
+    for signal in reversed(_persuasion_signals(c)):
+        candidate = persuasion_hooks[signal]
+        if 9 <= len(candidate.split()) <= 16:
+            hooks.insert(0, candidate)
+    unique_hooks = []
+    for candidate in hooks:
+        if candidate.casefold() not in {item.casefold() for item in unique_hooks}:
+            unique_hooks.append(candidate)
+    hooks = unique_hooks[:12]
+
+    benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
+    if benefit_text:
+        if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega)\b', benefit_text, re.I):
+            spoken_benefit = f'essa peça {benefit_text}'
+        elif re.match(r'^versát(?:il|eis)\b|^versat(?:il|eis)\b', benefit_text, re.I):
+            spoken_benefit = f'essa peça é {benefit_text}'
+        else:
+            spoken_benefit = f'essa peça tem {benefit_text}'
+    else:
+        spoken_benefit = ''
+    # Demographic labels (especially age ranges) belong in targeting metadata,
+    # not in the creator's spoken line. They make the sentence artificial and
+    # do not prove anything about the product.
+    audience_prefix = ''
+    benefit_line = f'{audience_prefix}{spoken_benefit}.' if spoken_benefit else ''
+    # These are spoken lines. Camera directions belong to the video prompt below,
+    # so the model never has to say "aproxime a câmera" on screen.
+    persuasion_evidence = {
+        'economia': f'Olha a economia na prática: {detail}. {benefit_line}',
+        'qualidade': f'Repara na qualidade visível: {detail}. {benefit_line}',
+        'versatilidade': f'Essa peça funciona em vários momentos: {detail}. {benefit_line}',
+        'autoestima': f'Olha como o caimento muda a confiança: {detail}. {benefit_line}',
+        'ocasiões': f'Do trabalho ao encontro, {detail} aparece em movimento. {benefit_line}',
+    }
+    evidence = [persuasion_evidence[s] for s in _persuasion_signals(c) if s in persuasion_evidence] + [
+        f'Veja {detail}. {benefit_line}',
+        f'Olha {detail} em movimento. {benefit_line}',
+        f'Aqui aparece {detail}. {benefit_line}',
+        f'No treino, dá para observar {detail}. {benefit_line}',
+        f'Vale notar {detail}. {benefit_line}',
+        f'De frente e de lado, dá para observar {detail}. {benefit_line}',
     ]
-    ctas = [
-        'Gostou? Toque no produto marcado e confira essa cor.',
-        f'Quer a {color}? Toque no produto marcado.',
-        'Salva e toca no produto marcado pra ver as cores.',
-        'Comenta a cor favorita e toca no produto marcado.',
-        'Toque no produto marcado e escolhe a sua cor.',
-        'Link no produto marcado  -  tem essa e outras cores.',
+    evidence += [
+        f'Observe {detail} com a peça no corpo. {benefit_line}',
+        f'O detalhe mais importante aqui é {detail}. {benefit_line}',
+        f'Na prática, repare {_with_em(detail)}. {benefit_line}',
+        f'Para decidir, veja {detail} no corpo. {benefit_line}',
+        f'Fica fácil conferir {detail} nesta peça. {benefit_line}',
+        f'Olhe de frente e em movimento para notar {detail}. {benefit_line}',
     ]
-    i = index % len(hooks)
-    return hooks[i], developments[i], ctas[i]
+    evidence = evidence[:12]
+    developments = [line.strip() for line in evidence]
+    # A CTA should state the next action and only mention multiple colours when
+    # the brief actually contains a colour list.
+    colors = color_variants(c.get('color'))
+    if len(colors) > 1:
+        ctas = [
+            'Gostou? Toque no produto marcado e confira esta cor.',
+            'Quer comparar as cores? Toque no produto marcado.',
+            'Salve o vídeo e escolha sua cor no produto marcado.',
+            'Toque no produto marcado e veja as opções disponíveis.',
+            'Escolha a sua cor no produto marcado e confira os detalhes.',
+            'Comente sua cor favorita e toque no produto marcado para ver as opções.',
+            'Veja esta cor no produto marcado e confira os detalhes.',
+            'Toque no produto marcado para comparar as opções.',
+            'Gostou desta versão? Confira a cor no produto marcado.',
+            'Salve para depois e veja os tamanhos no produto marcado.',
+            'Confira a disponibilidade desta cor no produto marcado.',
+            'Escolha a sua preferida tocando no produto marcado.',
+        ]
+    else:
+        ctas = [
+            'Gostou? Toque no produto marcado e confira os detalhes.',
+            f'Quer {article} {piece}? Toque no produto marcado.',
+            'Salve o vídeo e toque no produto marcado para ver a peça.',
+            'Toque no produto marcado e confira o tamanho disponível.',
+            'Veja os detalhes no produto marcado e escolha o seu tamanho.',
+            'Se fizer sentido para você, toque no produto marcado para conferir.',
+            'Confira esta peça no produto marcado.',
+            'Toque no produto marcado e veja as opções disponíveis.',
+            'Salve o vídeo e confira a peça no produto marcado.',
+            'Veja o tamanho disponível no produto marcado.',
+            'Gostou do caimento? Confira os detalhes no produto marcado.',
+            'Escolha o seu tamanho tocando no produto marcado.',
+        ]
+    i = int(index or 0)
+    selected_hook = hooks[i % len(hooks)]
+    selected_development = developments[i % len(developments)]
+    selected_cta = ctas[i % len(ctas)]
+    # A long audience label can push an otherwise good script past 15 seconds.
+    # Remove that optional context before cutting a factual product sentence.
+    if len(' '.join((selected_hook, selected_development, selected_cta)).split()) > 45 and audience_prefix:
+        selected_development = selected_development.replace(audience_prefix, '', 1).lstrip()
+    if len(' '.join((selected_hook, selected_development, selected_cta)).split()) > 45:
+        sentences = [part.strip() for part in re.split(r'(?<=[.!?])\s+', selected_development) if part.strip()]
+        if len(sentences) > 1:
+            selected_development = sentences[-1]
+    if selected_development and selected_development[0].islower():
+        selected_development = selected_development[0].upper() + selected_development[1:]
+    selected_development = re.sub(
+        r'(?<=\.\s)([a-záàâãéêíóôõúç])',
+        lambda m: m.group(1).upper(),
+        selected_development,
+    )
+    selected_hook = re.sub(r'([!?])\.', r'\1', selected_hook)
+    selected_development = re.sub(r'([!?])\.', r'\1', selected_development)
+    selected_cta = re.sub(r'([!?])\.', r'\1', selected_cta)
+    return selected_hook, selected_development, selected_cta
 
 
 def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
@@ -170,9 +807,11 @@ def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
     for f in fields:
         merged[f] = fresh[f]
     if 'caption' in fields:
-        merged['caption'] = build_caption({**c, 'color': color}, color=color, cta=merged.get('cta'), variation_index=index)
-    # Always rebuild video prompt from the new falas
-    merged['video'] = generate({**c, 'color': color}, script=merged, variant_index=index)['video']
+        merged['caption'] = build_caption({**c, 'color': color}, color=color, cta=None, variation_index=index)
+    # Refreshing only the caption must preserve an edited video prompt. Rebuild
+    # video only when a spoken line actually changed.
+    if set(fields) & {'hook', 'development', 'cta'}:
+        merged['video'] = generate({**c, 'color': color}, script=merged, variant_index=index)['video']
     if 'image' not in merged and fresh.get('image'):
         merged['image'] = fresh['image']
     merged['variation_index'] = index
@@ -184,37 +823,37 @@ def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
 _VIDEO_NICHE = {
     "praia": {
         "setting": "praia, deck de piscina ou varanda ensolarada; fundo com luz natural e leve movimento de vento",
-        "camera": "handheld UGC leve; plano medio na abertura; close no tecido ao vento; orbit curta no corpo; final em plano medio frontal",
-        "must_show": "caimento molhado/leve do tecido, brilho do sol na peca, movimento real ao caminhar na areia/deck",
+        "camera": "câmera na mão em estilo UGC leve; plano médio na abertura; detalhe de perto no tecido ao vento; giro curto no corpo; final em plano médio frontal",
+        "must_show": "movimento natural do tecido ao caminhar na areia/deck e detalhe visível da peça sob luz natural",
         "avoid": "estudio frio, pose estatica demais, morphing de rosto, logos inventados",
     },
     "academia": {
         "setting": "academia limpa ou outdoor fitness crivel; luz clara e energetica",
-        "camera": "plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera",
-        "must_show": "compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural",
+        "camera": "plano médio dinâmico; ângulo baixo curto no agachamento; detalhe de perto no cós e no tecido; acompanhamento ao caminhar até a câmera",
+        "must_show": "agachar, alongar e caminhar para revelar o caimento; suor somente se aparecer naturalmente",
         "avoid": "maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes",
     },
     "casual": {
         "setting": "rua, cafe ou quarto com luz natural; visual street realista",
-        "camera": "push-in suave; giro 180 graus; close na barra/bolso/textura; walk-and-talk frontal",
-        "must_show": "como a peca cai no corpo em movimento urbano, textura do tecido, detalhe que vende (barra, costura, bolso)",
+        "camera": "aproximação suave; giro de 180 graus; detalhe de perto na barra, bolso ou textura; caminhada frontal falando com a câmera",
+        "must_show": "como a peça cai no corpo em movimento urbano, textura e detalhe que estejam visíveis (barra, costura ou bolso)",
         "avoid": "fundo genérico borrado sem contexto, gestos roboticos, troca de identidade",
     },
     "dia-a-dia": {
         "setting": "casa real (quarto/cozinha/sala) com luz de janela suave",
-        "camera": "plano medio caseiro; close na textura ao sentar/levantar; travelling curto pela casa; final frontal calmo",
-        "must_show": "conforto real (sentar, levantar, caminhar), tecido macio em close, rotina crivel em 15s",
+        "camera": "plano médio caseiro; detalhe de perto na textura ao sentar e levantar; deslocamento curto pela casa; final frontal calmo",
+        "must_show": "sentar, levantar e caminhar para revelar o caimento; textura e ajuste somente quando visíveis",
         "avoid": "cena de studio fashion, exagero de poses, mudanca de rosto/cabelo",
     },
     "intima": {
         "setting": "quarto premium ou canto de estudio com luz quente suave; clima elegante",
-        "camera": "plano medio frontal; pan lento para o lado; close no tecido/renda/ajuste; retorno ao rosto confiante",
-        "must_show": "caimento que valoriza sem vulgaridade, textura do tecido, ajuste de alca/fecho, poses seguras",
+        "camera": "plano médio frontal; panorâmica lenta para o lado; detalhe de perto no tecido, renda ou ajuste; retorno ao rosto confiante",
+        "must_show": "caimento elegante, textura e ajuste de alça/fecho somente se estiverem presentes na peça",
         "avoid": "nudez, zoom agressivo, poses explicitas, troca de identidade, filtros plasticos",
     },
     "fantasia": {
         "setting": "cenario tematico coerente com a fantasia (quarto preparado, luz colorida ou festa simples)",
-        "camera": "revelacao em plano medio; giro dramatico; close em acessorio (asa, cinto, peruca); pose iconica final",
+        "camera": "revelação em plano médio; giro dramático; detalhe de perto em acessório (asa, cinto ou peruca); pose marcante final",
         "must_show": "transformacao visual clara, acessorios da fantasia, detalhe do traje, energia teatral controlada",
         "avoid": "cenario generico sem tema, morphing de rosto, logos de franquias proibidas",
     },
@@ -243,41 +882,60 @@ def _niche_key(c):
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta):
     niche = _niche_key(c)
     dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
-    outfit = _phrase(c.get("outfit")) or "look do produto"
-    angle = _phrase(c.get("angle")) or "mostrar o produto em uso"
-    style = _phrase(c.get("style")) or "natural e realista"
-    tone = _phrase(c.get("tone")) or "conversacional"
+    outfit = _pt_br(c.get("outfit")) or "visual do produto"
+    angle = _pt_br(c.get("angle")) or "mostrar o produto em uso"
+    angle_context = ' '.join(angle.split()[:16])
+    if len(angle.split()) > 16:
+        angle_context += '…'
+    style = _pt_br(c.get("style")) or "natural e realista"
+    tone = _pt_br(c.get("tone")) or "conversacional"
     model = _phrase(c.get("model_name")) or "a modelo"
     color_l = _phrase(color) or "a cor escolhida"
     product_l = product or "o produto"
-    benefit_l = benefit or "o beneficio principal"
-    moves = movements or "movimentos naturais que mostrem o caimento"
-    extras = f" Instruções extras do briefing: {details}." if details else ""
+    benefit_l = _phrase(benefit)
+    benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
+    benefit_l = benefit_l or "somente fatos visíveis da peça"
+    moves = _movement_plan(movements) or "movimentos naturais que mostrem o caimento"
+    video_notes = _video_details(details)
+    extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
+    focus, features = _focus_parts(c)
+    facts = ', '.join(features) if features else focus
+    materials = ', '.join(_material_facts(c)) or 'não especificada'
+    gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
+    scene_lock = _scene_lock(c, fallback=dirn['setting'])
 
     return (
         f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
-        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro frame / referência contínua. "
-        f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames "
-        f"(sem morphing, sem face swap, sem redesign). "
-        f"Produto em cena: {product_l} na cor {color_l}. Look: {outfit}. "
-        f"Ângulo de venda: {angle}. Benefício a provar visualmente: {benefit_l}.\n"
-        f"CENÁRIO ({niche}): {dirn['setting']}. "
+        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+        f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros "
+        f"(sem transformação de rosto, troca de identidade ou redesenho). "
+        f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
+        f"Ângulo de venda (contexto, não criar atributos): {angle_context}. FATOS CONFIRMADOS: {facts}. "
+        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
+        f"Benefício a provar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
+        f"CENÁRIO FIXO ({niche}, todos os frames e variações de cor): {scene_lock}. "
+        f"Repetir exatamente fundo, objetos, posição da câmera, distância, perspectiva e iluminação; não trocar a locação nem desfocar o fundo. "
         f"CÂMERA: {dirn['camera']}. "
-        f"OBRIGATÓRIO mostrar: {dirn['must_show']}. "
-        f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
-        f"COREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): {moves}.{extras}\n"
+        f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
+        f"EVITAR: {dirn['avoid']}; mãos levantadas no final; acenos ou comemorações inventadas; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
+        f"COREOGRAFIA / AÇÕES (usar nesta ordem; no máximo uma ação por beat, ritmo natural): {moves}. "
+        "No encerramento, manter as duas mãos em posição natural ao lado do corpo ou tocando suavemente a peça; não levantar os braços, não acenar, não fazer gesto de comemoração e não inventar uma ação final."
+        f"{extras}\n"
         f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
         f"0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; "
         f"micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"{hook}\"\n"
-        f"4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). "
+        f"4.0–6.0s PROVA 1: câmera se aproxima OU mostra de perto o detalhe que vende (tecido, cós, alça, barra, acessório). "
         f"Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n"
         f"6.0–11.0s PROVA 2: movimento completo que demonstra o benefício ({benefit_l}) — "
         f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis. "
-        f"Fala (PT-BR): \"{development}\"\n"
+        f"Fala (PT-BR, somente esta frase; câmera e demonstração ficam silenciosas): \"{development}\"\n"
         f"11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n"
-        f"12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"{cta}\"\n"
+        f"12–15s CTA: olhar para a lente e manter as mãos naturais, sem acenar nem levantar os braços; o produto marcado pode ser indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
+        f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
         f"Estilo visual: {style}. Tom de performance: {tone}. "
         f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
+        f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "
+        f"Total das falas fornecidas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; se ultrapassar 15s em leitura natural, sinalize para revisão em vez de acelerar. "
         f"Sem promessas não demonstradas no vídeo. "
         f"Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar."
     )
@@ -294,15 +952,15 @@ def generate(c, script=None, variant_index=0):
     colors = color_variants(c.get('color'))
     if len(colors) > 1:
         c = {**c, 'color': colors[0]}
-    product = _phrase(c['product'])
+    product = _pt_br(c['product'])
     benefit = _phrase(c['benefit'])
     movements = _phrase(c.get('movements')) or 'movimentos sutis e naturais que mostrem o caimento da peça'
     color = _phrase(c.get('color'))
     hook, development, cta = _script_variation(c, color, variant_index)
     if script:
-        hook = _phrase(script.get('hook', hook))
-        development = _phrase(script.get('development', development))
-        cta = _phrase(script.get('cta', cta))
+        hook = _spoken_line(script.get('hook'), hook)
+        development = _spoken_line(script.get('development'), development)
+        cta = _spoken_line(script.get('cta'), cta)
     identity = (
         f"Use a imagem anexada de {c['model_name']} como referência visual fixa. "
         'Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. '
@@ -312,8 +970,9 @@ def generate(c, script=None, variant_index=0):
     photos=c.get('product_assets',[])
     product_reference=''
     if photos:
+        photo_word = 'foto' if len(photos) == 1 else 'fotos'
         product_reference=(
-            f"Anexe primeiro a referência fixa de {c['model_name']} e depois as {len(photos)} fotos do produto. "
+            f"Anexe primeiro a referência fixa de {c['model_name']} e depois {len(photos)} {photo_word} do produto. "
             f'As fotos do produto representam: {product}. Use-as para reproduzir o corte, '
             'o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. '
             'Pessoas presentes nas fotos do produto NÃO são referências de identidade: '
@@ -321,16 +980,32 @@ def generate(c, script=None, variant_index=0):
             f"A cor final solicitada é {c['color']}; ela prevalece sobre fotos com outras cores. "
             "Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. "
         )
-    details = _phrase(c.get('details'))
-    video_detail_hints = ('vídeo', 'video', '15 segundos', '15s', 'ugc', 'fala', 'frases',
-                          'jogo de câmera', 'jogo de cameras', 'enquadramento', 'movimentos de ia')
-    details_for_image = details
-    if details and any(h in details.casefold() for h in video_detail_hints):
-        details_for_image = ''
+    details = _pt_br(c.get('details'))
+    confirmed_features = _product_features(c)
+    facts_for_image = ', '.join(confirmed_features) if confirmed_features else 'somente os detalhes visíveis nas fotos do produto'
+    materials_for_image = ', '.join(_material_facts(c)) or 'não especificada'
+    details_for_image = _image_details(details)
+    angle_context = _image_angle(c.get('angle'))
+    angle_context_words = angle_context.split()
+    if len(angle_context_words) > 16:
+        angle_context = ' '.join(angle_context_words[:16]) + '…'
+    scene_lock = _scene_lock(c)
     image = (
-        identity + product_reference + f"Roupa: {c['outfit']}. Cor: {c['color']}. Produto: {product}. "
-        f"Público: {c['audience']}. Ângulo de comunicação: {c['angle'] or 'mostrar detalhes do produto'}. "
-        f"Estilo: {c['style'] or 'natural e realista'}. Tom: {c['tone'] or 'conversacional'}. "
+        identity + product_reference + f"Roupa: {_pt_br(c['outfit'])}. Cor: {c['color']}. Produto: {product}. "
+        "EDIÇÃO LOCALIZADA: trate a imagem aprovada da modelo como a fotografia-base final, não como inspiração para uma nova cena. "
+        "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, top, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica. "
+        "Altere somente a área ocupada pela legging, mantendo todo o restante da imagem visualmente idêntico. "
+        "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere o top, não crie outro ângulo e não gere uma nova fotografia. "
+        f"VARIAÇÃO ÚNICA: gere somente esta cor ({c['color']}); não misture cores nem crie outras versões na mesma imagem. "
+        f"FATOS DO PRODUTO A PRESERVAR: {facts_for_image}. "
+        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials_for_image}; preservar textura, brilho e caimento sem substituir por outro material. "
+        f"FOCO VISUAL: {_focus_parts(c)[0]}. "
+        + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
+        + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores; fundo nítido, sem desfoque e sem substituição. Se existir imagem aprovada de outra cor, usá-la como referência do cenário sem copiar a cor da roupa. "
+        + "INTEGRAÇÃO FOTOGRÁFICA: a legging nova deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. "
+        + "Contexto de comunicação (não inserir texto nem inventar atributo): "
+        f"público {_pt_br(c['audience']) or 'geral'}; ângulo {angle_context or 'mostrar detalhes do produto'}. "
+        f"Estilo: {_pt_br(c['style']) or 'natural e realista'}. Tom: {_pt_br(c['tone']) or 'conversacional'}. "
         'Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. '
         'Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. '
         + (f'Detalhes do briefing: {details_for_image}.' if details_for_image else
@@ -342,14 +1017,14 @@ def generate(c, script=None, variant_index=0):
         resolution=resolution,
         color=c.get('color'),
         product=product,
-        benefit=benefit,
+        benefit=_benefit_clause(c),
         movements=movements,
         details=details,
         hook=hook,
         development=development,
         cta=cta,
     )
-    caption = build_caption(c, color=color, cta=cta, variation_index=variant_index)
+    caption = build_caption(c, color=color, cta=None, variation_index=variant_index)
     return dict(image=image, video=video, hook=hook, development=development, cta=cta, caption=caption, variation_index=variant_index)
 
 

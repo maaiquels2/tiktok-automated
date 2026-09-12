@@ -1,0 +1,250 @@
+{
+  "baseline": {
+    "brief": {
+      "name": "Auditoria",
+      "model_name": "Micaela",
+      "product": "Legging cintura alta com bolso lateral",
+      "outfit": "Legging com top branco",
+      "color": "Vinho",
+      "audience": "mulheres que treinam",
+      "benefit": "tem bolso lateral",
+      "angle": "mostrar caimento e detalhes",
+      "tone": "conversacional",
+      "style": "natural e realista",
+      "details": "",
+      "movements": "virar de lado e apontar o bolso",
+      "generator": "grok",
+      "niche": "academia",
+      "product_assets": [
+        {
+          "original_name": "foto-produto.png"
+        }
+      ]
+    },
+    "output": {
+      "image": "Use a imagem anexada de Micaela como referência visual fixa. Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. Somente a roupa e sua cor podem mudar na aparência da modelo. Não substitua a pessoa nem redesenhe sua identidade. Anexe primeiro a referência fixa de Micaela e depois as 1 fotos do produto. As fotos do produto representam: Legging cintura alta com bolso lateral. Use-as para reproduzir o corte, o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. Pessoas presentes nas fotos do produto NÃO são referências de identidade: não copie seu rosto, cabelo, corpo, pose ou tom de pele. A cor final solicitada é Vinho; ela prevalece sobre fotos com outras cores. Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. Roupa: Legging com top branco. Cor: Vinho. Produto: Legging cintura alta com bolso lateral. VARIAÇÃO ÚNICA: gere somente esta cor (Vinho); não misture cores nem crie outras versões na mesma imagem. FATOS DO PRODUTO A PRESERVAR: bolso lateral, cintura alta. Público: mulheres que treinam. Ângulo de comunicação: mostrar caimento e detalhes. Estilo: natural e realista. Tom: conversacional. Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. Apenas uma imagem estática; não descreva vídeo, falas nem duração.",
+      "video": "UGC TikTok Shop vertical 9:16, exatamente 15 segundos, 720 × 1280 (720p). ANEXE a IMAGEM APROVADA da cor Vinho como primeiro frame / referência contínua. A modelo é Micaela: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames (sem morphing, sem face swap, sem redesign). Produto em cena: Legging cintura alta com bolso lateral na cor Vinho. Look: Legging com top branco. Ângulo de venda: mostrar caimento e detalhes. FATOS CONFIRMADOS: bolso lateral, cintura alta. Benefício a provar visualmente, somente se estiver demonstrável: tem bolso lateral.\nCENÁRIO (academia): academia limpa ou outdoor fitness crivel; luz clara e energetica. CÂMERA: plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera. OBRIGATÓRIO mostrar: bolso lateral e cintura alta; use a direção de cena para contextualizar, sem transformar contexto em promessa: compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural. EVITAR: maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes; textos na tela; marcas inventadas; cortes que quebrem continuidade.\nCOREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): virar de lado e apontar o bolso.\nSHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.\"\n4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n6.0–11.0s PROVA 2: movimento completo que demonstra o benefício (tem bolso lateral) — caminhar/girar/sentar/agachar conforme a coreografia. Manter cor Vinho e caimento fiéis. Fala (PT-BR): \"Mostre bolso lateral e cintura alta com um close e depois um giro curto para revelar o caimento. Para mulheres que treinam, a peça tem bolso lateral.\"\n11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"Gostou? Toque no produto marcado e confira os detalhes.\"\nEstilo visual: natural e realista. Tom de performance: conversacional. Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). Sem promessas não demonstradas no vídeo. Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar.",
+      "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+      "development": "Mostre bolso lateral e cintura alta com um close e depois um giro curto para revelar o caimento. Para mulheres que treinam, a peça tem bolso lateral.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "caption": "Quer escolher uma legging pelo caimento? Olha esta na cor Vinho. A peça tem bolso lateral. Produto marcado aqui embaixo. #Leggingcinturaaltacombol #Achadinhos #TikTokShop #AchadinhoTikTok #ForYou",
+      "variation_index": 0
+    },
+    "spoken_words": {
+      "hook": 13,
+      "development": 27,
+      "cta": 9
+    },
+    "estimated_seconds_at_150wpm": 19.6
+  },
+  "negations": {
+    "brief": {
+      "name": "Auditoria",
+      "model_name": "Micaela",
+      "product": "Legging sem bolso lateral e sem compressão",
+      "outfit": "legging",
+      "color": "Vinho",
+      "audience": "mulheres que treinam",
+      "benefit": "não possui bolso",
+      "angle": "mostrar caimento",
+      "tone": "conversacional",
+      "style": "natural e realista",
+      "details": "não afirmar secagem rápida",
+      "movements": "virar de lado e apontar o bolso",
+      "generator": "grok",
+      "niche": "academia",
+      "product_assets": [
+        {
+          "original_name": "foto-produto.png"
+        }
+      ]
+    },
+    "detected_features": [
+      "bolso lateral",
+      "secagem rápida",
+      "compressão"
+    ],
+    "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+    "image": "Use a imagem anexada de Micaela como referência visual fixa. Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. Somente a roupa e sua cor podem mudar na aparência da modelo. Não substitua a pessoa nem redesenhe sua identidade. Anexe primeiro a referência fixa de Micaela e depois as 1 fotos do produto. As fotos do produto representam: Legging sem bolso lateral e sem compressão. Use-as para reproduzir o corte, o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. Pessoas presentes nas fotos do produto NÃO são referências de identidade: não copie seu rosto, cabelo, corpo, pose ou tom de pele. A cor final solicitada é Vinho; ela prevalece sobre fotos com outras cores. Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. Roupa: legging. Cor: Vinho. Produto: Legging sem bolso lateral e sem compressão. VARIAÇÃO ÚNICA: gere somente esta cor (Vinho); não misture cores nem crie outras versões na mesma imagem. FATOS DO PRODUTO A PRESERVAR: bolso lateral, secagem rápida, compressão. Público: mulheres que treinam. Ângulo de comunicação: mostrar caimento. Estilo: natural e realista. Tom: conversacional. Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. Detalhes do briefing: não afirmar secagem rápida."
+  },
+  "mixed_details": {
+    "brief": {
+      "name": "Auditoria",
+      "model_name": "Micaela",
+      "product": "Legging cintura alta com bolso lateral",
+      "outfit": "Legging com top branco",
+      "color": "Vinho",
+      "audience": "mulheres que treinam",
+      "benefit": "tem bolso lateral",
+      "angle": "mostrar caimento e detalhes",
+      "tone": "conversacional",
+      "style": "natural e realista",
+      "details": "Costura dourada e fundo bege. Vídeo com câmera fixa, sem zoom e sem cortes.",
+      "movements": "virar de lado e apontar o bolso",
+      "generator": "grok",
+      "niche": "academia",
+      "product_assets": [
+        {
+          "original_name": "foto-produto.png"
+        }
+      ]
+    },
+    "image": "Use a imagem anexada de Micaela como referência visual fixa. Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. Somente a roupa e sua cor podem mudar na aparência da modelo. Não substitua a pessoa nem redesenhe sua identidade. Anexe primeiro a referência fixa de Micaela e depois as 1 fotos do produto. As fotos do produto representam: Legging cintura alta com bolso lateral. Use-as para reproduzir o corte, o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. Pessoas presentes nas fotos do produto NÃO são referências de identidade: não copie seu rosto, cabelo, corpo, pose ou tom de pele. A cor final solicitada é Vinho; ela prevalece sobre fotos com outras cores. Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. Roupa: Legging com top branco. Cor: Vinho. Produto: Legging cintura alta com bolso lateral. VARIAÇÃO ÚNICA: gere somente esta cor (Vinho); não misture cores nem crie outras versões na mesma imagem. FATOS DO PRODUTO A PRESERVAR: bolso lateral, cintura alta, costura. Público: mulheres que treinam. Ângulo de comunicação: mostrar caimento e detalhes. Estilo: natural e realista. Tom: conversacional. Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. Apenas uma imagem estática; não descreva vídeo, falas nem duração.",
+    "video": "UGC TikTok Shop vertical 9:16, exatamente 15 segundos, 720 × 1280 (720p). ANEXE a IMAGEM APROVADA da cor Vinho como primeiro frame / referência contínua. A modelo é Micaela: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames (sem morphing, sem face swap, sem redesign). Produto em cena: Legging cintura alta com bolso lateral na cor Vinho. Look: Legging com top branco. Ângulo de venda: mostrar caimento e detalhes. FATOS CONFIRMADOS: bolso lateral, cintura alta. Benefício a provar visualmente, somente se estiver demonstrável: tem bolso lateral.\nCENÁRIO (academia): academia limpa ou outdoor fitness crivel; luz clara e energetica. CÂMERA: plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera. OBRIGATÓRIO mostrar: bolso lateral e cintura alta; use a direção de cena para contextualizar, sem transformar contexto em promessa: compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural. EVITAR: maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes; textos na tela; marcas inventadas; cortes que quebrem continuidade.\nCOREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): virar de lado e apontar o bolso. Instruções extras do briefing: Costura dourada e fundo bege. Vídeo com câmera fixa, sem zoom e sem cortes.\nSHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.\"\n4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n6.0–11.0s PROVA 2: movimento completo que demonstra o benefício (tem bolso lateral) — caminhar/girar/sentar/agachar conforme a coreografia. Manter cor Vinho e caimento fiéis. Fala (PT-BR): \"Mostre bolso lateral e cintura alta com um close e depois um giro curto para revelar o caimento. Para mulheres que treinam, a peça tem bolso lateral.\"\n11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"Gostou? Toque no produto marcado e confira os detalhes.\"\nEstilo visual: natural e realista. Tom de performance: conversacional. Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). Sem promessas não demonstradas no vídeo. Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar.",
+    "visual_detail_dropped": true
+  },
+  "color_leak": [
+    {
+      "color": "Branco",
+      "prompts": {
+        "image": "Use a imagem anexada de Micaela como referência visual fixa. Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. Somente a roupa e sua cor podem mudar na aparência da modelo. Não substitua a pessoa nem redesenhe sua identidade. Anexe primeiro a referência fixa de Micaela e depois as 1 fotos do produto. As fotos do produto representam: Legging cintura alta com bolso lateral. Use-as para reproduzir o corte, o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. Pessoas presentes nas fotos do produto NÃO são referências de identidade: não copie seu rosto, cabelo, corpo, pose ou tom de pele. A cor final solicitada é Branco; ela prevalece sobre fotos com outras cores. Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. Roupa: Legging branca com top branco. Cor: Branco. Produto: Legging cintura alta com bolso lateral. VARIAÇÃO ÚNICA: gere somente esta cor (Branco); não misture cores nem crie outras versões na mesma imagem. FATOS DO PRODUTO A PRESERVAR: bolso lateral, cintura alta. Público: mulheres que treinam. Ângulo de comunicação: mostrar caimento e detalhes. Estilo: natural e realista. Tom: conversacional. Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. Detalhes do briefing: Cor de catálogo: branca.",
+        "video": "UGC TikTok Shop vertical 9:16, exatamente 15 segundos, 720 × 1280 (720p). ANEXE a IMAGEM APROVADA da cor Branco como primeiro frame / referência contínua. A modelo é Micaela: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames (sem morphing, sem face swap, sem redesign). Produto em cena: Legging cintura alta com bolso lateral na cor Branco. Look: Legging branca com top branco. Ângulo de venda: mostrar caimento e detalhes. FATOS CONFIRMADOS: bolso lateral, cintura alta. Benefício a provar visualmente, somente se estiver demonstrável: tem bolso lateral.\nCENÁRIO (academia): academia limpa ou outdoor fitness crivel; luz clara e energetica. CÂMERA: plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera. OBRIGATÓRIO mostrar: bolso lateral e cintura alta; use a direção de cena para contextualizar, sem transformar contexto em promessa: compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural. EVITAR: maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes; textos na tela; marcas inventadas; cortes que quebrem continuidade.\nCOREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): virar de lado e apontar o bolso. Instruções extras do briefing: Cor de catálogo: branca.\nSHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"Quer ver essa legging no corpo? Veja o bolso lateral na cor Branco.\"\n4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n6.0–11.0s PROVA 2: movimento completo que demonstra o benefício (tem bolso lateral) — caminhar/girar/sentar/agachar conforme a coreografia. Manter cor Branco e caimento fiéis. Fala (PT-BR): \"Mostre bolso lateral e cintura alta com um close e depois um giro curto para revelar o caimento. Para mulheres que treinam, a peça tem bolso lateral.\"\n11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"Gostou? Toque no produto marcado e confira os detalhes.\"\nEstilo visual: natural e realista. Tom de performance: conversacional. Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). Sem promessas não demonstradas no vídeo. Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar.",
+        "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Branco.",
+        "development": "Mostre bolso lateral e cintura alta com um close e depois um giro curto para revelar o caimento. Para mulheres que treinam, a peça tem bolso lateral.",
+        "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+        "caption": "Quer escolher uma legging pelo caimento? Olha esta na cor Branco. A peça tem bolso lateral. Produto marcado aqui embaixo. #Leggingcinturaaltacombol #Achadinhos #TikTokShop #AchadinhoTikTok #ForYou",
+        "variation_index": 0
+      }
+    },
+    {
+      "color": "Preto",
+      "prompts": {
+        "image": "Use a imagem anexada de Micaela como referência visual fixa. Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. Somente a roupa e sua cor podem mudar na aparência da modelo. Não substitua a pessoa nem redesenhe sua identidade. Anexe primeiro a referência fixa de Micaela e depois as 1 fotos do produto. As fotos do produto representam: Legging cintura alta com bolso lateral. Use-as para reproduzir o corte, o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. Pessoas presentes nas fotos do produto NÃO são referências de identidade: não copie seu rosto, cabelo, corpo, pose ou tom de pele. A cor final solicitada é Preto; ela prevalece sobre fotos com outras cores. Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. Roupa: Legging branca com top branco. Cor: Preto. Produto: Legging cintura alta com bolso lateral. VARIAÇÃO ÚNICA: gere somente esta cor (Preto); não misture cores nem crie outras versões na mesma imagem. FATOS DO PRODUTO A PRESERVAR: bolso lateral, cintura alta. Público: mulheres que treinam. Ângulo de comunicação: mostrar caimento e detalhes. Estilo: natural e realista. Tom: conversacional. Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. Detalhes do briefing: Cor de catálogo: branca.",
+        "video": "UGC TikTok Shop vertical 9:16, exatamente 15 segundos, 720 × 1280 (720p). ANEXE a IMAGEM APROVADA da cor Preto como primeiro frame / referência contínua. A modelo é Micaela: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames (sem morphing, sem face swap, sem redesign). Produto em cena: Legging cintura alta com bolso lateral na cor Preto. Look: Legging branca com top branco. Ângulo de venda: mostrar caimento e detalhes. FATOS CONFIRMADOS: bolso lateral, cintura alta. Benefício a provar visualmente, somente se estiver demonstrável: tem bolso lateral.\nCENÁRIO (academia): academia limpa ou outdoor fitness crivel; luz clara e energetica. CÂMERA: plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera. OBRIGATÓRIO mostrar: bolso lateral e cintura alta; use a direção de cena para contextualizar, sem transformar contexto em promessa: compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural. EVITAR: maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes; textos na tela; marcas inventadas; cortes que quebrem continuidade.\nCOREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): virar de lado e apontar o bolso. Instruções extras do briefing: Cor de catálogo: branca.\nSHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"Como fica essa legging em movimento? Olha o bolso lateral em Preto.\"\n4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n6.0–11.0s PROVA 2: movimento completo que demonstra o benefício (tem bolso lateral) — caminhar/girar/sentar/agachar conforme a coreografia. Manter cor Preto e caimento fiéis. Fala (PT-BR): \"Aproxime a câmera para mostrar bolso lateral e cintura alta; em seguida, caminhe para mostrar como a peça se move. Para mulheres que treinam, a peça tem bolso lateral.\"\n11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"Quer essa legging? Toque no produto marcado.\"\nEstilo visual: natural e realista. Tom de performance: conversacional. Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). Sem promessas não demonstradas no vídeo. Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar.",
+        "hook": "Como fica essa legging em movimento? Olha o bolso lateral em Preto.",
+        "development": "Aproxime a câmera para mostrar bolso lateral e cintura alta; em seguida, caminhe para mostrar como a peça se move. Para mulheres que treinam, a peça tem bolso lateral.",
+        "cta": "Quer essa legging? Toque no produto marcado.",
+        "caption": "Antes de decidir pela legging, veja este detalhe na cor Preto: o bolso lateral. Confira os detalhes no produto marcado. #Leggingcinturaaltacombol #Achadinhos #TikTokShop #AchadinhoTikTok #ForYou",
+        "variation_index": 1
+      }
+    }
+  ],
+  "caption_refresh": {
+    "video_before": "CÂMERA PERSONALIZADA: tripé imóvel; sem aproximação.",
+    "video_after": "UGC TikTok Shop vertical 9:16, exatamente 15 segundos, 720 × 1280 (720p). ANEXE a IMAGEM APROVADA da cor Vinho como primeiro frame / referência contínua. A modelo é Micaela: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os frames (sem morphing, sem face swap, sem redesign). Produto em cena: Legging cintura alta com bolso lateral na cor Vinho. Look: Legging com top branco. Ângulo de venda: mostrar caimento e detalhes. FATOS CONFIRMADOS: bolso lateral, cintura alta. Benefício a provar visualmente, somente se estiver demonstrável: tem bolso lateral.\nCENÁRIO (academia): academia limpa ou outdoor fitness crivel; luz clara e energetica. CÂMERA: plano medio dinamico; low-angle curto no agachamento; close no cos/tecido stretch; tracking ao caminhar ate a camera. OBRIGATÓRIO mostrar: bolso lateral e cintura alta; use a direção de cena para contextualizar, sem transformar contexto em promessa: compressao/elasticidade em movimento (agachar, alongar, caminhar), suporte do top/legging, suor leve natural. EVITAR: maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes; textos na tela; marcas inventadas; cortes que quebrem continuidade.\nCOREOGRAFIA / AÇÕES (usar nesta ordem, ritmo natural): virar de lado e apontar o bolso.\nSHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho\"\n4.0–6.0s PROVA 1: câmera se aproxima OU close no detalhe que vende (tecido, cós, alça, barra, acessório). Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n6.0–11.0s PROVA 2: movimento completo que demonstra o benefício (tem bolso lateral) — caminhar/girar/sentar/agachar conforme a coreografia. Manter cor Vinho e caimento fiéis. Fala (PT-BR): \"Mostre bolso lateral e cintura alta com um close e depois um giro curto para revelar o caimento. Para mulheres que treinam, a peça tem bolso lateral\"\n11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n12–15s CTA: gesto leve para a câmera / produto marcado. Fala (PT-BR): \"Gostou? Toque no produto marcado e confira os detalhes\"\nEstilo visual: natural e realista. Tom de performance: conversacional. Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). Sem promessas não demonstradas no vídeo. Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar.",
+    "custom_video_lost": true,
+    "speech_unchanged": true
+  },
+  "repetition": {
+    "same_after_6": true
+  },
+  "hashtags": [
+    "#Leggingcinturaaltacombol",
+    "#Achadinhos",
+    "#TikTokShop",
+    "#AchadinhoTikTok",
+    "#ForYou"
+  ],
+  "niche_examples": {
+    "praia": {
+      "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+      "development": "Mostre Prova social visual: mostrar o produto no sol, movimento do tecido e confianca na praia/piscina com um close e depois um giro curto para revelar o caimento. Para mulheres 18-35 que compram moda praia no tiktok shop e querem look pronto pra sol, a peça tem caimento favoravel no corpo, tecido leve e visual de verao que chama atencao no fyp.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "word_counts": {
+        "hook": 13,
+        "development": 62,
+        "cta": 9
+      }
+    },
+    "academia": {
+      "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+      "development": "Mostre Demonstrar o produto em movimento real de treino (agachar, caminhar, alongar) sem perder o visual com um close e depois um giro curto para revelar o caimento. Para mulheres 20-40 que treinam e compram activewear no tiktok shop buscando compressao e estilo, a peça tem liberdade de movimento, caimento firme no treino e look que motiva postar o workout.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "word_counts": {
+        "hook": 13,
+        "development": 60,
+        "cta": 9
+      }
+    },
+    "casual": {
+      "hook": "Quer ver esse vestido no corpo? Veja a alça na cor Vinho.",
+      "development": "Mostre o detalhe de Antes/depois visual do look montado: do cabide/caixa para o corpo em 15s com um close e depois um giro curto para revelar o caimento. Para mulheres 18-35 que querem looks faceis, estilosos e com bom custo-beneficio no tiktok shop, a peça tem combina com tudo, valoriza o corpo no dia a dia e parece caro no video curto.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "word_counts": {
+        "hook": 12,
+        "development": 62,
+        "cta": 9
+      }
+    },
+    "dia-a-dia": {
+      "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+      "development": "Mostre o detalhe de Rotina realista: acordar / trabalhar / sair rapido usando o mesmo look com um close e depois um giro curto para revelar o caimento. Para mulheres que buscam conforto real pra casa, trabalho hibrido e saidinhas sem abrir mao do estilo, a peça tem conforto o dia todo com visual arrumado o suficiente pra gravar e sair.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "word_counts": {
+        "hook": 13,
+        "development": 61,
+        "cta": 9
+      }
+    },
+    "intima": {
+      "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+      "development": "Mostre Elegancia sem vulgaridade: luz suave, poses confiantes, foco em caimento e conforto com um close e depois um giro curto para revelar o caimento. Para mulheres 21-40 que compram lingerie no tiktok shop buscando autoestima, caimento e discrecao sensual, a peça tem caimento que valoriza o corpo, tecido premium na camera e sensacao de confianca.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "word_counts": {
+        "hook": 13,
+        "development": 56,
+        "cta": 9
+      }
+    },
+    "fantasia": {
+      "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Vinho.",
+      "development": "Mostre o detalhe de Revela da fantasia: unboxing visual + pose caracteristica do personagem com um close e depois um giro curto para revelar o caimento. Para publico 16-35 que busca fantasias pra festa, halloween, ensaios e conteudo tematico no tiktok, a peça tem transformacao visual forte em segundos: da caixa ao personagem completo.",
+      "cta": "Gostou? Toque no produto marcado e confira os detalhes.",
+      "word_counts": {
+        "hook": 13,
+        "development": 54,
+        "cta": 9
+      }
+    }
+  },
+  "actual_campaigns": [
+    {
+      "id": 14,
+      "name": "Playbook · Legging grossa sem transparência",
+      "saved_speech": {
+        "hook": "Quer ver essa legging no corpo? Repara no caimento em branca.",
+        "development": "Em branca, ela liberdade de movimento, caimento firme no treino e look que motiva postar o workout. Veja demonstrar o produto em movimento real de treino (agachar, caminhar, alongar) sem perder o visual e o caimento em movimento.",
+        "cta": "Gostou? Toque no produto marcado e confira essa cor."
+      },
+      "new_speech": {
+        "hook": "Quer ver essa legging no corpo? Veja a sem transparência na cor branca.",
+        "development": "Mostre Demonstrar o produto em movimento real de treino (agachar, caminhar, alongar) sem perder o visual com um close e depois um giro curto para revelar o caimento. Para mulheres 20-40 que treinam e compram activewear no tiktok shop buscando compressao e estilo, a peça tem liberdade de movimento, caimento firme no treino e look que motiva postar o workout.",
+        "cta": "Gostou? Toque no produto marcado e confira os detalhes."
+      },
+      "new_words": 82
+    },
+    {
+      "id": 12,
+      "name": "Playbook · Maiô autoestima / mamãe",
+      "saved_speech": {
+        "hook": "Como fica esse look em movimento? Olha a versão em marrom.",
+        "development": "A versão marrom destaca prova social visual: maiô no corpo, movimento na praia e cta shop. Ela valoriza o corpo, modela e fica incrível na praia/piscina.",
+        "cta": "Quer a marrom? Toque no produto marcado."
+      },
+      "new_speech": {
+        "hook": "Quer ver esse maiô no corpo? Veja Prova social visual: maiô no corpo, movimento na praia e CTA Shop na cor marrom.",
+        "development": "Mostre Prova social visual: maiô no corpo, movimento na praia e CTA Shop com um close e depois um giro curto para revelar o caimento. Para mulheres, a peça valoriza o corpo, modela e fica incrível na praia/piscina.",
+        "cta": "Gostou? Toque no produto marcado e confira os detalhes."
+      },
+      "new_words": 69
+    },
+    {
+      "id": 1,
+      "name": "Roupa de Academia",
+      "saved_speech": {
+        "hook": "Procurando legging de treino cintura alta com bolso lateral poliamida para o seu dia?",
+        "development": "Veja os detalhes: Veste muito bem no corpo, é leve.",
+        "cta": "Confira os detalhes no produto marcado."
+      },
+      "new_speech": {
+        "hook": "Quer ver essa legging no corpo? Veja o bolso lateral na cor Branco.",
+        "development": "Mostre os caimentos com um close e depois um giro curto para revelar o caimento. Para mulheres, a peça veste muito bem no corpo, é leve.",
+        "cta": "Gostou? Toque no produto marcado e confira os detalhes."
+      },
+      "new_words": 48
+    }
+  ],
+  "generator_difference": {
+    "video_equal_except_resolution": true
+  }
+}

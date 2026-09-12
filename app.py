@@ -8,10 +8,12 @@ import sqlite3
 import sys
 import threading
 import tempfile
+import subprocess
 import uuid
 import zipfile
 from contextlib import closing
 from pathlib import Path
+import ipaddress
 from urllib.parse import urlsplit
 from flask import Flask, g, jsonify, request, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
@@ -108,6 +110,25 @@ def create_app(config=None):
             for c in conn.execute('SELECT id FROM campaigns').fetchall():
                 for s in STATES:
                     conn.execute('INSERT OR IGNORE INTO steps(campaign_id,name) VALUES(?,?)',(c['id'],s))
+            # Repair campaigns that were advanced by the old approval handler
+            # without stamping the active video assets.  Keeping this migration
+            # idempotent lets an already open local database recover on restart,
+            # including the one-video case that previously blocked TikTok Studio.
+            conn.execute("""
+                UPDATE assets
+                   SET approved_at=COALESCE(approved_at,CURRENT_TIMESTAMP)
+                 WHERE active=1
+                   AND kind='video'
+                   AND approved_at IS NULL
+                   AND campaign_id IN (
+                       SELECT c.id
+                         FROM campaigns c
+                         JOIN steps s ON s.campaign_id=c.id
+                                        AND s.name='video_approved'
+                        WHERE c.status IN ('video_approved','ready_to_publish','published')
+                          AND s.human_review=1
+                   )
+            """)
             conn.commit()
             conn.execute('PRAGMA journal_mode=WAL')
     migrate()
@@ -123,24 +144,64 @@ def create_app(config=None):
         if 'db' in g:
             g.db.close()
 
+    def _host_allowed(hostname: str) -> bool:
+        if not hostname:
+            return False
+        host = hostname.strip('[]').lower()
+        if host in {'127.0.0.1', 'localhost', '::1'}:
+            return True
+        # Optional: allow any host when FABRICA_LAN=0 and only loopback bind — but we gate by private IP.
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return bool(ip.is_loopback or ip.is_private or ip.is_link_local)
+
+    def _lan_urls(port: int) -> list[str]:
+        urls = []
+        try:
+            import socket
+            hostname = socket.gethostname()
+            for info in socket.getaddrinfo(hostname, None, family=socket.AF_INET):
+                ip = info[4][0]
+                try:
+                    addr = ipaddress.ip_address(ip)
+                except ValueError:
+                    continue
+                if addr.is_private and not addr.is_loopback:
+                    url = f'http://{ip}:{port}'
+                    if url not in urls:
+                        urls.append(url)
+        except Exception:
+            pass
+        return urls
+
     @app.before_request
     def local_only():
-        if urlsplit('http://'+request.host).hostname not in {'127.0.0.1','localhost','::1'}:
-            raise Invalid('Este aplicativo só aceita acesso local.',403)
-        if request.method in {'POST','PATCH','PUT','DELETE'}:
-            origin=request.headers.get('Origin')
-            if origin and origin.rstrip('/')!=request.host_url.rstrip('/'):
-                raise Invalid('Origem externa bloqueada.',403)
-            if request.headers.get('X-Local-App')!='fabrica-tiktok':
-                raise Invalid('Reabra a interface local para executar esta ação.',403)
+        hostname = urlsplit('http://' + request.host).hostname
+        if not _host_allowed(hostname):
+            raise Invalid('Este aplicativo so aceita localhost ou rede local privada (LAN).', 403)
+        if request.method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
+            origin = request.headers.get('Origin')
+            if origin:
+                origin_host = urlsplit(origin).hostname
+                if not _host_allowed(origin_host):
+                    raise Invalid('Origem externa bloqueada.', 403)
+                # Same-origin for the host the client actually used (localhost or LAN IP).
+                if origin.rstrip('/') != request.host_url.rstrip('/'):
+                    raise Invalid('Origem externa bloqueada.', 403)
+            if request.headers.get('X-Local-App') != 'fabrica-tiktok':
+                raise Invalid('Reabra a interface local para executar esta acao.', 403)
 
     @app.after_request
     def headers(response):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='no-referrer'
         response.headers['X-Frame-Options']='DENY'
-        if request.path.startswith('/api/'):
-            response.headers['Cache-Control']='no-store'
+        if request.path.startswith('/api/') or request.path == '/' or request.path.startswith('/assets/'):
+            # The local bundle is rebuilt in place during development. Avoid
+            # showing a cached interface after a restart.
+            response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
         return response
 
     @app.errorhandler(Invalid)
@@ -218,11 +279,30 @@ def create_app(config=None):
                 word='imagem' if kind=='image' else 'vídeo'
                 raise Invalid(f'Anexe o {word} de cada cor antes de avançar ({label}).',409)
             if approved:
+                # Older builds could advance the campaign to video_approved
+                # without stamping approved_at on its file. That left a valid
+                # single-video campaign permanently blocked at publication.
+                # Treat the recorded human transition as the approval and heal
+                # only that legacy, already-advanced state.
+                legacy_video_approval = False
+                if kind=='video' and c.get('status') in {'video_approved','ready_to_publish','published'}:
+                    review=db().execute(
+                        "SELECT human_review FROM steps WHERE campaign_id=? AND name='video_approved'",
+                        (cid,),
+                    ).fetchone()
+                    legacy_video_approval=bool(review and review['human_review'])
                 for s in slots:
                     row=by_slot.get(s)
                     if slots==[''] and not row and rows:
                         row=rows[0]
                     if not row or not row['approved_at']:
+                        if row and legacy_video_approval:
+                            db().execute('UPDATE assets SET approved_at=COALESCE(approved_at,CURRENT_TIMESTAMP) WHERE id=?',(row['id'],))
+                            row['approved_at']='legacy-repaired'
+                            continue
+                        if len(rows)==1:
+                            word='a imagem anexada' if kind=='image' else 'o vídeo anexado'
+                            raise Invalid(f'Aprove {word} antes de avançar.',409)
                         word='imagens' if kind=='image' else 'vídeos'
                         raise Invalid(f'Aprove todos os {word} anexados antes de avançar.',409)
             for r in rows:
@@ -341,7 +421,20 @@ def create_app(config=None):
 
     @app.get('/api/health')
     def health():
-        return jsonify(app='fabrica-tiktok',version=5,local=True)
+        port = request.environ.get('SERVER_PORT') or os.environ.get('FABRICA_PORT', '5050')
+        try:
+            port_i = int(port)
+        except Exception:
+            port_i = 5050
+        lan = _lan_urls(port_i)
+        return jsonify(
+            app='fabrica-tiktok',
+            version=6,
+            local=True,
+            lan_enabled=os.environ.get('FABRICA_LAN', '1') != '0',
+            lan_urls=lan,
+            open_on_this_device=f"{request.scheme}://{request.host}",
+        )
 
     @app.get('/api/campaigns')
     def list_campaigns():
@@ -626,8 +719,9 @@ def create_app(config=None):
         elif set(changed)&{'hook','development','cta','video'} and STATES.index(c['status'])>=2:
             state(cid,'image_approved')
             clear_after(cid,['video'])
-        elif 'caption' in changed and c['status']=='ready_to_publish':
-            state(cid,'video_approved')
+        # Editing caption alone should not rewind ready_to_publish → video_approved.
+        elif set(changed) == {'caption'}:
+            pass
         save_prompts(cid,changed)
         if changed:
             touch(cid)
@@ -780,7 +874,26 @@ def create_app(config=None):
             mime = 'image/png'
         elif path.suffix.lower() == '.webp':
             mime = 'image/webp'
-        return send_file(path, mimetype=mime, conditional=True)
+        resp = send_file(path, mimetype=mime, conditional=False, max_age=0)
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        return resp
+
+    @app.patch('/api/model-library/label')
+    def rename_model_library_label():
+        """Rename the display label of a niche (moda) for this model."""
+        from services import model_library as ml
+        data = request.get_json(silent=True) or {}
+        model_name = (data.get('model_name') or request.form.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche = (data.get('niche') or request.form.get('niche') or '').strip()
+        label = (data.get('label') or request.form.get('label') or '').strip()
+        if niche not in ml.NICHE_IDS:
+            raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
+        try:
+            row = ml.rename_label(app.config['DATA_DIR'], model_name, niche, label)
+        except ValueError as exc:
+            raise Invalid(str(exc)) from exc
+        return jsonify({'ok': True, 'niche': row})
 
     @app.post('/api/model-library')
     def upload_model_library():
@@ -812,6 +925,126 @@ def create_app(config=None):
             return jsonify(entry)
         finally:
             temp.unlink(missing_ok=True)
+
+    @app.get('/api/model-library/character-sheet')
+    def get_character_sheet():
+        """Build master consistency-sheet prompt for a model (+ optional niche photo)."""
+        from services import model_library as ml
+        from services import character_sheet as cs
+        model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche_arg = (request.args.get('niche') or '').strip() or None
+        niches = ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name)
+        chosen = None
+        if niche_arg:
+            for item in niches:
+                if item.get('niche') == niche_arg and item.get('has_photo'):
+                    chosen = item
+                    break
+            if chosen is None:
+                raise Invalid('Foto padrao deste nicho nao encontrada. Envie a foto na biblioteca.', 404)
+        else:
+            for item in niches:
+                if item.get('has_photo'):
+                    chosen = item
+                    break
+            if chosen is None:
+                raise Invalid('Nenhuma foto na biblioteca desta modelo. Envie ao menos uma foto padrao.', 404)
+        niche = chosen.get('niche')
+        niche_label = chosen.get('label') or ml.NICHE_LABELS.get(niche) or niche
+        payload = cs.build_payload(model_name, niche, niche_label)
+        return jsonify({
+            **payload,
+            'has_photo': True,
+            'photo_url': chosen.get('url') or f"/api/model-library/file?model_name={model_name}&niche={niche}",
+            'original_name': chosen.get('original_name') or '',
+            'message': 'Ficha de consistência pronta. Copie o prompt e anexe a foto da biblioteca no Grok.',
+        })
+
+    @app.post('/api/model-library/character-sheet/open')
+    def open_character_sheet():
+        """Copy prompt to clipboard and open Grok (gen profile) for the consistency sheet."""
+        from services import model_library as ml
+        from services import character_sheet as cs
+        data = body()
+        if data.get('confirmed') is not True:
+            raise Invalid('Confirme a abertura do Grok para a ficha de consistência.', 409)
+        model_name = (data.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche_arg = (data.get('niche') or '').strip() or None
+        niches = ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name)
+        chosen = None
+        if niche_arg:
+            for item in niches:
+                if item.get('niche') == niche_arg and item.get('has_photo'):
+                    chosen = item
+                    break
+            if chosen is None:
+                raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
+        else:
+            for item in niches:
+                if item.get('has_photo'):
+                    chosen = item
+                    break
+            if chosen is None:
+                raise Invalid('Nenhuma foto na biblioteca desta modelo.', 404)
+        niche = chosen.get('niche')
+        niche_label = chosen.get('label') or ml.NICHE_LABELS.get(niche) or niche
+        payload = cs.build_payload(model_name, niche, niche_label)
+        prompt = payload['prompt']
+        clipboard_ok = False
+        clipboard_error = None
+        try:
+            completed = subprocess.run(
+                [
+                    'powershell', '-NoProfile', '-NonInteractive', '-Command',
+                    'Set-Clipboard -Value ([Console]::In.ReadToEnd())',
+                ],
+                input=prompt,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+            clipboard_ok = completed.returncode == 0
+            if not clipboard_ok:
+                clipboard_error = (completed.stderr or completed.stdout or 'Set-Clipboard falhou').strip()[:240]
+        except Exception as exc:
+            clipboard_error = str(exc)[:240]
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+            assistant = app.extensions['browser_assistant']
+        try:
+            result = assistant.open_grok_character_sheet()
+        except RuntimeError as exc:
+            raise Invalid(str(exc), 409) from exc
+        except OSError as exc:
+            app.logger.exception('Falha ao abrir Grok para ficha de consistência')
+            raise Invalid('Não foi possível abrir o Grok. Reinicie pelo iniciar.vbs.', 409) from exc
+        result = dict(result or {})
+        if clipboard_ok:
+            msg = (
+                'Prompt da ficha copiado para a área de transferência. '
+                'Anexe a foto da biblioteca no Grok e cole o prompt (Ctrl+V). Grok aberto.'
+            )
+        else:
+            msg = (
+                'Grok aberto. Não foi possível copiar o prompt automaticamente'
+                + (f' ({clipboard_error}).' if clipboard_error else '.')
+                + ' Copie o prompt na interface e anexe a foto da biblioteca.'
+            )
+        result.update({
+            **payload,
+            'has_photo': True,
+            'photo_url': chosen.get('url') or '',
+            'original_name': chosen.get('original_name') or '',
+            'clipboard_ok': clipboard_ok,
+            'message': msg,
+        })
+        return jsonify(result)
+
 
     @app.post('/api/campaigns/<int:cid>/reference-from-library')
     def reference_from_library(cid):
@@ -890,11 +1123,13 @@ def create_app(config=None):
             raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
         merged=refresh_script_fields(c,c['color'],current['prompts'],fields=fields)
         save_prompts(cid,merged)
-        if set(fields)&{'hook','development','cta'} and STATES.index(c['status'])>=2:
-            state(cid,'image_approved')
-            clear_after(cid,['video'])
-        elif 'caption' in fields and c['status']=='ready_to_publish':
-            state(cid,'video_approved')
+        only_caption = set(fields) == {'caption'}
+        if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:
+            state(cid, 'image_approved')
+            clear_after(cid, ['video'])
+        # Caption-only refresh stays on the current publish step — never kick back to roteiro/video.
+        elif only_caption:
+            pass
         touch(cid)
         db().commit()
         return jsonify(detail(cid))
@@ -922,14 +1157,15 @@ def create_app(config=None):
         variants=detail(cid)['variants']
         if variants and variants[0]['id']==vid:
             save_prompts(cid,{k:merged[k] for k in PROMPTS if k in merged})
-        if STATES.index(c['status'])>=2:
+        only_caption = set(fields) == {'caption'}
+        if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:
             # editing falas after images: keep images, invalidate videos
-            if c['status'] not in {'briefing','image_ready'}:
-                state(cid,'image_approved' if STATES.index(c['status'])>=2 else c['status'])
-                # only clear videos if we already passed script
-                if STATES.index(c['status'])>=3:
-                    clear_after(cid,['video'])
-                    state(cid,'image_approved')
+            if c['status'] not in {'briefing', 'image_ready'}:
+                state(cid, 'image_approved')
+                if STATES.index(c['status']) >= 3:
+                    clear_after(cid, ['video'])
+        elif only_caption:
+            pass  # caption-only: stay on publish step
         touch(cid)
         db().commit()
         return jsonify(detail(cid))
@@ -1208,6 +1444,10 @@ def create_app(config=None):
         editable(c)
         if c['status'] not in {'ready_to_publish','video_approved','published'}:
             raise Invalid('Prepare a publicação antes de registrar no Studio.',409)
+        # Reconcile the legacy approval bug before changing state or checking
+        # the selected slot. This also repairs the one-video case when the
+        # campaign was already advanced to video_approved.
+        need_asset(cid,'video',True)
         if c['status']=='video_approved':
             state(cid,'ready_to_publish',True)
             c=campaign(cid)
@@ -1465,6 +1705,7 @@ def create_app(config=None):
         target=data.get('target')
         if target not in STATES or STATES.index(target)!=STATES.index(c['status'])+1:
             raise Invalid('Conclua a etapa atual antes de avançar.',409)
+        soft_warnings=None
         if target in {'image_ready','video_ready'}:
             raise Invalid('Anexe a mídia para chegar a esta etapa.',409)
         if data.get('confirmed') is not True:
@@ -1502,14 +1743,14 @@ def create_app(config=None):
                 wh=(meta.get('width'),meta.get('height'))
                 if wh!=expected or not 14.5<=dur<=15.5:
                     warnings.append(f"{label}: {dur}s {wh[0]}x{wh[1]} (alvo 15s {expected[0]}x{expected[1]})")
-            if warnings:
-                # stash soft note on checklist without failing
-                checklist=json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'),str) else (c.get('checklist') or {})
-                if not isinstance(checklist,dict):
-                    checklist={}
-                checklist['video_soft_warnings']=warnings
-                db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
+                # Approve every active file, including the single-video case.
+                # This must not live inside the soft-warning branch: a valid
+                # video has no warning, and a multi-colour campaign needs every
+                # colour marked independently.
                 db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
+            if warnings:
+                # Keep the note after state() resets the transition checklist.
+                soft_warnings=warnings
         elif target in {'ready_to_publish','published'}:
             need_asset(cid,'video',True)
             need_asset(cid,'image',True)
@@ -1525,6 +1766,11 @@ def create_app(config=None):
                 if parsed.scheme!='https' or not (parsed.hostname=='tiktok.com' or (parsed.hostname or '').endswith('.tiktok.com')):
                     raise Invalid('Use um link HTTPS do TikTok.')
         state(cid,target,True)
+        if soft_warnings:
+            db().execute(
+                'UPDATE campaigns SET checklist=? WHERE id=?',
+                (json.dumps({'video_soft_warnings':soft_warnings},ensure_ascii=False),cid),
+            )
         if target=='published':
             db().execute('UPDATE campaigns SET checklist=?,published_url=? WHERE id=?',(json.dumps(checks),url,cid))
         touch(cid)
@@ -1563,6 +1809,40 @@ def create_app(config=None):
         return response
 
     
+
+
+    @app.post('/api/browser/open-free')
+    def browser_open_free():
+        """Open Grok, Flow or TikTok Studio without a campaign (home shortcuts)."""
+        data = body()
+        if data.get('confirmed') is not True:
+            raise Invalid('Confirme a abertura no perfil dedicado.', 409)
+        service = (data.get('service') or '').strip().lower()
+        if service not in {'grok', 'flow', 'studio'}:
+            raise Invalid('Escolha grok, flow ou studio.')
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+            assistant = app.extensions['browser_assistant']
+        try:
+            if service == 'studio':
+                result = assistant.open_tiktok_studio(0)
+            elif service == 'flow':
+                result = getattr(assistant, 'open_flow_free', lambda: assistant._request('flow', 0))()
+            else:
+                result = getattr(assistant, 'open_grok_free', lambda: assistant._request('grok', 0))()
+        except RuntimeError as exc:
+            raise Invalid(str(exc), 409) from exc
+        except OSError as exc:
+            app.logger.exception('Falha ao abrir %s livre', service)
+            raise Invalid('Nao foi possivel abrir o servico. Reinicie pelo iniciar.vbs.', 409) from exc
+        result = dict(result or {})
+        labels = {'grok': 'Grok Imagine', 'flow': 'Google Flow (Labs)', 'studio': 'TikTok Studio'}
+        result['service'] = service
+        result['message'] = result.get('message') or (labels[service] + ' aberto no perfil dedicado.')
+        return jsonify(result)
+
 
     @app.post('/api/studio/open')
     def studio_open_free():
@@ -1938,4 +2218,4 @@ def create_app(config=None):
     return app
 
 if __name__=='__main__':
-    create_app().run(host='127.0.0.1',port=int(os.environ.get('FABRICA_PORT','5050')),debug=False)
+    create_app().run(host=('0.0.0.0' if os.environ.get('FABRICA_LAN','1')!='0' else '127.0.0.1'),port=int(os.environ.get('FABRICA_PORT','5050')),debug=False)

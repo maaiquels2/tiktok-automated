@@ -170,7 +170,7 @@ Não automatizar Grok Imagine no plano consumidor: a política da xAI proíbe ac
 
 ## Comandos atuais
 
-    cd C:\Users\Admin\Documents\Codex\2026-09-10\criei-meu-proprio-app-para-gerar
+    cd C:\Users\Admin\Documents\Codex\2026-09-10\Fabrica TikTok
     .\.venv\Scripts\python.exe app.py
 
 Abrir: http://127.0.0.1:5050

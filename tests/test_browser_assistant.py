@@ -85,6 +85,26 @@ class BrowserAssistantTests(unittest.TestCase):
         self.assertEqual(result['mode'],'existing')
         self.assertIsNone(self.assistant.playwright)
 
+    def test_studio_reuses_local_profile_when_global_chrome_is_unavailable(self):
+        local = self.assistant.profile_root / 'micaela-cdp'
+        with patch.dict('os.environ', {}, clear=True), \
+             patch('services.browser_assistant.installed_browser', return_value=self.executable), \
+             patch('services.browser_assistant.existing_chrome_profile', side_effect=RuntimeError('Unavailable')), \
+             patch.object(self.assistant, '_existing_factory_cdp_profile', return_value=local), \
+             patch('services.browser_assistant.ensure_micaela_cdp_user_data') as clone, \
+             patch('services.browser_assistant.kill_micaela_cdp_chrome') as kill, \
+             patch('services.browser_assistant.subprocess.Popen') as popen, \
+             patch.dict('sys.modules', {'playwright.async_api': None}):
+            result = self.assistant.open_tiktok_studio(12)
+        args = popen.call_args.args[0]
+        self.assertIn('--user-data-dir='+str(local), args)
+        self.assertEqual(args[-1], 'https://www.tiktok.com/tiktokstudio/upload')
+        self.assertFalse(any('remote-debugging' in arg or 'no-sandbox' in arg for arg in args))
+        self.assertEqual(result['campaign_id'], 12)
+        clone.assert_not_called()
+        kill.assert_not_called()
+        self.assertIsNone(self.assistant.playwright)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -1,6 +1,6 @@
 # Fábrica TikTok — versão local
 
-App **local** (Windows) da fábrica TikTok para o perfil da **Micaela**: produção de shorts/UGC para TikTok Shop com canvas em **React + React Flow**, API **Flask**, **SQLite** e mídia no disco. Organiza campanhas com modelo fixa, produto, **várias cores**, prompts, roteiros de 15s, imagens, vídeos, legendas inteligentes e publicação **manual** no TikTok Studio (uma cor por vez).
+App **local** (Windows) da fábrica TikTok para o perfil da **Micaela**: produção de shorts/UGC para TikTok Shop com interface em **React + Vite** (navegação Início / Produzir / Resultados), API **Flask**, **SQLite** e mídia no disco. Organiza campanhas com modelo fixa, produto, **várias cores**, prompts, roteiros de 15s, imagens, vídeos, legendas inteligentes e publicação **manual** no TikTok Studio (uma cor por vez).
 
 Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok-automated)
 
@@ -15,6 +15,11 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 - Etapa **Criar imagem** com cartão por cor: prompt + anexar resultado.
 - Várias imagens ativas na mesma campanha (slot por cor).
 - **Aprovar todas as imagens** só libera quando cada cor tem arquivo.
+
+### Modelo fixa e consistência de identidade
+- **Biblioteca da modelo** por nicho (praia, academia, casual, dia a dia, íntima, fantasia): suba as fotos padrão uma vez e reutilize em qualquer campanha.
+- Renomeie o rótulo de cada foto para achar rápido depois.
+- **Ficha de consistência de personagem**: gera um prompt mestre (com lista de negativos contra troca de rosto, CGI e mãos malformadas) e abre o Grok já pronto para criar a ficha de referência da modelo.
 
 ### Roteiros 15s inteligentes
 - Produto único também tem **Atualizar hook + legenda** e **Atualizar fala inteira**. Salve edições manuais antes de regenerar. A imagem aprovada é preservada; novas falas exigem revisão do roteiro e um novo vídeo.
@@ -58,8 +63,10 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 - Controle **Renomear** (lápis) perto do título da campanha.
 - PATCH só de `name` — não invalida etapas nem dispara guards de busy/discard de forma agressiva.
 
-### Canvas e campanhas
-- Pipeline visual: modelo → look → imagem → aprovação → roteiro → vídeo → aprovação → Studio.
+### Navegação e campanhas
+- Três áreas: **Início** (checklist de setup, fila de 5 posts do dia, biblioteca de fotos), **Produzir** (stepper das etapas) e **Resultados** (Studio, lote, playbook, histórico, campanha).
+- Endereços internos: `#/inicio`, `#/produzir/<id>/<etapa>`, `#/resultados/<aba>` — dá para salvar o link de uma etapa específica.
+- Pipeline: modelo → look → imagem → aprovação → roteiro → vídeo → aprovação → Studio → performance.
 - Campanhas com **renomear**, editar, copiar e excluir; versão editável a partir de campanha publicada.
 - Reuso da referência da mesma modelo entre campanhas.
 - Até 8 fotos de produto por campanha; movimentos do produto no prompt de vídeo.
@@ -75,7 +82,7 @@ Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok
 
 | Camada | Tecnologia |
 |---|---|
-| UI | React, Vite, React Flow (`@xyflow/react`) |
+| UI | React + Vite (stepper de etapas, navegação por hash) |
 | API | Flask (Python) |
 | Banco | SQLite (`data/fabrica_tiktok.db`) |
 | Mídia | Pasta `media/campanha-XXXX/` |
@@ -88,11 +95,21 @@ Dois cliques em **`iniciar.vbs`**: sobe o servidor e abre `http://127.0.0.1:5050
 Pelo terminal:
 
 ```powershell
-cd C:\Users\Admin\Documents\Codex\2026-09-10\criei-meu-proprio-app-para-gerar
+cd C:\Users\Admin\Documents\Codex\2026-09-10\Fabrica TikTok
 .\.venv\Scripts\python.exe app.py
 ```
 
 Fechar a aba do navegador **não** encerra o servidor. No terminal, use Ctrl+C. Com o iniciador, finalize o Python no Gerenciador de Tarefas se precisar.
+
+### Se o servidor travar
+
+Duplo clique em **`reiniciar-fabrica.bat`**: encerra o processo do app naquela pasta e sobe de novo.
+
+### Usar pelo celular (mesmo Wi-Fi)
+
+O iniciador imprime o endereço de LAN (algo como `http://192.168.0.10:5050`). Abra esse endereço no celular conectado à mesma rede. A interface se adapta à tela, e os botões de Grok / Flow / TikTok viram links nativos, abrindo o app instalado em vez do perfil de Chrome do PC.
+
+Isso **não** é hospedagem na nuvem: o servidor continua sendo o seu PC, que precisa estar ligado. Para restringir o acesso a `127.0.0.1`, defina `FABRICA_LAN=0`.
 
 ### Instalação em outro computador
 
@@ -179,7 +196,7 @@ npm run build
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-Rotas úteis: `/` e `/creator` (nova campanha).
+Rotas úteis: `/` e `/creator` (nova campanha). A documentação completa do projeto — propósito, escopo, arquivo por arquivo, banco de dados, as 60 rotas da API e o histórico de mudanças — está em [`DOCUMENTACAO-PROJETO.md`](DOCUMENTACAO-PROJETO.md).
 
 ## O que este projeto deliberadamente NÃO faz
 

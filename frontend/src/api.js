@@ -18,6 +18,8 @@ export async function api(path, options = {}) {
 
 }
 
+export const health=()=>api('/health');
+
 export const states = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published'];
 
 export const statusLabels = {briefing:'Em preparação',image_ready:'Imagem para revisar',image_approved:'Imagem aprovada',script_ready:'Roteiro pronto',video_ready:'Vídeo para revisar',video_approved:'Vídeo aprovado',ready_to_publish:'Pronta para publicar',published:'Publicada'};
@@ -84,16 +86,24 @@ export const NICHES = [
 export const modelLibrary = (model_name='Micaela') => api('/model-library?model_name='+encodeURIComponent(model_name));
 
 export const uploadModelLibrary = (form) => api('/model-library',{method:'POST',body:form});
+export const renameModelLibraryLabel = (body) => api('/model-library/label',{method:'PATCH',body});
 
 export const referenceFromLibrary = (cid, body) => api(`/campaigns/${cid}/reference-from-library`,{method:'POST',body});
 
 
 
 export const openStudioFree = () => api('/studio/open',{method:'POST',body:{confirmed:true}});
+export const openBrowserFree = (service) => api('/browser/open-free',{method:'POST',body:{service,confirmed:true}});
 
 export const analyzePublishedLink = (body) => api('/studio/analyze-link',{method:'POST',body});
 
 export const listLinkAnalyses = () => api('/studio/link-analyses');
 
+export const characterSheet = (model_name='Micaela', niche='') => {
+  const q = new URLSearchParams({ model_name });
+  if (niche) q.set('niche', niche);
+  return api('/model-library/character-sheet?' + q.toString());
+};
 
-
+export const openCharacterSheet = (body={}) =>
+  api('/model-library/character-sheet/open', { method: 'POST', body });
