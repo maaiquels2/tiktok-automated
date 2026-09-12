@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image
 from app import create_app
-from services.prompts import build_caption, generate, refresh_script_fields, script_budget
+from services.prompts import build_caption, generate, refresh_script_fields, script_budget, _movement_plan
 
 
 def image_bytes():
@@ -264,6 +264,46 @@ class WorkflowTests(unittest.TestCase):
     def test_local_machine_never_sees_the_pin_screen(self):
         self.assertEqual(self.client.get('/api/campaigns').status_code,200)
         self.assertEqual(self.client.get('/').status_code,200)
+
+    def test_choreography_keeps_the_ending_and_moves_arms_away_from_it(self):
+        # O padrao de academia tem 7 acoes e termina em "pose confiante final".
+        # Cortar pelo comeco apagava justamente o encerramento e deixava
+        # "alongar os bracos" na janela do CTA - foi o que fez a modelo acenar.
+        plano=_movement_plan('Caminhar ate a camera; agachar leve; virar de lado; ajustar o cos; '
+                             'alongar os bracos; close no tecido; pose confiante final')
+        acoes=[a.strip() for a in plano.split(';')]
+        self.assertEqual(acoes[-1],'pose confiante final')
+        self.assertNotIn('alongar os bracos',acoes[-2:])
+        self.assertIn('alongar os bracos',acoes)
+
+    def test_video_prompt_never_names_the_gesture_it_wants_to_avoid(self):
+        # Instrucao negativa e o instrumento mais fraco para um modelo de video:
+        # o gesto precisa ser nomeado para ser proibido, e nomear ja aumenta a
+        # chance dele aparecer. O encerramento ocupa as maos em vez de proibir.
+        campaign=dict(model_name='Micaela',product='Legging grossa sem transparência',outfit='legging',
+                      color='azul marinho',audience='mulheres que treinam',benefit='tem cós largo',
+                      angle='mostrar o cós',tone='energica',style='fitness',details='',
+                      movements='Caminhar ate a camera; alongar os bracos; pose confiante final',
+                      generator='grok',niche='academia')
+        video=generate(campaign)['video']
+        for termo in ('levantar','acenar','comemora','mãos levantadas'):
+            self.assertNotIn(termo,video,f'o prompt nao pode citar "{termo}"')
+        self.assertIn('ENCERRAMENTO',video)
+        self.assertIn('mãos tocando',video)
+        self.assertIn('TODAS entre 0s e 11s',video)
+
+    def test_negative_attributes_stay_grammatical(self):
+        campaign=dict(model_name='Micaela',product='Legging grossa sem transparência',outfit='legging',
+                      color='preto',audience='mulheres que treinam',benefit='não tem transparência',
+                      angle='mostrar a cobertura',tone='direta',style='natural',details='',movements='',
+                      generator='flow',niche='academia')
+        prompts=generate(campaign)
+        falas=' '.join(prompts[k] for k in ('hook','development','cta'))
+        self.assertNotIn('na sem ',falas)
+        self.assertNotIn('no sem ',falas)
+        self.assertNotIn('a sem transparência',falas)
+        if 'sem transparência' in falas:
+            self.assertIn('tecido sem transparência',falas)
 
     def test_human_confirmation_required(self):
         self.image_ready()

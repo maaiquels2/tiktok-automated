@@ -207,8 +207,16 @@ def _is_unisex(c) -> bool:
 
 
 def _with_article(value):
-    """Make a short attribute usable after verbs such as 'veja' or 'mostre'."""
+    """Make a short attribute usable after verbs such as 'veja' or 'mostre'.
+
+    Atributo em forma negativa ("sem transparencia") nao aceita artigo: "Repara
+    na sem transparencia" nao e portugues. Ele volta a funcionar quando e
+    atribuido ao elemento a que pertence - "o tecido sem transparencia" -, sem
+    inventar nenhuma propriedade nova.
+    """
     value = _phrase(value)
+    if re.match(r'^sem\s+', value, re.I):
+        return f'o tecido {value}'
     if not value or re.match(r'^(o|a|os|as)\b', value, re.I):
         return value
     articles = {
@@ -232,6 +240,9 @@ def _with_article(value):
         parts = [p.strip() for p in re.split(r'\s+e\s+|,\s*', value) if p.strip()]
         marked = []
         for part in parts:
+            if re.match(r'^sem\s+', part, re.I):
+                marked.append(f'o tecido {part}')
+                continue
             article = articles.get(part.casefold())
             marked.append(f'{article} {part}' if article else part)
         if len(marked) == 1:
@@ -388,15 +399,47 @@ def _spoken_line(value, fallback='') -> str:
     return cleaned
 
 
+# Acoes que terminam com os bracos no alto. Se uma delas cair no fim da
+# coreografia, ela acontece exatamente na janela do CTA - foi o que produziu o
+# aceno involuntario no primeiro video de teste.
+_ARM_ACTIONS = ('alongar', 'along', 'braco', 'braço', 'levantar', 'erguer',
+                'acenar', 'maos para cima', 'mãos para cima', 'comemor')
+
+
+def _is_arm_action(chunk: str) -> bool:
+    return any(word in chunk.casefold() for word in _ARM_ACTIONS)
+
+
 def _movement_plan(value: str, limit: int = 6) -> str:
-    """Keep the action list executable without flooding a video model."""
+    """Keep the action list executable without flooding a video model.
+
+    Duas regras que parecem detalhe e nao sao:
+    1. A ULTIMA acao e o encerramento do video. Cortar a lista pelo comeco
+       apagava justamente ela (o padrao de academia perdia "pose confiante
+       final" e terminava em "alongar os bracos").
+    2. Acao de braco nunca fica nas duas ultimas posicoes: ali ela coincide com
+       o CTA e o video fecha com a modelo acenando.
+    """
     raw = _phrase(value)
     if not raw:
         return ''
     chunks = [part.strip(' .,:;') for part in re.split(r'\s*;\s*|\n+', raw) if part.strip(' .,:;')]
     if len(chunks) <= 1:
         return raw[:600]
-    return '; '.join(chunks[:limit])[:900]
+    if len(chunks) > limit:
+        # Mantem o inicio e preserva o encerramento escolhido pelo operador.
+        chunks = chunks[:limit - 1] + [chunks[-1]]
+    if len(chunks) > 2:
+        tail = chunks[-2:]
+        arms = [c for c in tail if _is_arm_action(c)]
+        if arms:
+            head = [c for c in chunks if c not in arms]
+            insert_at = min(2, max(1, len(head) - 1))
+            for action in arms:
+                head.insert(insert_at, action)
+                insert_at += 1
+            chunks = head
+    return '; '.join(chunks)[:900]
 
 
 def _scene_lock(c, fallback='a mesma locação da imagem aprovada'):
@@ -1077,6 +1120,12 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = _scene_lock(c, fallback=dirn['setting'])
+    forms = _piece_forms(c)
+    anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
+    closing_hands = (
+        f"com as duas mãos tocando {anchor} {forms['de']} {forms['piece']}, "
+        "como quem ajusta a peça, ou apoiadas na cintura"
+    )
 
     return (
         f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
@@ -1091,9 +1140,11 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"Repetir exatamente fundo, objetos, posição da câmera, distância, perspectiva e iluminação; não trocar a locação nem desfocar o fundo. "
         f"CÂMERA: {dirn['camera']}. "
         f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
-        f"EVITAR: {dirn['avoid']}; mãos levantadas no final; acenos ou comemorações inventadas; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
-        f"COREOGRAFIA / AÇÕES (usar nesta ordem; no máximo uma ação por beat, ritmo natural): {moves}. "
-        "No encerramento, manter as duas mãos em posição natural ao lado do corpo ou tocando suavemente a peça; não levantar os braços, não acenar, não fazer gesto de comemoração e não inventar uma ação final."
+        f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
+        f"COREOGRAFIA / AÇÕES (executar nesta ordem, TODAS entre 0s e 11s; no máximo uma ação por beat, ritmo natural): {moves}. "
+        f"ENCERRAMENTO (12–15s), posição obrigatória: a modelo está de frente para a lente, {closing_hands}. "
+        "As mãos permanecem ocupadas nessa posição até o último quadro, na altura da cintura ou abaixo dela. "
+        "O corpo fica parado e estável; apenas o rosto e o olhar se movem."
         f"{extras}\n"
         f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
         f"0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; "
@@ -1105,7 +1156,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"   · 6–11s PROVA 2 (somente câmera, sem nova fala): movimento completo que demonstra o benefício ({benefit_l}) — "
         f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis.\n"
         f"   · 11–12s DESEJO (somente câmera, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
-        f"12–15s CTA: olhar para a lente e manter as mãos naturais, sem acenar nem levantar os braços; o produto marcado pode ser indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
+        f"12–15s CTA: manter a posição de encerramento descrita acima, olhar firme na lente; o produto marcado é indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
         f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
         f"Estilo visual: {style}. Tom de performance: {tone}. "
         f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
