@@ -107,3 +107,7 @@ export const characterSheet = (model_name='Micaela', niche='') => {
 
 export const openCharacterSheet = (body={}) =>
   api('/model-library/character-sheet/open', { method: 'POST', body });
+
+export const writerSettings = () => api('/writer');
+export const saveWriterSettings = (body) => api('/writer',{method:'PATCH',body});
+export const testWriter = () => api('/writer/test',{method:'POST',body:{}});

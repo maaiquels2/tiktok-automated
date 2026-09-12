@@ -177,6 +177,7 @@ Cada arquivo aqui resolve **um assunto**, para que `app.py` só precise coordena
 | `model_library.py` | 256 | Biblioteca de fotos de referência da modelo organizada por nicho (praia, academia, casual, dia-a-dia, íntima, fantasia) e os valores padrão sugeridos de cada nicho no briefing. |
 | `insights.py` | 236 | Crítico local do roteiro: procura verbos de CTA, sinais de urgência, tamanho do hook. Gera recomendações **sem inventar dados do TikTok**. |
 | `character_sheet.py` | 148 | **(novo)** Prompt mestre em português para gerar no Grok uma ficha de consistência de personagem, com bloqueio de identidade e um `NEGATIVE_PROMPT` extenso contra deriva de rosto, CGI, mãos malformadas etc. |
+| `copywriter.py` | 288 | **(novo)** Escrita das falas por modelo de linguagem (OpenAI ou Gemini), com auditoria local: orçamento por trecho, nenhum atributo de desempenho fora do briefing, urgência só com oferta real. Reprovado duas vezes, cai no texto determinístico. Chave em `data/llm.json`, fora do Git. |
 | `video_mix.py` | 125 | Concatena/corta MP4s da campanha em um único vídeo ~15s 9:16 via FFmpeg. Localiza o FFmpeg por `FFMPEG_PATH`, pelo PATH ou no caminho padrão do WinGet. |
 | `media.py` | 95 | Valida o **conteúdo** dos arquivos (imagem via Pillow, estrutura de caixas do MP4) em vez de confiar na extensão do nome. É uma proteção contra arquivo corrompido ou renomeado. |
 | `setup_status.py` | 92 | Checklist de primeira execução: identidade preenchida? fotos por nicho? perfis de navegador usados? |
@@ -393,7 +394,7 @@ cd frontend && npm run build                # compila a UI que o Flask serve
 
 **Estado dos testes (12/09/2026, após a revisão)**
 
-A suíte tem **61 testes e todos passam**. Os oito que falhavam eram expectativa desatualizada em relação à reescrita do gerador — foram alinhados ao comportamento atual, e oito testes novos cobrem o que passou a existir: backup diário, preservação de métricas na transição, objeção e oferta guiando o roteiro, peça correta no prompt de imagem, primeira cor versus cores seguintes, hashtags sem público presumido, ausência de pontuação dupla e o PIN da rede local.
+A suíte tem **71 testes e todos passam**. Os oito que falhavam eram expectativa desatualizada em relação à reescrita do gerador — foram alinhados ao comportamento atual, e oito testes novos cobrem o que passou a existir: backup diário, preservação de métricas na transição, objeção e oferta guiando o roteiro, peça correta no prompt de imagem, primeira cor versus cores seguintes, hashtags sem público presumido, ausência de pontuação dupla e o PIN da rede local.
 
 Duas decisões ficaram registradas no código e agora também aqui: resolução e duração fora do alvo **avisam mas não bloqueiam** a aprovação do vídeo, e editar só a legenda **não** rebobina o status da campanha.
 

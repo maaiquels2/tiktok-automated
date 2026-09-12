@@ -119,6 +119,21 @@ O iniciador imprime o endereço de LAN (algo como `http://192.168.0.10:5050`). A
 
 Isso **não** é hospedagem na nuvem: o servidor continua sendo o seu PC, que precisa estar ligado. Para restringir o acesso a `127.0.0.1`, defina `FABRICA_LAN=0`.
 
+### Escrita das falas por IA (opcional)
+
+O gerador local é correto e nunca inventa atributo, mas monta a frase a partir do rótulo do briefing — por isso sai coisa como *"Repara no tecido sem transparência"*. Quem escreve bem é um modelo de linguagem; quem garante a honestidade é o código.
+
+Por isso os dois trabalham juntos:
+
+1. O app monta o briefing estruturado (fatos confirmados, objeção, oferta, motor, orçamento de palavras).
+2. O modelo escreve hook, desenvolvimento, CTA e legenda.
+3. O app **audita** o resultado: palavras por trecho, nenhum atributo de desempenho fora do briefing, urgência só com oferta real, no máximo 5 hashtags.
+4. Reprovado? Volta para o modelo com os erros apontados, uma vez. Reprovado de novo? Usa o texto local.
+
+Configure no ícone de **Identidade** no cabeçalho: escolha OpenAI ou Gemini, cole a chave e ligue. O botão **Testar conexão** gera um exemplo na hora.
+
+A chave fica em **`data/llm.json`**, só neste computador. `data/` está no `.gitignore`, então ela nunca vai para o GitHub, e a API do app nunca devolve a chave — só os últimos quatro caracteres. Sem chave configurada, nada muda: o app continua gerando o texto local, offline.
+
 ### Backup automático
 
 A cada inicialização o app copia o banco para `data/backups/fabrica-AAAA-MM-DD.db` e mantém os últimos 10 dias. `data/` fica fora do Git de propósito, então essa cópia é a única proteção contra perder campanhas, playbook e histórico.

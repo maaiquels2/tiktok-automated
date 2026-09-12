@@ -1,7 +1,7 @@
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet } from './api';
+import { modelLibrary, uploadModelLibrary, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -898,6 +898,77 @@ export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,o
   );
 }
 
+
+export function WriterSettingsPanel({busy,onError,onFlash}){
+  const [data,setData]=useState(null);
+  const [key,setKey]=useState('');
+  const [saving,setSaving]=useState(false);
+  const [testing,setTesting]=useState(false);
+  const [sample,setSample]=useState(null);
+  useEffect(()=>{writerSettings().then(setData).catch(e=>onError?.(e.message))},[]);
+  if(!data) return null;
+  const change=(patch)=>setData(d=>({...d,...patch}));
+  async function save(extra={}){
+    setSaving(true);setSample(null);
+    try{
+      const payload={provider:data.provider||'',model:data.model||'',enabled:!!data.enabled,...extra};
+      if(key.trim()) payload.api_key=key.trim();
+      const saved=await saveWriterSettings(payload);
+      setData(saved);setKey('');
+      onFlash?.(saved.enabled?'Escrita por IA ligada.':'Configuração salva.');
+    }catch(e){onError?.(e.message)}finally{setSaving(false)}
+  }
+  async function test(){
+    setTesting(true);setSample(null);
+    try{
+      const r=await testWriter();
+      if(r.ok){setSample(r.sample);onFlash?.('Conexão funcionando.')}
+      else onError?.('O provedor recusou: '+(r.message||'motivo não informado'));
+    }catch(e){onError?.(e.message)}finally{setTesting(false)}
+  }
+  return <section className="writer-panel card-panel">
+    <div className="section-title"><h3>Escrita das falas por IA</h3>
+      <span className="help">{data.enabled?'Ligada':'Desligada'}</span></div>
+    <p className="help">
+      Com isto ligado, o hook, o desenvolvimento, o CTA e a legenda passam a ser escritos por um
+      modelo de linguagem. O app continua conferindo cada texto: orçamento de palavras, nenhum
+      atributo fora do briefing e urgência só com oferta real. Reprovado duas vezes, ele volta
+      sozinho para o texto local — e sem chave configurada nada muda.
+    </p>
+    <label>Provedor
+      <select value={data.provider||''} disabled={busy||saving} onChange={e=>change({provider:e.target.value,model:(data.default_models||{})[e.target.value]||''})}>
+        <option value="">Desligado (texto local)</option>
+        <option value="openai">OpenAI (ChatGPT)</option>
+        <option value="gemini">Google Gemini</option>
+      </select>
+    </label>
+    {data.provider && <>
+      <label>Modelo
+        <input value={data.model||''} disabled={busy||saving} onChange={e=>change({model:e.target.value})} placeholder={(data.default_models||{})[data.provider]||''} maxLength={120}/>
+      </label>
+      <label>Chave de API
+        <input type="password" value={key} disabled={busy||saving} onChange={e=>setKey(e.target.value)}
+          placeholder={data.has_key?`Chave guardada ${data.key_hint} — deixe vazio para manter`:'Cole a chave aqui'} maxLength={400} autoComplete="off"/>
+        <small className="help">Fica só neste computador, em data/llm.json. Nunca é enviada para o GitHub nem aparece na tela depois de salva.</small>
+      </label>
+      <label className="check-row">
+        <input type="checkbox" checked={!!data.enabled} disabled={busy||saving||!data.has_key&&!key.trim()} onChange={e=>change({enabled:e.target.checked})}/>
+        Usar a IA para escrever as falas
+      </label>
+    </>}
+    <div className="form-actions">
+      {data.has_key&&<button type="button" disabled={busy||saving} onClick={()=>save({clear_key:true,enabled:false})}>Remover chave</button>}
+      {data.provider&&data.has_key&&<button type="button" disabled={busy||testing} onClick={test}>{testing?'Testando…':'Testar conexão'}</button>}
+      <button type="button" className="primary" disabled={busy||saving} onClick={()=>save()}>{saving?'Salvando…':'Salvar'}</button>
+    </div>
+    {sample&&<div className="notice writer-sample">
+      <strong>Exemplo gerado agora:</strong>
+      <p><em>Hook:</em> {sample.hook}</p>
+      <p><em>Desenvolvimento:</em> {sample.development}</p>
+      <p><em>CTA:</em> {sample.cta}</p>
+    </div>}
+  </section>;
+}
 
 export function SetupChecklist({busy,onError}){
   const [data,setData]=useState(null);

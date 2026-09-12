@@ -20,6 +20,7 @@ from werkzeug.exceptions import HTTPException
 from services.video_mix import mix_clips, find_ffmpeg
 from services.media import inspect_media
 from services.prompts import color_variants, generate, generate_variants, package_text, refresh_script_fields, build_caption
+from services import copywriter
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
@@ -774,6 +775,55 @@ def create_app(config=None):
         db().commit()
         return jsonify(layout=positions)
 
+    def write_with_llm(campaign, pack):
+        """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
+
+        A auditoria local decide se o texto entra. Reprovado duas vezes, fica o
+        deterministico -- o app nunca para por causa do provedor.
+        """
+        settings = copywriter.load_settings(app.config['DATA_DIR'])
+        if not settings.get('enabled'):
+            return pack, ''
+        written, motivo = copywriter.write_script(campaign, settings)
+        if not written:
+            app.logger.info('Escrita por IA recusada: %s', motivo)
+            return pack, motivo
+        merged = dict(pack)
+        merged.update({k: written[k] for k in ('hook', 'development', 'cta', 'caption')})
+        merged['video'] = generate(campaign, script=merged)['video']
+        return merged, ''
+
+    @app.get('/api/writer')
+    def writer_settings():
+        return jsonify(copywriter.public_settings(app.config['DATA_DIR']))
+
+    @app.patch('/api/writer')
+    def save_writer_settings():
+        data = body()
+        provider = data.get('provider')
+        if provider not in ('', *copywriter.PROVIDERS) and provider is not None:
+            raise Invalid('Escolha OpenAI ou Gemini.')
+        for campo in ('api_key', 'model'):
+            valor = data.get(campo)
+            if valor is not None and (not isinstance(valor, str) or len(valor) > 400):
+                raise Invalid(f'Campo {campo} invalido.')
+        copywriter.save_settings(app.config['DATA_DIR'], data)
+        return jsonify(copywriter.public_settings(app.config['DATA_DIR']))
+
+    @app.post('/api/writer/test')
+    def test_writer():
+        settings = copywriter.load_settings(app.config['DATA_DIR'])
+        if not settings.get('provider') or not settings.get('api_key'):
+            raise Invalid('Configure o provedor e a chave antes de testar.')
+        exemplo = dict(product='Legging cintura alta com bolso lateral', outfit='legging',
+                       color='preto', audience='mulheres que treinam', benefit='tem bolso lateral',
+                       angle='mostrar o bolso', tone='conversacional', niche='academia',
+                       details='', objection='Fica transparente no agachamento', offer='')
+        pack, motivo = copywriter.write_script(exemplo, settings, attempts=1)
+        if not pack:
+            return jsonify(ok=False, message=motivo), 200
+        return jsonify(ok=True, sample=pack)
+
     @app.post('/api/campaigns/<int:cid>/generate')
     def generate_prompts(cid):
         c=start(cid,body())
@@ -792,11 +842,13 @@ def create_app(config=None):
         if len(colors)>=2:
             variants=generate_variants(current)
             for variant in variants:
+                variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'])
                 db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
                              (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
             save_prompts(cid,variants[0]['prompts'])
         else:
-            save_prompts(cid,generate(current))
+            pack,_=write_with_llm(current,generate(current))
+            save_prompts(cid,pack)
         touch(cid)
         db().commit()
         return jsonify(detail(cid))
@@ -820,6 +872,7 @@ def create_app(config=None):
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         variants=generate_variants(current)
         for variant in variants:
+            variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'])
             db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
                          (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
         save_prompts(cid,variants[0]['prompts'])
@@ -1252,6 +1305,11 @@ def create_app(config=None):
         if not isinstance(fields,list) or not fields or any(not isinstance(f,str) or f not in allowed for f in fields):
             raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
         merged=refresh_script_fields(c,c['color'],current['prompts'],fields=fields)
+        rewritten,_=write_with_llm(c,merged)
+        # Refresh so da legenda nao precisa reescrever as falas.
+        merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
+        if set(fields)&{'hook','development','cta'}:
+            merged['video']=rewritten.get('video',merged.get('video'))
         save_prompts(cid,merged)
         only_caption = set(fields) == {'caption'}
         if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:

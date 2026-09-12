@@ -329,6 +329,63 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('MÃOS:',video)
         self.assertIn('como quem vai contar um segredo',video)
 
+    def test_writer_is_off_until_a_key_is_configured(self):
+        settings=self.client.get('/api/writer').json
+        self.assertFalse(settings['enabled'])
+        self.assertFalse(settings['has_key'])
+        self.assertEqual(self.client.post('/api/writer/test',json={},headers=self.headers).status_code,400)
+
+    def test_writer_settings_never_return_the_key(self):
+        response=self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-teste-1234','enabled':True},headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        corpo=response.get_data(as_text=True)
+        self.assertNotIn('sk-teste-1234',corpo)
+        self.assertTrue(response.json['has_key'])
+        self.assertEqual(response.json['key_hint'],'…1234')
+        self.assertTrue(response.json['enabled'])
+        # Salvar de novo sem mandar a chave preserva a que ja estava.
+        de_novo=self.client.patch('/api/writer',json={'provider':'openai'},headers=self.headers)
+        self.assertTrue(de_novo.json['has_key'])
+        limpo=self.client.patch('/api/writer',json={'clear_key':True},headers=self.headers)
+        self.assertFalse(limpo.json['has_key'])
+        self.assertFalse(limpo.json['enabled'])
+
+    def test_llm_copy_is_used_when_it_passes_the_audit(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        aprovado={'hook':'Você já deixou de comprar legging com medo de ficar transparente demais?',
+                  'development':'Esse cós largo segura no lugar. Agachei aqui e não aparece nada por baixo. Uso no treino e depois na rua.',
+                  'cta':'Tá no produto marcado aqui embaixo.',
+                  'caption':'A legging que eu agacho sem medo. #legging #modafitness #tiktokshop'}
+        self.upload('reference')
+        with patch('services.copywriter.write_script',return_value=(aprovado,'')):
+            response=self.post('/generate')
+        self.assertEqual(response.status_code,200,response.json)
+        prompts=response.json['prompts']
+        self.assertEqual(prompts['hook'],aprovado['hook'])
+        self.assertEqual(prompts['cta'],aprovado['cta'])
+        # O prompt de video precisa ser reconstruido com a fala nova.
+        self.assertIn(aprovado['cta'].rstrip('.'),prompts['video'])
+
+    def test_llm_failure_falls_back_to_the_local_text(self):
+        self.client.patch('/api/writer',json={'provider':'gemini','api_key':'k','enabled':True},headers=self.headers)
+        self.upload('reference')
+        with patch('services.copywriter.write_script',return_value=(None,'o provedor respondeu 429')):
+            response=self.post('/generate')
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertTrue(response.json['prompts']['hook'],'a campanha nao pode ficar sem roteiro')
+
+    def test_audit_blocks_unconfirmed_claims_and_fake_urgency(self):
+        from services.copywriter import audit
+        brief=dict(product='Legging cintura alta',outfit='legging',benefit='tem cós largo',
+                   angle='mostrar o cós',details='',objection='',offer='')
+        ruim=dict(hook='Essa legging tem compressão absurda e você precisa ver isso agora mesmo',
+                  development='O tecido premium com secagem rápida faz diferença no treino inteiro, de verdade mesmo viu',
+                  cta='Corre que acaba hoje, toque no produto',caption='oi #a')
+        problemas=' | '.join(audit(ruim,brief))
+        self.assertIn('compressão',problemas)
+        self.assertIn('premium',problemas)
+        self.assertIn('urgência',problemas)
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})

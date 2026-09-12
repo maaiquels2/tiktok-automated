@@ -4629,3 +4629,23 @@ button.linkish {
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* Configuração da escrita por IA (dentro do modal de Identidade). */
+.writer-panel {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.writer-panel .form-actions {
+  flex-wrap: wrap;
+}
+.writer-sample p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.writer-sample em {
+  font-style: normal;
+  font-weight: 650;
+  opacity: 0.75;
+}
