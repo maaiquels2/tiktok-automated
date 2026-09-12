@@ -4,6 +4,7 @@
 **Pasta do projeto:** `C:\Users\Admin\Documents\Codex\2026-09-10\Fabrica TikTok`
 **Repositório:** https://github.com/maaiquels2/tiktok-automated
 **Como abrir:** duplo clique em `iniciar.vbs` → http://127.0.0.1:5050
+**Base auditada:** `main`/`origin/main` no commit `2be3344`, sem alterações anteriores a esta documentação; 65 rotas HTTP; 81 testes executados.
 
 > Este documento explica **o propósito**, **o escopo**, **o que cada arquivo faz** e **tudo o que foi criado e modificado** no projeto. Foi escrito para ser lido sem base prévia em programação — há um glossário no final com os termos técnicos.
 
@@ -100,7 +101,7 @@ Em resumo: **o app automatiza a organização e a escrita; a criação visual e 
 - ❌ Não publica sozinho no TikTok, não marca produto, não agenda post.
 - ❌ Não usa reconhecimento facial automático — a consistência da modelo é por prompt + revisão humana.
 - ❌ Não é um site hospedado (Vercel/serverless). Depende de disco local, SQLite e Chrome no Windows.
-- ❌ Montagem automática de vídeo e empacotamento em EXE ficaram para depois.
+- ❌ Não faz montagem criativa completa de vídeo por IA. O mixer atual apenas corta, normaliza e reúne clipes escolhidos pelo operador. O empacotamento em EXE ficou para depois.
 
 ---
 
@@ -133,7 +134,7 @@ E, ao lado, os serviços externos que **você** opera manualmente:
 | Camada | Tecnologia | Arquivo principal |
 |---|---|---|
 | Interface | React + Vite | `frontend/src/App.jsx`, `components.jsx` |
-| API / servidor | Flask (Python) | `app.py` (2.221 linhas, 60 rotas) |
+| API / servidor | Flask (Python) | `app.py` (2.417 linhas, 65 rotas HTTP) |
 | Banco | SQLite | `data/fabrica_tiktok.db` |
 | Mídia | Sistema de arquivos | `media/campanha-XXXX/` |
 | Navegador assistido | Chrome/Edge + Playwright (CDP) | `services/browser_assistant.py` |
@@ -151,10 +152,10 @@ E, ao lado, os serviços externos que **você** opera manualmente:
 
 | Arquivo | O que é |
 |---|---|
-| `app.py` | **O servidor.** Cria o app Flask, monta/migra o banco SQLite, define as 60 rotas da API, valida uploads, controla transições de status e versionamento das campanhas. |
+| `app.py` | **O servidor.** Cria o app Flask, monta/migra o banco SQLite, define as 65 rotas HTTP, valida uploads, controla transições de status e versionamento das campanhas. |
 | `launcher.py` | Iniciador do Windows. Procura uma porta livre entre 5050–5059, reaproveita um servidor já rodando (checa `/api/health` com `version: 6`), sobe o Flask e abre o navegador. Também imprime o endereço de LAN para acessar do celular no mesmo Wi‑Fi. |
 | `iniciar.vbs` | Duplo clique para subir tudo sem janela preta de terminal. |
-| `reiniciar-fabrica.bat` | **(novo)** Mata o processo `pythonw.exe` daquele diretório e sobe de novo — atalho para quando o servidor trava. |
+| `reiniciar-fabrica.bat` | Encerra o processo `pythonw.exe` daquele diretório e sobe de novo — atalho para reiniciar completamente o servidor. |
 | `instalar.ps1` | Instala dependências Python e Node e compila a interface. |
 | `requirements.txt` | Lista de bibliotecas Python. |
 | `studio_identity.example.json` | Modelo do arquivo de identidade por PC (o real fica em `data/`, fora do Git). |
@@ -170,14 +171,14 @@ Cada arquivo aqui resolve **um assunto**, para que `app.py` só precise coordena
 
 | Arquivo | Linhas | O que faz |
 |---|---:|---|
-| `prompts.py` | ~1.240 | **O coração da escrita.** Gera, por regras determinísticas, os prompts de imagem e vídeo, as falas do roteiro (hook/desenvolvimento/CTA) e as legendas — um pacote por cor. Inclui normalização para pt-BR (troca "workout" por "treino de academia", "close-up" por "detalhe de perto"), extração de características do produto, sinais de persuasão e CTAs variados. Nenhuma API paga. |
+| `prompts.py` | 1.374 | **O coração da escrita.** Gera, por regras determinísticas, os prompts de imagem e vídeo, as falas do roteiro (hook/desenvolvimento/CTA) e as legendas — um pacote por cor. Inclui normalização para pt-BR (troca "workout" por "treino de academia", "close-up" por "detalhe de perto"), extração de características do produto, sinais de persuasão, direção de gestos e CTAs variados. Nenhuma API paga. |
 | `studio_metrics.py` | 1.394 | Raspagem do TikTok Studio com Playwright: página de conteúdo e página de analytics por vídeo. Lê os atributos `data-tt` do DOM (VideoInfoCard, VideoMetricsCard) para extrair views, watch %, likes, saves etc. |
-| `browser_assistant.py` | 1.068 | Abertura assistida de navegador. Grok e Flow abrem em **Chrome comum** (sem Playwright, para downloads não travarem a janela); o Studio usa um clone CDP do perfil da creator. Também cuida de vigiar a pasta de downloads e rotear o arquivo baixado para a campanha certa. **Não clica em gerar, não faz login, não publica.** |
+| `browser_assistant.py` | 1.074 | Abertura assistida de navegador. Grok e Flow abrem em **Chrome comum** (sem Playwright, para downloads não travarem a janela); o Studio reutiliza o perfil local configurado. Também cuida de vigiar a pasta de downloads e rotear o arquivo baixado para a campanha certa. **Não clica em gerar, não faz login, não publica.** |
 | `playbook.py` | 423 | Transforma um relatório de auditoria em lote num **playbook de replicação**: agrupa por nicho/formato, calcula medianas de views e watch%, e diz o que repetir. |
 | `model_library.py` | 256 | Biblioteca de fotos de referência da modelo organizada por nicho (praia, academia, casual, dia-a-dia, íntima, fantasia) e os valores padrão sugeridos de cada nicho no briefing. |
 | `insights.py` | 236 | Crítico local do roteiro: procura verbos de CTA, sinais de urgência, tamanho do hook. Gera recomendações **sem inventar dados do TikTok**. |
-| `character_sheet.py` | 148 | **(novo)** Prompt mestre em português para gerar no Grok uma ficha de consistência de personagem, com bloqueio de identidade e um `NEGATIVE_PROMPT` extenso contra deriva de rosto, CGI, mãos malformadas etc. |
-| `copywriter.py` | 288 | **(novo)** Escrita das falas por modelo de linguagem (OpenAI ou Gemini), com auditoria local: orçamento por trecho, nenhum atributo de desempenho fora do briefing, urgência só com oferta real. Reprovado duas vezes, cai no texto determinístico. Chave em `data/llm.json`, fora do Git. |
+| `character_sheet.py` | 148 | Prompt mestre em português para gerar no Grok uma ficha de consistência de personagem, com bloqueio de identidade e um `NEGATIVE_PROMPT` extenso contra deriva de rosto, CGI, mãos malformadas etc. |
+| `copywriter.py` | 372 | Escrita opcional das falas por modelo de linguagem (OpenAI ou Gemini), com auditoria local: orçamento por trecho, nenhum atributo de desempenho fora do briefing, urgência só com oferta real. Se a resposta falhar ou for reprovada duas vezes, o sistema usa o texto determinístico. A chave fica em `data/llm.json`, fora do Git, e nunca volta pela API. |
 | `video_mix.py` | 125 | Concatena/corta MP4s da campanha em um único vídeo ~15s 9:16 via FFmpeg. Localiza o FFmpeg por `FFMPEG_PATH`, pelo PATH ou no caminho padrão do WinGet. |
 | `media.py` | 95 | Valida o **conteúdo** dos arquivos (imagem via Pillow, estrutura de caixas do MP4) em vez de confiar na extensão do nome. É uma proteção contra arquivo corrompido ou renomeado. |
 | `setup_status.py` | 92 | Checklist de primeira execução: identidade preenchida? fotos por nicho? perfis de navegador usados? |
@@ -187,14 +188,14 @@ Cada arquivo aqui resolve **um assunto**, para que `app.py` só precise coordena
 
 | Arquivo | Linhas | O que faz |
 |---|---:|---|
-| `components.jsx` | 1.716 | Todos os blocos da tela: `VariantList` (cartões por cor), `PublishQueue` (fila de publicação), `VideoMixer`, `VideoTimelinePreview` (preview 9:16 com beats), `GateCriticoPanel`, `PerformancePanel`, `BriefForm`, `StudioIdentityPanel`, `SetupChecklist`, `DailyQueueCard`, `ModelLibraryPanel`, `ResultsQuickTools`. |
-| `App.jsx` | 620 | A casca do app: navegação por hash (`#/inicio`, `#/produzir/<id>/<etapa>`, `#/resultados/<aba>`), carregamento das campanhas, controle de "sujo/descartar", e o `Panel` que decide o que mostrar em cada etapa. |
-| `styles.css` | 838 | Todo o visual. |
+| `components.jsx` | 1.810 | Todos os blocos da tela: `VariantList` (cartões por cor), `PublishQueue` (fila de publicação), `VideoMixer`, `VideoTimelinePreview` (preview 9:16 com beats), `GateCriticoPanel`, `PerformancePanel`, `BriefForm`, `StudioIdentityPanel`, `WriterSettingsPanel`, `SetupChecklist`, `DailyQueueCard`, `ModelLibraryPanel`, `ResultsQuickTools`. |
+| `App.jsx` | 667 | A casca do app: navegação por hash (`#/inicio`, `#/produzir/<id>/<etapa>`, `#/resultados/<aba>`), carregamento das campanhas, controle de "sujo/descartar", indicação de quem escreveu o roteiro e o `Panel` que decide o que mostrar em cada etapa. |
+| `styles.css` | 4.702 | Sistema visual completo: tokens, temas claro/escuro, componentes, estados, responsividade e acabamento para computador e celular. |
 | `api.js` | 109 | Ponte com o servidor: função `api()` (que envia o cabeçalho `X-Local-App`), lista de status, rótulos em português e a definição das 9 etapas do pipeline. |
 | `nicheDefaults.js` | 62 | Valores padrão por nicho no formulário de briefing. |
-| `serviceLogos.js` | — | **(novo)** Logos do TikTok/TikTok Studio embutidos como base64, para a tela não fazer requisição externa de imagem. |
-| `serviceLinks.jsx` | 43 | **(novo)** Botões de abrir Grok/Flow/TikTok que **mudam de comportamento no celular**: no PC chamam o servidor (perfil de Chrome certo); no celular viram link nativo `https://`, para o iOS entregar ao app instalado. |
-| `device.js` | 26 | **(novo)** Detecta se é iPhone, iPad, Android, ou computador — inclusive o caso do iPad que se identifica como Mac. Comentário no código deixa claro o critério: "uma janela pequena ou tela de toque sozinha não faz de um computador um celular". |
+| `serviceLogos.js` | — | Logos do TikTok/TikTok Studio embutidos como base64, para a tela não depender de requisição externa de imagem. |
+| `serviceLinks.jsx` | — | Botões de abrir Grok/Flow/TikTok que **mudam de comportamento no celular**: no PC chamam o servidor (perfil de Chrome certo); no celular viram links nativos, para o iOS/Android entregar ao aplicativo instalado quando houver associação. |
+| `device.js` | 26 | Detecta iPhone, iPad, Android ou computador, inclusive o caso do iPad que se identifica como Mac. Uma janela pequena ou uma tela de toque, sozinhas, não classificam um computador como celular. |
 | `Canvas.jsx` | 53 | Resto do canvas visual original. |
 | `main.jsx` | 6 | Ponto de entrada do React. |
 
@@ -206,7 +207,7 @@ Cada arquivo aqui resolve **um assunto**, para que `app.py` só precise coordena
 | `media/campanha-XXXX/` | Referências, imagens por cor, vídeos por cor, downloads. Fora do Git. |
 | `browser_profiles/` | Sessões do Chrome: `flow-maaiquels`, `grok-maaiquels`, `micaela-cdp`, `tiktok-micaela`, `tiktok-metrics`. Fora do Git. |
 | `tests/` | `test_app.py` (577 linhas) e `test_browser_assistant.py` (110 linhas). |
-| `reports/` | **(novo)** Relatórios de auditoria — hoje `prompt-audit-2026-09-12/evidence.json`, com o antes/depois dos prompts gerados. |
+| `reports/` | Relatórios de auditoria — hoje `prompt-audit-2026-09-12/evidence.json`, com o antes/depois dos prompts gerados. |
 | `outputs/` | Plano de migração e protótipos HTML do fluxo. |
 | `work/` | Cópias do `app.py` e `README.md` de antes da migração. |
 | `_patch/` | ~60 scripts Python de patch usados durante o desenvolvimento (ex.: `apply_multi_image.py`, `fix_studio_jsx.py`). Ignorado pelo Git. |
@@ -236,7 +237,7 @@ Seis tabelas em `data/fabrica_tiktok.db`:
 
 ---
 
-## 7. A API (60 rotas)
+## 7. A API (65 rotas HTTP)
 
 Agrupadas por assunto:
 
@@ -277,77 +278,174 @@ Agrupadas por assunto:
 
 ---
 
-## 9. O que foi criado e modificado
+## 9. Inteligência aplicada aos prompts
 
-### 9.1 Histórico de commits (8 commits, todos em 11/09/2026)
+Esta é a parte mais trabalhada do projeto. O gerador não deve apenas preencher um modelo de texto: ele precisa separar instrução visual, direção de cena e fala humana, usar os fatos disponíveis e impedir que a IA invente qualidades do produto.
 
-| # | Commit | O que entrou |
-|---|---|---|
-| 1 | `9f13081` | **Fábrica TikTok local completa** — a base: Flask + React + SQLite, pipeline de campanha, multi-cor, uploads, exportação. |
-| 2 | `03c0aeb` | **Misturador de vídeos** — API com FFmpeg (`services/video_mix.py`) e a UI na etapa Criar vídeo. |
-| 3 | `2f42f7e` | **Studio: performance, insights, preview 9:16, crítico local** — nasce `services/insights.py` e o painel de performance. |
-| 4 | `a45c44d` | Correção do JSX do `PerformancePanel` e ligação do Preview com o Crítico local. |
-| 5 | `8103a20` | **Coleta de performance via Playwright + Chrome CDP** e acesso direto ao analytics. |
-| 6 | `3eadbc5` | **Scraper do Studio** lendo `VideoInfoCard` e `VideoMetricsCard` pelos atributos `data-tt` do DOM. |
-| 7 | `8189ecf` | **Auditoria em lote do Studio** + insights de tráfego/busca/viewers e correção do estado da UI. |
-| 8 | `d668354` | **Identidade multi-creator, stepper "Produzir", fila diária de 5 posts, checklist de setup, abas compartilhadas Grok/Flow, loop do playbook, retries no scraper e guia de instalação em outro PC.** |
+### 9.1 Briefing estruturado
 
-### 9.2 Trabalho atual (ainda **não commitado**)
+O briefing reúne nome, modelo, nicho, produto, fotos do produto, cores, público, benefício, objeção, oferta, ângulo, tom, estilo, detalhes e movimentos. Escolher um nicho preenche sugestões editáveis; o operador continua vendo o gerador e pode trocar entre Flow e Grok sem abrir a área avançada.
 
-São **23 arquivos modificados** e **9 itens novos** — cerca de **7.473 linhas adicionadas** e **5.330 removidas**. É a maior leva de mudanças desde a base.
+O sistema reconhece detalhes úteis presentes no texto, entre eles:
 
-#### Arquivos novos (ainda não versionados)
+- materiais como poliamida, courino, algodão, lã, elastano e poliéster;
+- componentes como botões, bolsos, cós, alças, barras e acabamentos;
+- linguagem feminina, masculina ou unissex;
+- argumentos de economia, qualidade, versatilidade, autoestima e ocasiões de uso;
+- objeções reais, como transparência, peça que escorrega, tamanho, aparência barata ou desconforto;
+- oferta real, que é a única fonte permitida para urgência comercial.
 
-| Arquivo | Para que serve |
-|---|---|
-| `services/character_sheet.py` | Prompt mestre + negativos para a **ficha de consistência de personagem** no Grok. Resolve o problema de a modelo "mudar de rosto" entre campanhas. |
-| `frontend/src/device.js` | Detecção de dispositivo (iPhone / iPad / Android / computador), com tratamento do iPad que se passa por Mac. |
-| `frontend/src/serviceLinks.jsx` | Botões de Grok / Flow / TikTok que se comportam diferente no celular (link nativo `https://`, clicado de forma síncrona para o iOS abrir o app) e no PC (chamada ao servidor, que abre o perfil de Chrome correto). |
-| `frontend/src/serviceLogos.js` | Logos em base64 embutidos — evita requisição externa de imagem, mantendo o app 100% local. |
-| `reiniciar-fabrica.bat` | Encerra o `pythonw.exe` daquele diretório e reinicia via `iniciar.vbs`. |
-| `reports/prompt-audit-2026-09-12/evidence.json` | Evidência da auditoria de prompts: briefing de teste e o texto exato gerado, para comparar antes/depois. |
-| `frontend/logo-preview.png`, `device-desktop-preview.png`, `device-iphone-preview.png` | Imagens de conferência visual. |
+### 9.2 Prompt de imagem
 
-#### Arquivos modificados e o que mudou em cada um
+Cada cor recebe um prompt isolado. O texto instrui o gerador a usar primeiro a modelo fixa e depois as fotos do produto, tratando pessoas de catálogo apenas como referência da peça.
 
-| Arquivo | Δ linhas | Natureza da mudança |
+Para a primeira cor, a fotografia da modelo funciona como base da nova imagem. Para as cores seguintes, a imagem aprovada da primeira cor também funciona como referência de cenário. A regra de **edição localizada** pede que somente a região da roupa seja alterada e preserva rosto, corpo, pose, expressão, cabelo, mãos, top, calçados, enquadramento, distância, perspectiva, objetos, sombras, reflexos, iluminação, granulação e qualidade fotográfica.
+
+A seção de integração fotográfica exige dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombra de contato e bordas naturais. Isso foi criado para evitar o aspecto de pessoa ou roupa colada sobre o cenário. O fundo permanece reconhecível e nítido entre campanhas; o prompt proíbe troca de locação e desfoque artificial.
+
+O prompt de imagem recebe apenas informação útil para uma fotografia estática. Marcas de tempo, roteiro, CTA, legenda, `FYP`, `frame`, `MP4` e direção de vídeo são filtrados antes da montagem. O final reforça que deve ser gerada uma única imagem e que não devem ser descritas falas ou duração.
+
+### 9.3 Roteiro falado de 15 segundos
+
+O roteiro usa três blocos com orçamento de palavras:
+
+| Trecho | Janela | Função |
 |---|---:|---|
-| `services/prompts.py` | +913 | **A maior mudança.** Reescrita profunda do gerador de texto: normalização para pt‑BR, extração de características e materiais do produto, detecção de foco contraditório, sinais de persuasão, tratamento de peça unissex, concordância de artigo/gênero, plano de movimentos, trava de cenário (`_scene_lock`) para o vídeo casar com a imagem aprovada, e variação de CTA e de semente de legenda. |
-| `frontend/src/components.jsx` | ~3.195 | Reescrita ampla dos componentes: fila de publicação, mixer, preview com beats, painel de performance, checklist, biblioteca da modelo, ferramentas rápidas de resultados. |
-| `services/studio_metrics.py` | ~2.788 | Reestruturação do scraper do Studio com seletores `data-tt` e mais tolerância a mudanças de DOM. |
-| `frontend/src/styles.css` | ~1.356 | Revisão geral do visual, incluindo layout responsivo para celular. |
-| `frontend/src/App.jsx` | ~1.173 | Nova navegação por hash (`#/inicio`, `#/produzir/...`, `#/resultados/...`), `BrandMark`, `ScriptEditor` e o `Panel` por etapa. |
-| `services/browser_assistant.py` | +542 | Grok/Flow migram para **Chrome nativo** em vez de Playwright (downloads paravam de funcionar); vigia de downloads, semeadura das preferências de download do Chrome, roteamento do arquivo baixado, perfil de geração compartilhado, e `open_grok_character_sheet`. |
-| `app.py` | +348 | Novas rotas: `model-library/label` (PATCH), `model-library/character-sheet` (GET), `model-library/character-sheet/open` (POST), `browser/open-free` (POST). Novos helpers de segurança/rede: `_host_allowed` e `_lan_urls`. |
-| `tests/test_app.py` | ~908 | Testes acompanhando as mudanças de rota e de geração de texto. |
-| `README.md` | ~398 | Documentação atualizada. |
-| `services/video_mix.py` | ~250 | Ajustes no mixer e na localização do FFmpeg. |
-| `services/setup_status.py` | ~184 | Checklist de setup refinado. |
-| `services/studio_identity.py` | ~128 | Identidade por PC. |
-| `frontend/src/nicheDefaults.js` | ~124 | Padrões por nicho mais ricos. |
-| `INVENTARIO-FABRICA-E-PLANOS.md` | ~122 | Inventário atualizado. |
-| `launcher.py` | ~115 | Reaproveitamento de servidor já rodando (`version: 6`), varredura de portas 5050–5059, exposição na LAN (`FABRICA_LAN`), log em `data/server.log`, aviso em MessageBox no Windows quando a porta está ocupada. |
-| `services/model_library.py` | +88 | Renomear rótulo de foto (`rename_label`) e mais nichos. |
-| `COMO-INSTALAR-NO-OUTRO-PC.md` | ~78 | Guia de instalação atualizado. |
-| `services/playbook.py` | ~39 | Ajustes no cálculo do playbook. |
-| `tests/test_browser_assistant.py` | +20 | Cobertura das mudanças de navegador. |
-| `studio_identity.example.json` | ~18 | Campos novos de identidade. |
-| `frontend/src/api.js` | +12 | Novas chamadas: `health`, `renameModelLibraryLabel`, `openBrowserFree`, `characterSheet`, `openCharacterSheet`. |
-| `.gitignore` | 2 | Mais exclusões. |
-| `outputs/PLANO_MIGRACAO_CODEX.md` | 2 | Retoque. |
+| Hook | 0–4s | Começar com uma dúvida, objeção, desejo ou situação específica do produto. |
+| Desenvolvimento | 4–12s | Explicar uma vantagem observável em linguagem natural. A demonstração visual fica na direção de cena e não é lida pela modelo. |
+| CTA | 12–15s | Pedir uma ação compatível com o TikTok Shop, como tocar no produto marcado e escolher tamanho/cor. |
 
-#### Os quatro temas por trás dessa leva
+Foram removidas construções artificiais como “Para mulheres de 20 a 40 anos” e frases que mandavam a modelo falar instruções de câmera ou “mostre o produto”. O público orienta a linguagem internamente, sem ser recitado. Termos em inglês são convertidos para português do Brasil quando há equivalente natural.
 
-1. **Qualidade do texto gerado** (`prompts.py` + `reports/`) — o gerador deixou de montar frases genéricas e passou a usar de fato o produto, o material, o público e o benefício do briefing, em português correto. A pasta `reports/` existe para provar isso com evidência lado a lado.
-2. **Consistência da modelo** (`character_sheet.py`, biblioteca por nicho, renomear rótulo) — atacar o problema de a IA trocar o rosto da modelo entre gerações.
-3. **Confiabilidade do navegador** (`browser_assistant.py`) — Grok e Flow saíram do Playwright e voltaram para o Chrome normal, porque o download do arquivo gerado quebrava a janela automatizada. O Studio continua no clone CDP.
-4. **Uso no celular** (`device.js`, `serviceLinks.jsx`, `launcher.py` com LAN, CSS responsivo) — acessar a Fábrica pelo celular no mesmo Wi‑Fi (`http://IP-DO-PC:5050`) e abrir Grok/TikTok nos apps nativos. **Não** é hospedagem na nuvem: o servidor continua sendo o seu PC.
+O motor local combina famílias de hooks, desenvolvimentos e CTAs, elimina duplicatas e usa um índice de variação. Os botões de atualizar hook + legenda, atualizar fala inteira e editar manualmente preservam as outras partes que não foram solicitadas. A interface mostra se o roteiro veio do motor local ou do redator opcional.
 
-> ⚠️ **Observação:** todo esse trabalho está no diretório mas **ainda não foi commitado**. Enquanto não houver `git commit`, ele não está protegido no histórico nem no GitHub.
+Na etapa 5 existe um bloco visível chamado **Escrita por API**. Quando a OpenAI está ativa, o botão principal **Gerar roteiro com ChatGPT** chama explicitamente a API para criar hook, desenvolvimento, CTA e legenda. Em campanhas com várias cores, cada cartão possui o botão **Gerar esta cor com ChatGPT**. As alternativas locais aparecem separadas e identificadas como ações sem uso de API. Se a chave ainda não estiver ativa, a mesma área oferece **Configurar ChatGPT**.
+
+### 9.4 Redator opcional por IA
+
+O projeto funciona sem nenhuma API paga. Quando o operador configura OpenAI ou Gemini em **Redator**, `services/copywriter.py` envia um briefing textual e pede somente `hook`, `development` e `cta`. Uma auditoria local rejeita:
+
+- atributos e promessas ausentes no briefing;
+- urgência sem oferta confirmada;
+- falas longas demais para 15 segundos;
+- títulos, instruções de cena ou metalinguagem dentro da fala;
+- resposta incompleta ou formato inválido.
+
+A chamada pede três conceitos diferentes em uma única resposta e escolhe localmente o melhor candidato aprovado. A seleção favorece história em primeira pessoa, quebra da objeção e ocasião real de uso. Ela rejeita pergunta genérica, direção de câmera pronunciada, idade do público recitada, repetição exata do roteiro anterior e CTA que apenas repete a cor. Ao regenerar, o roteiro atual entra no briefing como conteúdo que não deve ser repetido.
+
+Há até duas tentativas. Se o provedor falhar ou a auditoria reprovar a resposta, o motor determinístico local assume automaticamente. A chave fica em `data/llm.json`, não é versionada e não é devolvida ao navegador.
+
+### 9.5 Prompt de vídeo
+
+O vídeo recebe a imagem aprovada da cor como primeiro quadro e referência contínua. O texto separa explicitamente:
+
+- **falas**, que são as únicas frases entre aspas a serem pronunciadas;
+- **coreografia**, executada sem ser lida;
+- **câmera e enquadramento**;
+- **provas visuais** ligadas somente a atributos confirmados;
+- **travas de identidade, cenário, produto e continuidade**.
+
+Cada fato confirmado ganha um gesto que possa demonstrá-lo. A coreografia limita uma ação por batida para reduzir movimentos artificiais. O encerramento passou a definir uma ação concreta e natural: mãos relaxadas ou tocando a peça, olhar para o produto marcado e pose estável. Essa mudança resolve a tendência do gerador de encerrar sempre com braços levantados, aceno ou gesto de comemoração.
+
+O vídeo preserva o cenário da imagem aprovada, a posição da câmera, a perspectiva e a iluminação. Movimentos de câmera existem apenas quando ajudam a mostrar o produto e não devem quebrar a continuidade.
+
+### 9.6 Legendas e hashtags
+
+As legendas usam produto, cor, detalhe comprovado e uma ação de loja. A geração corrige contrações do português, evita expressões como “repara em a”, não recita idade e remove hashtags repetidas mesmo quando diferem apenas entre maiúsculas e minúsculas. O limite atual é de cinco hashtags relevantes.
+
+### 9.7 Evidência e prevenção de regressões
+
+`reports/prompt-audit-2026-09-12/evidence.json` guarda um caso de auditoria com briefing e saída exata. Os testes cobrem materiais, unissex, objeção, oferta, fatos negativos, divisão por cor, primeiro cenário versus cores seguintes, ausência de direção de vídeo no prompt de imagem, pontuação, tamanho de hook, orçamento de fala, gesto final, CTA de TikTok Shop e fallback do redator.
 
 ---
 
-## 10. Como rodar
+## 10. O que foi criado e modificado
+
+### 10.1 Fundação e fluxo de produção
+
+- Aplicativo local Flask + React + SQLite, com dados e mídia preservados no computador.
+- Canvas de produção transformado em um stepper linear, com pré-requisitos e revisões humanas.
+- Upload validado por conteúdo, biblioteca da modelo, fotos do produto e reutilização de referência.
+- Exportação de campanha em TXT e pacote ZIP apenas com mídia aprovada.
+- Controle de versão para evitar que duas abas sobrescrevam mudanças uma da outra.
+- Edição, renomeação, cópia, exclusão e criação de uma versão editável de campanha publicada.
+- Correção da rota que criava versão editável e anteriormente terminava em página não encontrada.
+
+### 10.2 Variações, imagem e vídeo
+
+- Uma variação independente por cor, com prompt, imagem, roteiro, vídeo, legenda e publicação próprios.
+- Bloqueio de avanço quando falta arquivo ou aprovação de alguma cor.
+- Correção específica do caso de uma única cor/um único vídeo que ficava preso em “Aprove todos os vídeos”.
+- Migração idempotente que recupera aprovações de vídeo feitas por versões antigas.
+- Exibição imediata da imagem recém-anexada na etapa Criar imagem; antes ela só aparecia na aprovação.
+- Remoção da duplicação visual do cartão do Grok e das referências na etapa de imagem.
+- Mixer local de dois ou mais clipes via FFmpeg e prévia vertical com linha do tempo.
+
+### 10.3 Copy, imagem e direção de vídeo
+
+- Separação total entre prompt de imagem, prompt de vídeo, roteiro falado e legenda.
+- Reescrita do motor de copy para produto, material, componentes, ocasião, objeção, oferta e benefício.
+- Variações de hook deduplicadas, desenvolvimento sem recitar idade e CTA com vocabulário real da loja.
+- Filtro de termos de produção em inglês nas falas e normalização para português do Brasil.
+- Auditoria contra promessas inventadas e falsa urgência; “acabamento” e expressões de entusiasmo deixaram de gerar falsos positivos.
+- Trava de modelo, edição localizada da roupa, cenário fixo e integração fotográfica realista.
+- Direção de gestos ligada às provas do produto, âncora das mãos e final natural.
+- Redator opcional OpenAI/Gemini com teste de conexão, mensagem de erro real, adaptação do payload, auditoria e fallback local.
+- Identificação visível da origem do roteiro na interface.
+- Botão explícito de geração por API na etapa Roteiro de 15s, incluindo geração individual por cor; os botões locais foram renomeados para deixar claro que não consomem API.
+
+### 10.4 Navegador e serviços externos
+
+- Perfis dedicados e persistentes do Chrome para Flow, Grok e TikTok Studio.
+- Migração completa dos cinco perfis para `Fabrica TikTok/browser_profiles`; a pasta antiga não existe mais.
+- Grok e Flow abertos no Chrome nativo para manter login e downloads estáveis.
+- TikTok Studio aberto no perfil local configurado, com mensagens específicas quando o Chrome/perfil não é encontrado.
+- Monitoramento das pastas de download e associação do arquivo baixado à campanha.
+- Botões separados para TikTok Studio e TikTok.
+- Detecção de iPhone, iPad, Android e computador: no computador, o Studio abre pelo servidor e perfil dedicado; no celular, os botões usam links que podem ser entregues aos aplicativos instalados.
+- Logos incorporados em base64 e rótulos curtos na interface.
+- Cópia para a área de transferência com alternativa compatível com navegadores móveis.
+
+### 10.5 Publicação, resultados e aprendizado
+
+- Fila de publicação por cor com legenda, caminho do vídeo e registro do slot publicado.
+- Campo para salvar o link do TikTok mesmo depois da publicação.
+- Coleta assistida de views, curtidas, retenção, tráfego, buscas e audiência no TikTok Studio.
+- Auditoria em lote e relatório do que performou melhor.
+- Insights heurísticos, playbook de replicação e criação de nova campanha a partir do playbook.
+- Fila diária de cinco conteúdos e checklist de configuração inicial.
+- Gate crítico e prévia 9:16 para revisão antes da publicação.
+
+### 10.6 Interface, celular e operação
+
+- Navegação principal em Início, Produzir e Resultados.
+- Rotas por hash que permitem retornar diretamente à campanha e etapa.
+- Gerador Flow/Grok visível na etapa Definir look, fora da seção avançada.
+- Layout responsivo, tokens de design, temas claro/escuro e estados visuais de sucesso, espera e erro.
+- Acesso por celular na mesma rede local, protegido por PIN de quatro dígitos.
+- `reiniciar-fabrica.bat` para encerrar apenas o servidor deste projeto e iniciá-lo novamente.
+- Renomeação da pasta do projeto para `Fabrica TikTok`, com referências internas e perfis de navegador migrados.
+- Backup diário do SQLite antes e depois das migrações, mantendo até dez cópias.
+
+### 10.7 Histórico Git consolidado
+
+A base examinada estava limpa e sincronizada com `main`/`origin/main` no commit `2be3344`; este documento passa a ser a única alteração local. Até esta revisão, existem 21 commits de produto:
+
+| Período | Commits | Entrega principal |
+|---|---:|---|
+| Base local | `9f13081` a `a45c44d` | Aplicativo, fluxo, uploads, mixer, preview, performance e crítico. |
+| Studio e métricas | `8103a20` a `8189ecf` | Coleta por CDP, scraper por `data-tt` e auditoria em lote. |
+| Operação multi-creator | `d668354` | Identidade, stepper, fila diária, setup, playbook e instalação em outro PC. |
+| Grande revisão | `505da07` e `3762de9` | Prompts, personagem, navegador nativo, celular e relatório técnico. |
+| Copy e interface | `aa78bd4` a `8d84442` | Motor por gatilho, backup, temas, PIN, final de vídeo, gestos e enquadramento. |
+| Redator opcional | `a64ed95` a `e91611c` | OpenAI/Gemini, fallback, erros claros, identidade e origem do roteiro. |
+| Refinamento final | `516ad6a` e `2be3344` | Auditoria sem falso positivo e CTA no vocabulário do TikTok Shop. |
+
+O arquivo `work/` mantém instantâneos anteriores à migração. Os protótipos e planos ficam em `outputs/`; eles servem como histórico e não fazem parte da execução diária.
+
+---
+
+## 11. Como instalar, iniciar e reiniciar
 
 **Uso diário (Windows)**
 ```
@@ -360,6 +458,10 @@ Se travar: duplo clique em `reiniciar-fabrica.bat`.
 cd "C:\Users\Admin\Documents\Codex\2026-09-10\Fabrica TikTok"
 .\.venv\Scripts\python.exe app.py
 ```
+
+**Reinício completo**
+
+Use `reiniciar-fabrica.bat`. Ele procura processos `pythonw.exe` cuja linha de comando aponta para esta pasta, encerra somente esses processos, espera um segundo e chama `iniciar.vbs` novamente.
 
 **Desenvolvimento**
 ```powershell
@@ -375,41 +477,46 @@ cd frontend && npm run build                # compila a UI que o Flask serve
 
 ---
 
-## 11. Privacidade e separação entre creators
+## 12. Privacidade, segurança e separação entre creators
 
 - Tudo fica no PC: banco, mídia, perfis de navegador.
 - `.gitignore` exclui `data/`, `media/`, `browser_profiles/`, `.venv/`, `.env`, `*.db`, `node_modules/`, `frontend/dist/`, `_patch/`.
 - **Nunca copiar entre creators:** `browser_profiles/` (levaria a sessão de Chrome errada) e `data/` (banco, identidade, históricos).
 - Cada PC define sua identidade em `data/studio_identity.json` pelo ícone de Identidade no cabeçalho.
 - Mutações vindas de outras origens são bloqueadas por validação de host + cabeçalho `X-Local-App`.
+- No computador local não há tela de PIN. Pela rede Wi‑Fi, o PIN fica salvo em cookie por até 30 dias.
+- As respostas usam `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` e `X-Frame-Options: DENY`.
+- A interface e a API usam `Cache-Control: no-store` nas áreas sensíveis para evitar uma versão antiga depois do reinício.
 
 ---
 
-## 12. Limitações conhecidas e próximos passos
+## 13. Validação, limitações conhecidas e próximos passos
 
 **Limitações**
 - A raspagem do TikTok Studio depende do DOM deles; se o TikTok mudar a interface, quebra (há retries e mensagem clara, mas exige ajuste no `studio_metrics.py`).
 - Depende de Windows, Chrome instalado e FFmpeg no PATH para o mixer.
 - A geração de imagem/vídeo continua manual, por escolha de projeto.
 
-**Estado dos testes (12/09/2026, após a revisão)**
+**Estado dos testes (12/09/2026, nesta revisão)**
 
-A suíte tem **71 testes e todos passam**. Os oito que falhavam eram expectativa desatualizada em relação à reescrita do gerador — foram alinhados ao comportamento atual, e oito testes novos cobrem o que passou a existir: backup diário, preservação de métricas na transição, objeção e oferta guiando o roteiro, peça correta no prompt de imagem, primeira cor versus cores seguintes, hashtags sem público presumido, ausência de pontuação dupla e o PIN da rede local.
+Foram executados **81 testes e todos terminaram como `OK`**. O teste de backup foi corrigido para fechar explicitamente a conexão SQLite no Windows. Ao encerrar a suíte ainda aparecem avisos de tarefas assíncronas dos observadores de download que estavam pendentes; eles não falharam nenhum cenário, mas continuam como oportunidade de limpeza técnica.
 
-Duas decisões ficaram registradas no código e agora também aqui: resolução e duração fora do alvo **avisam mas não bloqueiam** a aprovação do vídeo, e editar só a legenda **não** rebobina o status da campanha.
+A cobertura inclui fluxo completo, migração, backup, autenticação LAN, segurança de origem, upload atômico, troca de referência, edição e duplicação, variações por cor, prompts, redator opcional, aprovações, publicação, exportação e perfis de navegador.
+
+Duas decisões de produto estão registradas nos testes: resolução e duração fora do alvo **avisam, mas não bloqueiam** a aprovação do vídeo; editar apenas a legenda exige preparar a publicação novamente sem invalidar o vídeo aprovado.
 
 **Próximos passos previstos**
-- Commitar a leva atual de mudanças.
+- Cancelar/aguardar os observadores de download ao desmontar o assistente de navegador, eliminando os avisos ao final dos testes.
 - Empacotamento em EXE (PyInstaller) ou Tauri/Electron.
-- Montagem automática de vídeo.
 - Possivelmente limpar `_patch/` e `work/`, que são resíduo do desenvolvimento.
 - Unificar os dois caminhos de publicação (`transition` e `publish-slot`).
 - Reduzir as oito larguras de breakpoint para três, testando cada faixa com o app aberto.
-- Decidir o futuro do fluxo multi-cor (a tabela `campaign_variants` segue vazia).
+- Criar testes automatizados de interface para o fluxo completo em computador e iPhone; hoje a maior parte da UI é validada manualmente.
+- Manter os seletores do TikTok Studio atualizados quando a plataforma mudar o DOM.
 
 ---
 
-## 13. Glossário
+## 14. Glossário
 
 | Termo | O que significa aqui |
 |---|---|

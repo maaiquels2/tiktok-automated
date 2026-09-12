@@ -2,7 +2,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice } from './serviceLin
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { modelLibrary, uploadModelLibrary, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil } from 'lucide-react';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
@@ -66,6 +66,27 @@ export function Uploader({kind,busy,onUpload,exists=false,disabled=false,color})
   const names={reference:'referência da modelo',image:color?`imagem · ${color}`:'imagem gerada',video:color?`vídeo · ${color}`:'vídeo MP4'};
   return <><input ref={ref} type="file" hidden accept={kind==='video'?'video/mp4,.mp4':'image/jpeg,image/png,image/webp'} onChange={e=>{const f=e.target.files?.[0];if(f)onUpload(kind,f,color);e.target.value=''}}/><button className="upload-button" onClick={()=>ref.current.click()} disabled={busy||disabled}>{kind==='video'?<Film size={18}/>:<ImagePlus size={18}/>} {exists?'Substituir':'Anexar'} {names[kind]}</button><small className="help">{kind==='video'?'MP4 · até 250 MB · 15s · vertical 9:16':'JPG, PNG ou WebP · até 40 MB'}</small></>;
 }
+export function DeviceVideoPicker({busy,onSelect,record,disabled=false,color}){
+  const ref=useRef();
+  return <div className="device-video-picker">
+    <input ref={ref} type="file" hidden accept="video/mp4,.mp4" onChange={e=>{const file=e.target.files?.[0];if(file)onSelect(file,color);e.target.value=''}}/>
+    <button type="button" className="upload-button device-only" disabled={busy||disabled} onClick={()=>ref.current?.click()}>
+      <Film size={18}/> {record?'Trocar':'Usar'} vídeo da galeria{color?` · ${color}`:''}
+    </button>
+    <small className="help">O MP4 permanece neste dispositivo. A Fábrica salva somente nome, tamanho, duração e aprovação.</small>
+  </div>;
+}
+
+export function DeviceVideoCard({record,localFile}){
+  if(!record)return null;
+  const meta=record.metadata||{};
+  return <div className="device-video-card">
+    {localFile?.url?<video controls playsInline preload="metadata" src={localFile.url}/>:<div className="device-video-placeholder"><Film size={28}/><strong>Vídeo guardado na galeria</strong><span>Selecione novamente para assistir neste navegador.</span></div>}
+    <div className="asset-meta"><span>{meta.width||'—'} × {meta.height||'—'}{meta.duration?` · ${meta.duration}s`:''}</span><span>{record.size?`${(record.size/1024/1024).toFixed(1)} MB`:''}</span></div>
+    <div className="asset-name">{record.original_name}</div>
+    {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
+  </div>;
+}
 export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow'};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
@@ -75,10 +96,16 @@ export function ProductGallery({photos=[]}){
   if(!photos.length)return null;
   return <section className="product-gallery"><h3>Fotos do produto</h3><p>Anexe estas fotos depois da referência fixa da modelo.</p><div className="product-photo-grid">{photos.map((photo,i)=><AssetView key={photo.id} asset={photo} title={`Produto · foto ${i+1}`} compact/>)}</div></section>;
 }
-export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpload,busy,disabled,onSaveVariant,onRefreshVariant,immutable}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onConfigureWriter,immutable}){
+  const [writer,setWriter]=useState(null);
+  useEffect(()=>{
+    if(focus!=='script') return;
+    writerSettings().then(setWriter).catch(()=>setWriter({enabled:false,provider:''}));
+  },[focus]);
   if(!variants.length)return null;
   const byImage=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
   const byVideo=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
+  const byDeviceVideo=Object.fromEntries((deviceVideos||[]).map(a=>[a.slot||'',a]));
   const title=focus==='image'?'Imagens por cor':focus==='video'?'Vídeos por cor':focus==='script'?'Roteiros 15s por cor':'Prompts por cor';
   const help=focus==='image'
     ?'Gere e anexe uma imagem por cor. Todas ficam disponíveis para aprovação.'
@@ -93,8 +120,9 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpl
       const p=variant.prompts||{};
       const img=byImage[variant.color];
       const vid=byVideo[variant.color];
+      const deviceVid=byDeviceVideo[variant.color];
       const status=focus==='image'?(img?(img.approved_at?'Imagem aprovada':'Imagem anexada'):'Falta anexar')
-        :focus==='video'?(vid?(vid.approved_at?'Vídeo aprovado':'Vídeo anexado'):'Falta anexar')
+        :focus==='video'?((vid||deviceVid)?((vid||deviceVid).approved_at?'Vídeo aprovado':deviceVid?'Vídeo na galeria':'Vídeo anexado'):'Falta selecionar')
         :'Roteiro';
       return <details className="variant-card" key={variant.id||variant.color} open={focus==='image'||focus==='video'||focus==='script'||idx===0}>
         <summary><strong>{variant.color}</strong><span>{status}</span></summary>
@@ -113,13 +141,22 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],onUpl
               <p><strong>12–15s:</strong> {p.cta||'-'}</p>
             </div>
             {vid?<AssetView asset={vid} title={`Vídeo · ${variant.color}`} compact/>:null}
+            {deviceVid?<DeviceVideoCard record={deviceVid} localFile={deviceFiles[variant.color]}/>:null}
             {onUpload&&!immutable&&<Uploader kind="video" color={variant.color} exists={!!vid} busy={busy} disabled={disabled} onUpload={onUpload}/>}
+            {onDeviceVideo&&!immutable&&<DeviceVideoPicker color={variant.color} record={deviceVid} busy={busy} disabled={disabled} onSelect={onDeviceVideo}/>}
           </>}
           {focus==='script'&&<>
+            {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
+              <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera e audita as três falas desta cor.':'Configure a chave para chamar a API nesta etapa.'}</small></div>
+              {writer?.enabled
+                ?<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar esta cor com {writer.provider==='gemini'?'Gemini':'ChatGPT'}</button>
+                :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
+            </section>}
             <div className="variant-actions">
+              <span className="help">Alternativas locais, sem usar API:</span>
               {onRefreshVariant&&!immutable&&<>
-                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'])}>Atualizar hook</button>
-                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'])}>Atualizar fala inteira</button>
+                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'],{writerMode:'local'})}>Criar outro hook</button>
+                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
               </>}
             </div>
             <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
@@ -899,7 +936,7 @@ export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,o
 }
 
 
-export function WriterSettingsPanel({busy,onError,onFlash}){
+export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
   const [data,setData]=useState(null);
   const [open,setOpen]=useState(false);
   const [key,setKey]=useState('');
@@ -917,6 +954,7 @@ export function WriterSettingsPanel({busy,onError,onFlash}){
       const saved=await saveWriterSettings(payload);
       setData(saved);setKey('');
       onFlash?.(saved.enabled?'Escrita por IA ligada. A identidade tem o botão próprio, acima.':'Configuração da escrita salva.');
+      onSaved?.(saved);
     }catch(e){onError?.(e.message)}finally{setSaving(false)}
   }
   async function test(){

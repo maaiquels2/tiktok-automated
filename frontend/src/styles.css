@@ -1159,6 +1159,116 @@ textarea:focus {
   margin-top: 17px;
   padding: 15px 10px;
 }
+.device-video-picker {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.device-video-picker .upload-button {
+  margin-top: 0;
+}
+.upload-button.device-only {
+  background: var(--surface-27);
+  color: var(--ink-55);
+}
+.device-video-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line-20);
+  border-radius: 12px;
+  padding: 10px;
+  background: var(--surface-9);
+  margin: 10px 0;
+}
+.device-video-card video {
+  display: block;
+  width: 100%;
+  max-height: 430px;
+  border-radius: 9px;
+  background: #09090b;
+  object-fit: contain;
+}
+.device-video-placeholder {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+  border: 1px dashed var(--line-39);
+  border-radius: 9px;
+  background: var(--surface-27);
+}
+.device-video-placeholder span {
+  font-size: 12px;
+  color: var(--ink-17);
+}
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: radial-gradient(circle at 20% 10%, color-mix(in srgb,var(--accent) 16%,transparent), transparent 38%), var(--bg);
+}
+.auth-card {
+  width: min(440px,100%);
+  padding: 28px;
+  border: 1px solid var(--line-20);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0,0,0,.16);
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 26px;
+}
+.auth-brand div,.user-list span {
+  display: grid;
+  gap: 2px;
+}
+.auth-brand small,.user-list small {
+  color: var(--ink-17);
+}
+.auth-card h1 {
+  margin: 5px 0 8px;
+}
+.auth-form {
+  display: grid;
+  gap: 13px;
+  margin-top: 20px;
+}
+.auth-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 650;
+  font-size: 13px;
+}
+.auth-form h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 0;
+}
+.user-access-panel {
+  display: grid;
+  gap: 15px;
+}
+.user-list {
+  display: grid;
+  gap: 8px;
+}
+.user-list > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid var(--line-20);
+  border-radius: 10px;
+  background: var(--surface-9);
+}
 .asset-view {
   margin: 12px 0;
   min-width: 0;
@@ -4699,4 +4809,59 @@ button.linkish {
 .writer-badge.is-ai {
   border-color: var(--purple);
   color: var(--purple);
+}
+
+/* A chamada paga precisa parecer uma acao principal na etapa do roteiro.
+   Os geradores locais ficam logo abaixo e dizem claramente que nao usam API. */
+.script-ai-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  margin: 0 0 12px;
+  border: 1px solid color-mix(in srgb, var(--purple) 58%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--purple) 9%, var(--surface));
+}
+.script-ai-action > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.script-ai-action strong {
+  font-size: 15px;
+}
+.script-ai-action small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+.script-ai-action .primary {
+  flex: 0 0 auto;
+  min-height: 42px;
+}
+.script-ai-action.is-off {
+  border-style: dashed;
+}
+.script-refresh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.script-refresh-actions > .help:first-child,
+.variant-actions > .help:first-child {
+  flex-basis: 100%;
+  margin: 0;
+}
+@media (max-width: 720px) {
+  .script-ai-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .script-ai-action .primary {
+    width: 100%;
+  }
 }

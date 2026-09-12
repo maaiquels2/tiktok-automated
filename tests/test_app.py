@@ -5,6 +5,7 @@ import struct
 import tempfile
 import unittest
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image
@@ -93,6 +94,43 @@ class WorkflowTests(unittest.TestCase):
         result.close()
         self.assertEqual(self.upload('reference').status_code,409)
 
+    def test_device_only_video_can_be_approved_and_published_without_upload(self):
+        self.script_ready()
+        current=self.get()
+        response=self.post('/device-video',{
+            'version':current['version'],'original_name':'grok-video.mp4','mime':'video/mp4',
+            'size':18*1024*1024,'metadata':{'duration':15.0,'width':1080,'height':1920},
+        })
+        self.assertEqual(response.status_code,201,response.json)
+        self.assertEqual(response.json['status'],'video_ready')
+        self.assertFalse(any(a['kind']=='video' for a in response.json['assets']))
+        self.assertEqual(response.json['device_videos'][0]['original_name'],'grok-video.mp4')
+        approved=self.move('video_approved',approved_by='Maiquel')
+        self.assertEqual(approved.status_code,200,approved.json)
+        self.assertTrue(approved.json['device_videos'][0]['approved_at'])
+        self.assertEqual(approved.json['device_videos'][0]['approved_by'],'Maiquel')
+        self.assertEqual(self.move('ready_to_publish').status_code,200)
+        result=self.client.get(f'/api/campaigns/{self.cid}/package.zip')
+        with zipfile.ZipFile(io.BytesIO(result.data)) as archive:
+            self.assertIn('videos-no-dispositivo.txt',archive.namelist())
+            self.assertNotIn('video-aprovado.mp4',archive.namelist())
+            self.assertIn('grok-video.mp4',archive.read('videos-no-dispositivo.txt').decode('utf-8-sig'))
+        result.close()
+
+    def test_device_video_metadata_is_removed_when_the_brief_changes(self):
+        self.script_ready()
+        current=self.get()
+        self.assertEqual(self.post('/device-video',{
+            'version':current['version'],'original_name':'galeria.mp4','mime':'video/mp4','size':1024,
+            'metadata':{'duration':15,'width':1080,'height':1920},
+        }).status_code,201)
+        current=self.get()
+        changed=self.client.patch(f'/api/campaigns/{self.cid}',json={
+            'version':current['version'],'product':'Vestido novo',
+        },headers=self.headers)
+        self.assertEqual(changed.status_code,200,changed.json)
+        self.assertEqual(changed.json['device_videos'],[])
+
     def test_no_skips_and_no_patch_bypass(self):
         self.assertEqual(self.move('published').status_code,409)
         self.assertEqual(self.client.patch(f'/api/campaigns/{self.cid}',json={'status':'published'},headers=self.headers).status_code,409)
@@ -162,7 +200,10 @@ class WorkflowTests(unittest.TestCase):
         backups=sorted((Path(self.config['DATA_DIR'])/'backups').glob('fabrica-*.db'))
         self.assertTrue(backups,'a inicializacao precisa gerar a copia do dia')
         self.assertGreater(backups[-1].stat().st_size,0)
-        with sqlite3.connect(backups[-1]) as copy:
+        # O context manager do sqlite faz commit/rollback, mas nao fecha a
+        # conexao. No Windows isso mantinha o arquivo de backup travado durante
+        # a limpeza do diretorio temporario.
+        with closing(sqlite3.connect(backups[-1])) as copy:
             names={row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         self.assertIn('campaigns',names)
 
@@ -331,6 +372,26 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('MÃOS:',video)
         self.assertIn('como quem vai contar um segredo',video)
 
+    def test_academia_keeps_dynamic_camera_inside_the_same_scene(self):
+        # Enquadramento consistente significa preservar cena e continuidade.
+        # A câmera ainda pode aproximar, afastar e acompanhar a modelo para
+        # mostrar o produto; congelá-la piorou o vídeo aprovado pelo operador.
+        campaign=dict(model_name='Micaela',product='Legging grossa sem transparência',
+                      outfit='Roupa de treino / academia',color='rosa pink',
+                      audience='mulheres que treinam',benefit='caimento visível ao caminhar e agachar',
+                      angle='demonstrar o produto em movimento real de treino',
+                      tone='energética e direta',style='Fitness clean, academia',details='',
+                      movements='caminhar; agachar; virar de lado; ajustar o cós; pose final',
+                      generator='grok',niche='academia')
+        video=generate(campaign)['video']
+        self.assertIn('plano médio dinâmico',video)
+        self.assertIn('detalhe de perto no cós e no tecido',video)
+        self.assertIn('acompanhamento ao caminhar até a câmera',video)
+        self.assertIn('use jogo de câmeras apenas se for necessário',video)
+        self.assertIn('mantendo a mesma cena',video)
+        self.assertNotIn('CÂMERA: vertical, fixa',video)
+        self.assertNotIn('Não usar zoom',video)
+
     def test_writer_is_off_until_a_key_is_configured(self):
         settings=self.client.get('/api/writer').json
         self.assertFalse(settings['enabled'])
@@ -355,7 +416,7 @@ class WorkflowTests(unittest.TestCase):
     def test_llm_copy_is_used_when_it_passes_the_audit(self):
         self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
         aprovado={'hook':'Você já deixou de comprar legging com medo de ficar transparente demais?',
-                  'development':'Esse cós largo segura no lugar. Agachei aqui e não aparece nada por baixo. Uso no treino e depois na rua.',
+                  'development':'Esse cós largo segura no lugar. Eu agachei e não aparece nada por baixo. Uso no treino e depois na rua.',
                   'cta':'Tá no produto marcado aqui embaixo.',
                   'caption':'A legging que eu agacho sem medo. #legging #modafitness #tiktokshop'}
         self.upload('reference')
@@ -376,6 +437,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         self.assertTrue(response.json['prompts']['hook'],'a campanha nao pode ficar sem roteiro')
 
+    def test_explicit_ai_refresh_requires_an_enabled_writer(self):
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        response=self.post('/prompts/refresh',{
+            'fields':['hook','development','cta','caption'],
+            'writer_mode':'ai',
+        })
+        self.assertEqual(response.status_code,409,response.json)
+        self.assertIn('Ative e teste o ChatGPT',response.json['error'])
+
+    def test_explicit_ai_refresh_works_for_a_color_variant(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        variant=before['variants'][0]
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        aprovado={'hook':'Você já deixou essa legging de lado sem ver como ela veste?',
+                  'development':'No corpo, o tecido leve acompanha meus passos e mostra o caimento. Eu usaria no treino e também no dia a dia.',
+                  'cta':'Se você gostou, dá uma conferida no carrinho.',
+                  'caption':'Veja como esta peça veste no corpo. #legging #modafitness'}
+        with patch('services.copywriter.write_script',return_value=(aprovado,'')):
+            response=self.post(f"/variants/{variant['id']}/refresh",{
+                'fields':['hook','development','cta','caption'],
+                'writer_mode':'ai',
+                'version':before['version'],
+            })
+        self.assertEqual(response.status_code,200,response.json)
+        changed=response.json['variants'][0]['prompts']
+        self.assertEqual(changed['hook'],aprovado['hook'])
+        self.assertEqual(changed['cta'],aprovado['cta'])
+        self.assertIn(aprovado['cta'].rstrip('.'),changed['video'])
+        self.assertEqual(response.json['checklist']['writer']['by'],'openai')
+
     def test_audit_blocks_unconfirmed_claims_and_fake_urgency(self):
         from services.copywriter import audit
         brief=dict(product='Legging cintura alta',outfit='legging',benefit='tem cós largo',
@@ -387,6 +483,43 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('compressão',problemas)
         self.assertIn('premium',problemas)
         self.assertIn('urgência',problemas)
+
+    def test_audit_rejects_storyboard_language_and_generic_hooks(self):
+        from services.copywriter import audit
+        brief=dict(product='Legging grossa sem transparência',outfit='legging',color='rosa pink',
+                   benefit='Caimento visível ao caminhar e agachar',angle='mostrar no treino',
+                   details='',audience='mulheres que treinam',niche='academia',
+                   objection='Parece barata de perto',offer='')
+        fraco=dict(hook='De perto, será que essa legging rosa pink parece realmente bonita?',
+                   development='Caminho e agacho mostrando o caimento; aproximo a câmera do acabamento; no treino, eu vejo cada detalhe da peça.',
+                   cta='Se curtiu o rosa pink, confere no carrinho.',
+                   caption='Legging rosa para treino. #legging')
+        problemas=' | '.join(audit(fraco,brief))
+        self.assertIn('direção de cena',problemas)
+        self.assertIn('hook é uma pergunta ou abertura genérica',problemas)
+        self.assertIn('CTA repete a cor',problemas)
+
+    def test_copywriter_accepts_three_options_and_prefers_the_stronger_story(self):
+        from services.copywriter import _parse_candidates, _creative_score
+        raw=json.dumps({'options':[
+            {'hook':'Eu vi essa legging e achei bonita logo de primeira.',
+             'development':'Eu vesti para treinar e gostei do caimento no corpo. O acabamento aparece bem e combina com o meu dia a dia.',
+             'cta':'Se você gostou, dá uma conferida no carrinho.','caption':'Legenda um'},
+            {'hook':'Eu achei que ela pareceria barata, até olhar mais de perto.',
+             'development':'O acabamento me surpreendeu quando vesti. No agachamento, ela continua cobrindo bem e ficou linda para usar no treino.',
+             'cta':'Se você gostou, dá uma conferida no carrinho.','caption':'Legenda dois'},
+            {'hook':'Confesso que não esperava gostar tanto dessa legging no corpo.',
+             'development':'Eu usei no treino e vi um caimento bonito. Depois reparei na costura e no acabamento sem nenhuma pressa.',
+             'cta':'Dá uma olhada no carrinho aqui embaixo.','caption':'Legenda três'},
+        ]},ensure_ascii=False)
+        options=_parse_candidates(raw)
+        self.assertEqual(len(options),3)
+        brief=dict(product='Legging grossa sem transparência',outfit='legging',color='rosa pink',
+                   benefit='Caimento visível ao caminhar e agachar',angle='mostrar no treino',
+                   details='',audience='mulheres que treinam',niche='academia',
+                   objection='Parece barata de perto',offer='')
+        winner=max(options,key=lambda item:_creative_score(item,brief))
+        self.assertIn('pareceria barata',winner['hook'])
 
     def test_openai_retries_without_the_parameter_the_model_refuses(self):
         # Modelos de raciocinio recusam temperature diferente do padrao. O codigo
@@ -889,6 +1022,44 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         self.assertEqual(self.client.get(f'/api/campaigns/{copied_id}').status_code,404)
         self.assertFalse(folder.exists())
+
+
+class AuthenticationPrototypeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        root=Path(self.temp.name)
+        self.app=create_app(dict(TESTING=True,AUTH_REQUIRED=True,DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'profiles'))
+        self.client=self.app.test_client()
+        self.headers={'X-Local-App':'fabrica-tiktok'}
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_owner_creates_shared_second_access_and_both_can_login(self):
+        state=self.client.get('/api/auth/session').json
+        self.assertTrue(state['required'])
+        self.assertTrue(state['setup_required'])
+        self.assertEqual(self.client.get('/api/campaigns').status_code,401)
+        owner=self.client.post('/api/auth/setup',json={
+            'display_name':'Maiquel','username':'maiquel','password':'senha-segura-1',
+        },headers=self.headers)
+        self.assertEqual(owner.status_code,201,owner.json)
+        self.assertEqual(self.client.get('/api/campaigns').status_code,200)
+        partner=self.client.post('/api/users',json={
+            'display_name':'Micaela','username':'micaela','password':'senha-segura-2',
+        },headers=self.headers)
+        self.assertEqual(partner.status_code,201,partner.json)
+        self.assertEqual(len(self.client.get('/api/users').json),2)
+        third=self.client.post('/api/users',json={
+            'display_name':'Outra','username':'outra','password':'senha-segura-3',
+        },headers=self.headers)
+        self.assertEqual(third.status_code,409)
+        self.assertEqual(self.client.post('/api/auth/logout',json={},headers=self.headers).status_code,200)
+        self.assertEqual(self.client.get('/api/campaigns').status_code,401)
+        login=self.client.post('/api/auth/login',json={'username':'micaela','password':'senha-segura-2'},headers=self.headers)
+        self.assertEqual(login.status_code,200,login.json)
+        self.assertEqual(login.json['user']['role'],'editor')
+        self.assertEqual(self.client.get('/api/campaigns').status_code,200)
 
 
 class MigrationTests(unittest.TestCase):

@@ -64,15 +64,47 @@ URGENCY_PATTERNS = (
 BUDGET = {'hook': (9, 14), 'development': (18, 26), 'cta': (6, 10)}
 TOTAL_MAX = 45
 
-SYSTEM_PROMPT = """Você escreve falas de vídeos UGC de 15 segundos para TikTok Shop, em português do Brasil.
+STAGE_DIRECTION_PATTERNS = (
+    r'\bc[âa]mera\b', r'\benquadramento\b', r'\bclose(?:-up)?\b',
+    r'\bplano\s+(?:m[ée]dio|aberto|fechado|detalhe)\b',
+    r'\baproxim(?:o|a|e|ando)\s+(?:a|da)\s+c[âa]mera\b',
+    r'\bmostrando\s+(?:o|a|os|as)\b', r'\bfa[çc]a\s+um\s+giro\b',
+    r'\bmostre\b', r'\bfoco\s+(?:no|na|em)\b',
+)
 
-Escreve como uma pessoa real falando com o celular na mão — não como anúncio, não como catálogo, não como locutor.
+GENERIC_HOOK_PATTERNS = (
+    r'^quer\s+ver\b', r'^como\s+fica\b', r'^pensando\s+ness[ae]\b',
+    r'^voc[êe]\s+usaria\b', r'^antes\s+de\s+escolher\b',
+    r'^o\s+que\s+vale\s+observar\b', r'^de\s+perto,?\s+ser[áa]\s+que\b',
+    r'^olha\s+(?:só\s+)?ess[ae]\b', r'^essa\s+pe[çc]a\s+[ée]\b',
+)
+
+FIRST_PERSON_PATTERNS = (
+    r'\beu\b', r'\bme\b', r'\bminh[ao]s?\b', r'\bcomigo\b',
+    r'\bachei\b', r'\bvesti\b', r'\busei\b', r'\buso\b',
+    r'\btestei\b', r'\bexperimentei\b', r'\bpercebi\b',
+)
+
+SYSTEM_PROMPT = """Você é uma roteirista sênior de resposta direta para vídeos UGC de 15 segundos no TikTok Shop, em português do Brasil.
+
+Escreva como uma pessoa real contando uma descoberta para uma amiga. A fala precisa soar espontânea quando lida em voz alta, vender por identificação e prova, e nunca parecer anúncio, catálogo, locução ou instrução de filmagem.
+
+OBJETIVO CRIATIVO
+- Escolha UMA ideia central forte por opção: quebra de objeção, descoberta inesperada, versatilidade/ocasião, percepção de qualidade, economia real ou autoestima. Use somente o que o briefing sustenta.
+- Abra uma pequena história: expectativa ou receio -> descoberta concreta -> uso na vida real -> ação.
+- A cor é informação visual. Só a mencione quando ela for a razão da história; nunca gaste hook e CTA repetindo a cor.
+- O público orienta o vocabulário, mas idade, gênero e segmentação jamais são recitados.
+- A direção de câmera e os movimentos acontecem na imagem. A pessoa NÃO fala "aproximo a câmera", "mostrando o caimento", "faço um giro", "close" ou qualquer instrução de produção.
 
 ESTRUTURA (obrigatória)
-- hook (0–4s, 10 a 12 palavras): cria tensão e NÃO pode resolvê-la. Se você faz uma pergunta, não responda na mesma frase.
-- development (4–12s, 20 a 24 palavras): três batidas curtas — prova (um fato visível), quebra da objeção (demonstração, não promessa), e onde a pessoa vai usar.
+- hook (0–4s, 10 a 12 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
+- development (4–12s, 20 a 24 palavras): linguagem falada em primeira pessoa. Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
 - cta (12–15s, 7 a 9 palavras): uma ação só, no vocabulário real do TikTok Shop — "carrinho", "o link tá aqui embaixo", "garante a tua". Exemplos do tom certo: "Se você também gostou, dá uma conferida no carrinho." / "Corre garantir a tua, o link tá aqui embaixo." Nunca diga "produto marcado": isso é linguagem de painel, não de quem fala com a câmera.
 - caption: uma frase de gancho + o que é o produto, e no máximo 5 hashtags no fim.
+
+EXEMPLO DE TRANSFORMAÇÃO (aprenda o princípio, não copie as palavras)
+Fraco: "De perto, será que essa legging parece bonita?" / "Aproximo a câmera do acabamento." / "Confira a cor no carrinho."
+Forte: "Eu achei que ela ia parecer barata, até olhar de perto." / "O acabamento me surpreendeu e, quando vesti, o caimento ficou muito mais bonito do que eu esperava." / "Se você gostou, dá uma conferida no carrinho."
 
 REGRAS INEGOCIÁVEIS
 1. Só pode afirmar o que estiver em FATOS CONFIRMADOS. Nada de compressão, elasticidade, durabilidade, secagem, proteção ou qualquer desempenho que não esteja lá.
@@ -80,11 +112,12 @@ REGRAS INEGOCIÁVEIS
 3. Nunca repita a mesma expressão em duas batidas. Se o hook usou uma palavra-chave, o desenvolvimento usa outra.
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
-6. Fale na primeira pessoa, com a naturalidade de quem comprou e está mostrando.
+6. Fale na primeira pessoa, com a naturalidade de quem comprou e está recomendando. Não narre gestos nem movimentos que o público já está vendo.
 7. "Corre", "garante a tua" e afins são entusiasmo e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "acaba hoje", "50% off", "promoção relâmpago".
+8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
-{"hook": "...", "development": "...", "cta": "...", "caption": "..."}"""
+{"options": [{"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}]}"""
 
 
 # --------------------------------------------------------------------------- config
@@ -157,6 +190,7 @@ def build_brief(c: dict) -> str:
         f"COR DESTE VÍDEO: {c.get('color') or '(única)'}",
         f"FATOS CONFIRMADOS: {', '.join(facts) if facts else '(nenhum além do que aparece nas fotos)'}",
         f"BENEFÍCIO DEMONSTRÁVEL: {c.get('benefit') or '(não informado)'}",
+        f"ÂNGULO DE VENDA: {c.get('angle') or '(descoberta e prova no corpo)'}",
         f"PÚBLICO: {c.get('audience') or '(geral)'}",
         f"NICHO: {c.get('niche') or 'casual'}",
         f"TOM: {c.get('tone') or 'conversacional'}",
@@ -172,6 +206,14 @@ def build_brief(c: dict) -> str:
         linhas.append("OFERTA REAL: não existe — PROIBIDO usar qualquer palavra de urgência.")
     if len(colors) > 1:
         linhas.append(f"O produto tem outras cores ({', '.join(colors)}), mas este vídeo é só da cor {c.get('color')}.")
+    previous = c.get('previous_script') or {}
+    if isinstance(previous, dict) and any(previous.get(k) for k in ('hook','development','cta')):
+        linhas.extend([
+            'ROTEIRO ATUAL (não repetir estrutura nem frases; crie uma ideia realmente nova):',
+            f"- hook atual: {previous.get('hook') or ''}",
+            f"- desenvolvimento atual: {previous.get('development') or ''}",
+            f"- CTA atual: {previous.get('cta') or ''}",
+        ])
     return '\n'.join(linhas)
 
 
@@ -194,6 +236,9 @@ def audit(pack: dict, c: dict) -> list[str]:
         problemas.append(f'as três falas somam {total} palavras; o teto para 15 segundos é {TOTAL_MAX}')
 
     falado = ' '.join((pack.get(k) or '') for k in ('hook', 'development', 'cta')).casefold()
+    hook = (pack.get('hook') or '').strip().casefold()
+    development = (pack.get('development') or '').strip().casefold()
+    cta = (pack.get('cta') or '').strip().casefold()
     briefing = ' '.join(str(c.get(k) or '') for k in
                         ('product', 'outfit', 'details', 'benefit', 'angle', 'objection')).casefold()
     for termo in CLAIM_TERMS:
@@ -206,6 +251,36 @@ def audit(pack: dict, c: dict) -> list[str]:
             if achado:
                 problemas.append(f'"{achado.group(0)}" é urgência e não existe oferta real no briefing')
                 break
+
+    for padrao in STAGE_DIRECTION_PATTERNS:
+        achado = re.search(padrao, falado)
+        if achado:
+            problemas.append(f'"{achado.group(0)}" é direção de cena e não pode ser pronunciada')
+            break
+
+    for padrao in GENERIC_HOOK_PATTERNS:
+        if re.search(padrao, hook):
+            problemas.append('o hook é uma pergunta ou abertura genérica; use uma experiência, receio ou descoberta específica')
+            break
+
+    if not any(re.search(padrao, f'{hook} {development}') for padrao in FIRST_PERSON_PATTERNS):
+        problemas.append('hook e desenvolvimento não soam como experiência pessoal em primeira pessoa')
+
+    if re.search(r'\b(?:mulheres|homens|pessoas)\s+(?:de\s+)?\d{2}\s*(?:a|-|–)\s*\d{2}\b', falado):
+        problemas.append('a fala recita a faixa etária do público')
+
+    colors = color_variants(c.get('color'))
+    color = (c.get('color') or '').strip().casefold()
+    if color and len(colors) <= 1 and color in cta:
+        problemas.append('o CTA repete a cor sem acrescentar uma razão para agir')
+
+    previous = c.get('previous_script') or {}
+    if isinstance(previous, dict):
+        for field in ('hook','development','cta'):
+            old = re.sub(r'\W+', ' ', str(previous.get(field) or '').casefold()).strip()
+            new = re.sub(r'\W+', ' ', str(pack.get(field) or '').casefold()).strip()
+            if old and new and old == new:
+                problemas.append(f'{field} repetiu exatamente o roteiro atual')
 
     caption = (pack.get('caption') or '')
     if not caption.strip():
@@ -331,7 +406,11 @@ def _call_gemini(settings: dict, system: str, user: str) -> str:
 CALLERS = {'openai': _call_openai, 'gemini': _call_gemini}
 
 
-def _parse(raw: str) -> dict:
+def _clean_pack(dados: dict) -> dict:
+    return {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+
+
+def _parse_candidates(raw: str) -> list[dict]:
     texto = (raw or '').strip()
     texto = re.sub(r'^```(?:json)?|```$', '', texto, flags=re.M).strip()
     inicio, fim = texto.find('{'), texto.rfind('}')
@@ -340,7 +419,39 @@ def _parse(raw: str) -> dict:
     dados = json.loads(texto)
     if not isinstance(dados, dict):
         raise ValueError('resposta não é um objeto')
-    return {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+    options = dados.get('options')
+    if isinstance(options, list):
+        packs = [_clean_pack(item) for item in options if isinstance(item, dict)]
+        if packs:
+            return packs[:5]
+    # Compatibilidade com provedores/modelos que ainda devolvem o formato
+    # antigo. A auditoria continua valendo, portanto isto nao reduz a seguranca.
+    return [_clean_pack(dados)]
+
+
+def _creative_score(pack: dict, c: dict) -> int:
+    """Desempata candidatos validos pela naturalidade e especificidade."""
+    hook = (pack.get('hook') or '').casefold()
+    development = (pack.get('development') or '').casefold()
+    score = 0
+    if any(word in hook for word in ('achei', 'confesso', 'quase', 'medo', 'dúvida', 'duvida', 'surpreend', 'esperava', 'até ')):
+        score += 4
+    if any(re.search(p, f'{hook} {development}') for p in FIRST_PERSON_PATTERNS):
+        score += 3
+    pain, check = _objection_parts(c)
+    evidence = f'{pain} {check}'.casefold()
+    evidence_words = {w for w in re.findall(r'[a-záàâãéêíóôõúç]{5,}', evidence) if w not in {'mostrar', 'aparece', 'movimento'}}
+    score += min(4, sum(1 for word in evidence_words if word in f'{hook} {development}'))
+    if any(word in development for word in ('quando vesti', 'no treino', 'no trabalho', 'no dia a dia', 'para sair', 'pra sair', 'na rua')):
+        score += 2
+    repeated = set(re.findall(r'\b\w{5,}\b', hook)) & set(re.findall(r'\b\w{5,}\b', development))
+    score -= len(repeated)
+    return score
+
+
+def _parse(raw: str) -> dict:
+    """Formato antigo usado por testes e integracoes locais."""
+    return _parse_candidates(raw)[0]
 
 
 def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | None, str]:
@@ -353,7 +464,7 @@ def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | Non
     for tentativa in range(max(1, attempts)):
         try:
             bruto = caller(settings, SYSTEM_PROMPT, user)
-            pack = _parse(bruto)
+            candidates = _parse_candidates(bruto)
         except ProviderError as exc:
             if exc.status:
                 return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
@@ -363,10 +474,23 @@ def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | Non
         except (ValueError, KeyError, IndexError) as exc:
             ultimo = f'resposta ilegivel ({exc})'
             continue
-        problemas = audit(pack, c)
-        if not problemas:
-            return pack, ''
-        ultimo = '; '.join(problemas)
+        approved = []
+        rejected = []
+        for pack in candidates:
+            problemas = audit(pack, c)
+            if problemas:
+                rejected.extend(problemas)
+            else:
+                approved.append(pack)
+        if approved:
+            return max(approved, key=lambda item: _creative_score(item, c)), ''
+        # Mantem a lista curta para nao gastar a segunda tentativa repetindo
+        # dezenas de avisos equivalentes vindos de tres opcoes.
+        unique = []
+        for item in rejected:
+            if item not in unique:
+                unique.append(item)
+        ultimo = '; '.join(unique[:8])
         user = (build_brief(c) + '\n\nA tentativa anterior foi recusada pela auditoria:\n- '
-                + '\n- '.join(problemas) + '\nReescreva corrigindo exatamente esses pontos.')
+                + '\n- '.join(unique[:8]) + '\nReescreva as três opções corrigindo exatamente esses pontos.')
     return None, ultimo or 'o texto nao passou na auditoria'

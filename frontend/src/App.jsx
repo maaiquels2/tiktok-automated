@@ -1,10 +1,10 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity } from './api';
-import {Dialog, BriefForm, CopyButton, AssetView, Uploader, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
+import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
 
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
@@ -28,11 +28,17 @@ export default function App(){
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
   const [renaming,setRenaming]=useState(false),[renameDraft,setRenameDraft]=useState('');
   const [identity,setIdentity]=useState(null);
+  const [auth,setAuth]=useState(null);
+  const [writerRevision,setWriterRevision]=useState(0);
   const [lanUrls,setLanUrls]=useState([]),[lanPin,setLanPin]=useState('');
+  const [deviceFiles,setDeviceFiles]=useState({});
   const lock=useRef(false),noticeTimer=useRef();
   useEffect(()=>{
     let active=true;
     (async()=>{try{
+      const authState=await api('/auth/session');
+      if(active)setAuth(authState);
+      if(authState.required&&!authState.authenticated)return;
       const [list,refs,ident,h]=await Promise.all([api('/campaigns'),api('/references'),studioIdentity().catch(()=>null),health().catch(()=>null)]);
       if(ident) setIdentity(ident);
       if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
@@ -259,26 +265,64 @@ export default function App(){
     const existsSame=c.assets.some(a=>a.kind===kind && (!color || a.slot===color || a.metadata?.color===color));
     if(existsSame)confirm('Substituir esta mídia?',color?`Substituir a imagem da cor ${color}? A versão anterior continua guardada localmente.`:'A nova mídia precisa ser revisada e invalida as etapas seguintes. A versão anterior continua guardada localmente.',action,'Substituir');else action();
   }
+  function inspectVideo(file){
+    return new Promise((resolve,reject)=>{
+      const url=URL.createObjectURL(file);
+      const probe=document.createElement('video');
+      probe.preload='metadata';
+      probe.onloadedmetadata=()=>{
+        const metadata={duration:Number(probe.duration.toFixed(3)),width:probe.videoWidth,height:probe.videoHeight};
+        URL.revokeObjectURL(url);resolve(metadata);
+      };
+      probe.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Não foi possível ler este MP4 no navegador.'))};
+      probe.src=url;
+    });
+  }
+  async function registerDeviceVideo(file,color=''){
+    if(!c||busy)return false;
+    if(file.size>250*1024*1024){setError('O vídeo deve ter até 250 MB.');return false}
+    if(!file.name.toLowerCase().endsWith('.mp4')){setError('Selecione um vídeo MP4.');return false}
+    try{
+      const metadata=await inspectVideo(file);
+      const ok=await run(()=>api(`/campaigns/${c.id}/device-video`,{method:'POST',body:{
+        version:c.version,color,original_name:file.name,mime:file.type||'video/mp4',size:file.size,metadata,
+      }}),'Vídeo validado. O arquivo continua somente neste dispositivo.','video_approval');
+      if(ok){
+        const url=URL.createObjectURL(file);
+        setDeviceFiles(old=>{
+          const campaign={...(old[c.id]||{})};
+          if(campaign[color]?.url)URL.revokeObjectURL(campaign[color].url);
+          campaign[color]={file,url,metadata};
+          return {...old,[c.id]:campaign};
+        });
+      }
+      return ok;
+    }catch(e){setError(e.message||String(e));return false}
+  }
+  async function logout(){
+    try{await api('/auth/logout',{method:'POST',body:{}});location.reload()}catch(e){setError(e.message)}
+  }
   function saveVariantPrompts(variantId,prompts){
     return run(()=>api(`/campaigns/${c.id}/variants/${variantId}/prompts`,{method:'PATCH',body:{prompts,version:c.version}}),'Roteiro da cor atualizado.');
   }
-  function refreshSingleScript(fields){
+  function refreshSingleScript(fields,options={}){
     if(dirty){setError('Salve as alterações do roteiro antes de gerar outras frases.');return}
     const list = Array.isArray(fields) ? fields : ['hook','caption'];
     const onlyCaption = list.length === 1 && list[0] === 'caption';
     if(onlyCaption){
       // Studio: swap caption only — stay on publish step, no roteiro rewind.
-      return run(()=>post('/prompts/refresh',{fields:list}),'Nova legenda gerada.','studio');
+      return run(()=>post('/prompts/refresh',{fields:list,writer_mode:options.writerMode||'local'}),'Nova legenda gerada.','studio');
     }
-    const action=()=>run(()=>post('/prompts/refresh',{fields:list}),'Novas frases geradas. Revise o roteiro.','script');
-    if(states.indexOf(c.status)>=3)confirm('Gerar novas frases?','A imagem aprovada será mantida. O roteiro e o vídeo precisarão de nova revisão.',action,'Gerar frases');else action();
+    const byAI=options.writerMode==='ai';
+    const action=()=>run(()=>post('/prompts/refresh',{fields:list,writer_mode:options.writerMode||'local'}),byAI?'Novo roteiro gerado pelo ChatGPT. Revise as falas.':'Novas frases locais geradas. Revise o roteiro.','script');
+    if(states.indexOf(c.status)>=3)confirm(byAI?'Gerar novo roteiro com ChatGPT?':'Gerar novas frases locais?','A imagem aprovada será mantida. O roteiro e o vídeo precisarão de nova revisão.',action,byAI?'Gerar com ChatGPT':'Gerar frases');else action();
   }
-  function refreshVariant(variantId,fields){
+  function refreshVariant(variantId,fields,options={}){
     const list = Array.isArray(fields) ? fields : ['hook','caption'];
     const onlyCaption = list.length === 1 && list[0] === 'caption';
     return run(
-      ()=>api(`/campaigns/${c.id}/variants/${variantId}/refresh`,{method:'POST',body:{fields:list,version:c.version}}),
-      onlyCaption ? 'Nova legenda gerada.' : 'Nova variação de fala gerada.',
+      ()=>api(`/campaigns/${c.id}/variants/${variantId}/refresh`,{method:'POST',body:{fields:list,writer_mode:options.writerMode||'local',version:c.version}}),
+      onlyCaption ? 'Nova legenda gerada.' : options.writerMode==='ai'?'Roteiro desta cor gerado pelo ChatGPT.':'Nova variação local de fala gerada.',
       onlyCaption ? 'studio' : undefined
     );
   }
@@ -358,6 +402,9 @@ export default function App(){
     if(busy)return;
     try{await api(`/campaigns/${c.id}/layout`,{method:'PATCH',body:{layout}});setC(old=>({...old,layout}));}catch(e){setError(e.message)}
   }
+  if(auth?.required&&!auth.authenticated){
+    return <AuthScreen setup={auth.setup_required} onDone={()=>location.reload()}/>;
+  }
   const device=getDeviceInfo();
   const DeviceIcon=device.type==='phone'?Smartphone:device.type==='tablet'?Tablet:Monitor;
   const current=c?stageInfo.find(s=>s.id===nextStage(c)):null;
@@ -369,6 +416,7 @@ export default function App(){
       <button type="button" className={mode==='results'?'active':''} disabled={busy} onClick={()=>goMode('results','agora')}>Resultados</button>
     </nav>
     <div className="header-right">
+      {auth?.authenticated&&<button type="button" className="identity-icon-btn" title="Acessos do estúdio" onClick={()=>setModal({type:'users',title:'Acessos do estúdio'})}><UserCog size={17}/><span className="identity-icon-label">{auth.user.display_name}</span></button>}
       <span className="device-badge" aria-label={`Dispositivo de acesso: ${device.label}`} title={`Acessando por ${device.label}. Os dados ficam no computador que executa a fábrica.`}><DeviceIcon size={15} aria-hidden="true"/><span>{device.label}</span></span>
       <button type="button" className="identity-icon-btn" title="Identidade do estudio" aria-label="Identidade do estudio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estudio'})}}>
         <UserCog size={18}/>
@@ -377,6 +425,7 @@ export default function App(){
       <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':'Dados no computador'}</span>
       {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash(lanPin?`Link copiado. No celular, o PIN e ${lanPin}.`:'Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
       {lanPin && lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <span className="lan-pin" title="Quem abrir pela rede local precisa digitar este PIN. Fica em data/lan_pin.txt.">PIN {lanPin}</span> : null}
+      {auth?.authenticated&&<button type="button" className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17}/></button>}
     </div></header>
     
     {mode==='home' && (
@@ -480,12 +529,13 @@ export default function App(){
         <Canvas key={c.id} campaign={c} selected={selected} onSelect={choose} busy={busy} stages={produceStages}/>
         </>:<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><span className="eyebrow">SEU CANVAS DE PRODUÇÃO</span><h1>Crie sua primeira campanha</h1><p>Defina o produto e o look, anexe a modelo e acompanhe cada aprovação até o TikTok.</p><button className="primary" onClick={()=>setModal({type:'create'})}><Plus size={17}/> Nova campanha</button></div>}</section>
       <aside className="inspector"><div className="inspector-heading produce-inspector-head"><div><span className="eyebrow">{c?'ETAPA':'INÍCIO'}</span><h2>{c?stage.title:'Produção'}</h2></div>{c&&<span className="status-pill">{statusLabels[c.status]}</span>}</div>
-        {c?<Panel key={`${c.id}-${c.version}-${selected}`} c={c} identity={identity} selected={selected} busy={busy} references={references} onDirty={setDirty} onError={setError} onSaveBrief={saveBrief} onSaveTexts={saveTexts} onUpload={upload} onTransition={transition} onOpen={openService}
+        {c?<Panel key={`${c.id}-${c.version}-${selected}-${writerRevision}`} c={c} identity={identity} selected={selected} busy={busy} references={references} deviceFiles={deviceFiles[c.id]||{}} onDirty={setDirty} onError={setError} onSaveBrief={saveBrief} onSaveTexts={saveTexts} onUpload={upload} onDeviceVideo={registerDeviceVideo} onTransition={transition} onOpen={openService}
           onGenerate={()=>{if(dirty){setError('Salve o briefing antes de gerar os textos.');return}run(()=>post('/generate'),'Prompts, roteiro e legenda gerados localmente.','image')}}
           onGenerateVariants={generateVariants}
             onSaveVariant={saveVariantPrompts}
             onRefreshVariant={refreshVariant}
             onRefreshScript={refreshSingleScript}
+            onConfigureWriter={()=>setModal({type:'identity',title:'Configurar escrita com ChatGPT'})}
             onPublishSlot={publishSlot}
             onMixVideos={mixVideos}
             onSavePerformance={savePerformance}
@@ -550,7 +600,7 @@ export default function App(){
     {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
     {notice&&!error&&<div className="toast" role="status"><Check size={19}/>{notice}</div>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
-      {modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash}/></>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[])=>{
+      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[])=>{
         const created=await run(async()=>{
           let result=await api('/campaigns',{method:'POST',body:values});
           if(photos?.length){
@@ -577,7 +627,54 @@ export default function App(){
   </>;
 }
 
-function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshScript,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto}){
+function AuthScreen({setup,onDone}){
+  const [form,setForm]=useState({display_name:'',username:'',password:''});
+  const [busy,setBusy]=useState(false),[error,setError]=useState('');
+  async function submit(event){
+    event.preventDefault();setBusy(true);setError('');
+    try{await api(setup?'/auth/setup':'/auth/login',{method:'POST',body:form});onDone()}
+    catch(e){setError(e.message||String(e));setBusy(false)}
+  }
+  return <main className="auth-shell"><section className="auth-card">
+    <div className="auth-brand"><span className="logo">?</span><div><strong>Fábrica TikTok</strong><small>Estúdio compartilhado</small></div></div>
+    <span className="eyebrow">{setup?'PRIMEIRO ACESSO':'ENTRAR'}</span>
+    <h1>{setup?'Crie o acesso principal':'Entre no estúdio'}</h1>
+    <p>{setup?'Este usuário poderá criar o segundo acesso para sua parceira.':'Campanhas, prompts e aprovações ficam no mesmo espaço compartilhado.'}</p>
+    <form onSubmit={submit} className="auth-form">
+      {setup&&<label>Nome exibido<input required maxLength={80} autoComplete="name" value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>}
+      <label>Usuário ou e-mail<input required maxLength={80} autoCapitalize="none" autoComplete="username" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
+      <label>Senha<input required minLength={8} type="password" autoComplete={setup?'new-password':'current-password'} value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
+      {error&&<p className="inline-error" role="alert">{error}</p>}
+      <button className="primary full" disabled={busy}>{busy?'Aguarde…':setup?'Criar estúdio':'Entrar'}</button>
+    </form>
+  </section></main>;
+}
+
+function UserAccessPanel({auth,onError,onFlash}){
+  const [users,setUsers]=useState([]),[saving,setSaving]=useState(false);
+  const [form,setForm]=useState({display_name:'',username:'',password:''});
+  const load=()=>api('/users').then(setUsers).catch(e=>onError(e.message));
+  useEffect(()=>{load()},[]);
+  async function add(event){
+    event.preventDefault();setSaving(true);
+    try{await api('/users',{method:'POST',body:form});setForm({display_name:'',username:'',password:''});await load();onFlash('Segundo acesso criado.')}
+    catch(e){onError(e.message)}finally{setSaving(false)}
+  }
+  return <div className="user-access-panel">
+    <p>Os dois usuários trabalham nas mesmas campanhas. As senhas ficam protegidas e não aparecem nesta tela.</p>
+    <div className="user-list">{users.map(user=><div key={user.id}><UserCog size={17}/><span><strong>{user.display_name}</strong><small>{user.username} · {user.role==='owner'?'responsável':'editora'}</small></span></div>)}</div>
+    {auth?.user?.role==='owner'&&users.length<2&&<form className="auth-form" onSubmit={add}>
+      <h3><UserPlus size={18}/> Criar segundo acesso</h3>
+      <label>Nome exibido<input required maxLength={80} value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>
+      <label>Usuário ou e-mail<input required maxLength={80} autoCapitalize="none" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
+      <label>Senha inicial<input required minLength={8} type="password" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
+      <button className="primary" disabled={saving}>{saving?'Criando…':'Criar acesso'}</button>
+    </form>}
+    {users.length>=2&&<div className="notice success"><Check size={16}/> Os dois acessos do protótipo estão configurados.</div>}
+  </div>;
+}
+
+function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto}){
   const reference=c.assets.find(a=>a.kind==='reference'),image=c.assets.find(a=>a.kind==='image'),video=c.assets.find(a=>a.kind==='video');
   const [reuse,setReuse]=useState(''),[checks,setChecks]=useState(c.checklist||{}),[publishedUrl,setPublishedUrl]=useState(c.published_url||'');
   const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
@@ -591,12 +688,14 @@ function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,
   if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p><button className="primary full" disabled={busy||!reference||c.status!=='briefing'} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
   if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}{image&&<AssetView asset={image} title="Imagem gerada" compact/>}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
   if(selected==='image_approval')return <>{c.assets.filter(a=>a.kind==='image').length?<><div className="notice">Confira cada cor. A aprovação libera os roteiros de 15s personalizados por imagem.</div><div className="comparison-grid">{c.assets.filter(a=>a.kind==='image').map(img=><div key={img.id} className="comparison-card"><span>{img.slot||img.metadata?.color||'Imagem'}</span><AssetView asset={img} title={img.slot||'Imagem'} compact/>{img.approved_at&&<p className="approved-label"><Check size={14}/>Aprovada</p>}</div>)}</div><div className="comparison"><div><span>Referência</span><AssetView asset={reference} title="Modelo fixa" compact/></div></div>{c.assets.filter(a=>a.kind==='image').every(a=>a.approved_at)?<div className="notice success"><Check size={17}/> Todas as imagens aprovadas.</div>:<><h3>Confira antes de aprovar</h3>{check('identity','Rosto, cabelo, corpo e tom de pele correspondem à referência em todas as cores.')}{check('look','Roupa, cor, produto e mãos estão corretos em cada imagem.')}<button className="primary full" disabled={busy||c.status!=='image_ready'||!checks.identity||!checks.look} onClick={()=>onTransition('image_approved')}><Check size={17}/> Aprovar todas as imagens</button>{c.status!=='image_ready'&&<small className="help">Anexe a imagem de cada cor na etapa Criar imagem.</small>}</>}</>:<div className="notice">Anexe o resultado de cada cor na etapa Criar imagem.</div>}</>;
-  if(selected==='script')return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onRefreshVariant={onRefreshVariant} busy={busy} immutable={immutable}/>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript}/>}<div className="notice">Leia em voz alta. A legenda do TikTok fica no <strong>Studio</strong>. Aqui use <strong>Atualizar hook</strong> ou <strong>Atualizar fala inteira</strong>.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
-  if(selected==='video')return <>{index>=3?<>{c.assets.some(a=>a.kind==='video')&&<VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}<div className="notice"><strong>Um vídeo por cor.</strong> Anexe todos os MP4 de 15s. Use a imagem da mesma cor como referência.</div>{service('video')}{!immutable&&onMixVideos&&<VideoMixer c={c} busy={busy} immutable={immutable} onError={onError} onMix={onMixVideos}/>}{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} videos={c.assets} onError={onError} focus="video" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('video','Prompt de vídeo')}<AssetView asset={image} title="Imagem aprovada para anexar" compact/><Uploader kind="video" exists={!!video} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<div className="notice">Exporte cada vídeo com 15 segundos em {c.generator==='flow'?'1080 × 1920':'720 × 1280'}.</div></>:<div className="notice">Aprove as imagens e conclua o roteiro antes de criar o vídeo.</div>}</>;
+  if(selected==='script')return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<><WriterBadge c={c}/><VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onRefreshVariant={onRefreshVariant} onConfigureWriter={onConfigureWriter} busy={busy} immutable={immutable}/></>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript} onConfigureWriter={onConfigureWriter}/>}<div className="notice">Leia em voz alta. Para pedir um texto novo à API, use <strong>Gerar roteiro com ChatGPT</strong>. Os botões menores criam alternativas locais sem gastar API.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
+  if(selected==='video')return <>{index>=3?<>{c.assets.some(a=>a.kind==='video')&&<VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}<div className="notice"><strong>Escolha onde guardar o vídeo.</strong> No celular, use “vídeo da galeria” para validar sem enviar o MP4. O anexo tradicional continua disponível para compartilhar ou incluir no ZIP.</div>{service('video')}{!immutable&&onMixVideos&&<VideoMixer c={c} busy={busy} immutable={immutable} onError={onError} onMix={onMixVideos}/>}{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} videos={c.assets} deviceVideos={c.device_videos} deviceFiles={deviceFiles} onError={onError} focus="video" onUpload={onUpload} onDeviceVideo={onDeviceVideo} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('video','Prompt de vídeo')}<AssetView asset={image} title="Imagem aprovada para anexar" compact/>{c.device_videos?.[0]&&<DeviceVideoCard record={c.device_videos[0]} localFile={deviceFiles['']}/>}<Uploader kind="video" exists={!!video} busy={busy} disabled={immutable} onUpload={onUpload}/><DeviceVideoPicker record={c.device_videos?.[0]} busy={busy} disabled={immutable} onSelect={onDeviceVideo}/></>}<div className="notice">Exporte cada vídeo com 15 segundos em {c.generator==='flow'?'1080 × 1920':'720 × 1280'}.</div></>:<div className="notice">Aprove as imagens e conclua o roteiro antes de criar o vídeo.</div>}</>;
   if(selected==='video_approval'){
     const colorSlots=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
     const slots=colorSlots.length?colorSlots:[''];
-    const vids=c.assets.filter(a=>a.kind==='video');
+    const uploadedVids=c.assets.filter(a=>a.kind==='video');
+    const deviceVids=c.device_videos||[];
+    const vids=[...uploadedVids,...deviceVids];
     const bySlot=Object.fromEntries(vids.map(v=>[(v.slot||v.metadata?.color||''),v]));
     const missing=slots.filter(s=>s && !bySlot[s]);
     const allPresent=slots.length===1 && !slots[0] ? vids.length>0 : (slots.length?slots.every(s=>!!bySlot[s]):vids.length>0);
@@ -604,18 +703,19 @@ function Panel({c,identity,selected,busy,references,onDirty,onError,onSaveBrief,
     const alreadyAdvanced=['video_approved','ready_to_publish','published'].includes(c.status);
     const needsLegacyRepair=alreadyAdvanced&&allPresent&&vids.some(a=>!a.approved_at);
     const approveLabel=vids.length===1?'Aprovar vídeo':'Aprovar todos os vídeos';
-    return <>{vids.length?<><VideoTimelinePreview asset={vids[0]} variant={(c.variants||[])[0]} c={c}/>
+    const firstUploaded=uploadedVids[0];
+    return <>{vids.length?<>{firstUploaded&&<VideoTimelinePreview asset={firstUploaded} variant={(c.variants||[])[0]} c={c}/>} 
       <div className="notice">Confira <strong>cada cor</strong>. ~15s e 9:16 são recomendadas, mas não bloqueiam.</div>
-      <div className="comparison-grid">{vids.map(vid=><div key={vid.id} className="comparison-card"><span>{vid.slot||vid.metadata?.color||'Vídeo'}</span><AssetView asset={vid} title={vid.slot||'Vídeo'} compact/>{vid.approved_at&&<p className="approved-label"><Check size={14}/>Aprovado</p>}</div>)}</div>
+      <div className="comparison-grid">{vids.map((vid,i)=><div key={vid.id||`device-${vid.slot}-${i}`} className="comparison-card"><span>{vid.slot||vid.metadata?.color||'Vídeo'}</span>{vid.device_only?<DeviceVideoCard record={vid} localFile={deviceFiles[vid.slot||'']}/>:<AssetView asset={vid} title={vid.slot||'Vídeo'} compact/>}{vid.approved_at&&<p className="approved-label"><Check size={14}/>Aprovado</p>}</div>)}</div>
       {!!slots.filter(Boolean).length && <ul className="color-checklist">{slots.filter(Boolean).map(s=><li key={s}>{bySlot[s]?`✓ ${s}: vídeo anexado`:`✗ ${s}: falta anexar`}</li>)}</ul>}
       {vids.every(a=>a.approved_at)?<div className="notice success"><Check size={16}/>{vids.length===1?'Vídeo aprovado.':'Todos os vídeos aprovados.'}</div>:needsLegacyRepair?<div className="notice success"><Check size={16}/><div><strong>Esta aprovação já foi registrada.</strong><p>O arquivo ficou sem a marca de aprovação por uma versão anterior da fábrica. Continue para a publicação para corrigir o registro.</p>{c.status==='video_approved'&&<button type="button" className="primary" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Continuar para publicação <ArrowRight size={16}/></button>}</div></div>:<><p>Alvo: 15 segundos · {c.generator==='flow'?'1080 × 1920':'720 × 1280'} · MP4.</p>
       {check('visual','Assisti a todos os vídeos. Identidade, look, produto e movimentos estão corretos em cada cor.')}
       {check('audio','Revisei áudio, falas, sincronização e duração em cada cor.')}
-      <button className="primary full" disabled={busy||!allPresent||!statusOk||!checks.visual||!checks.audio} onClick={()=>onTransition('video_approved')}><Check size={17}/> {approveLabel}</button>
+      <button className="primary full" disabled={busy||!allPresent||!statusOk||!checks.visual||!checks.audio} onClick={()=>onTransition('video_approved',{approved_by:identity?.model_name||'Usuário'})}><Check size={17}/> {approveLabel}</button>
       {!allPresent&&<small className="help">Falta vídeo em: {missing.join(', ')||'—'}. Em <strong>Criar vídeo</strong>, anexe 1 MP4 por cor. Não misture cores diferentes no Misturar.</small>}
       {allPresent&&!statusOk&&<small className="help">Os arquivos estão aí, mas o status ainda não é video_ready (agora: {c.status}). Reanexe um dos MP4s em Criar vídeo ou recarregue.</small>}
       {allPresent&&statusOk&&(!checks.visual||!checks.audio)&&<small className="help">Marque as duas caixas acima para liberar o botão.</small>}
-      </>}</>:<div className="notice">Anexe o MP4 de cada cor na etapa Criar vídeo.</div>}</>;
+      </>}</>:<div className="notice">Selecione o MP4 de cada cor na etapa Criar vídeo. Você pode mantê-lo na galeria ou enviá-lo para a Fábrica.</div>}</>;
   }
   if(selected==='performance')return <>
     <div className="notice"><strong>Metricas ficam em Resultados.</strong> Use a aba Resultados no topo para coletar do Studio, auditar publicados e gerar insights.</div>
@@ -659,9 +759,12 @@ function WriterBadge({c}){
     {!porIA&&!info.reason&&<small>Ligue a escrita por IA no ícone de Identidade, no topo.</small>}
   </div>;
 }
-function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh}){
+function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter}){
   const [draft,setDraft]=useState({hook:c.prompts.hook,development:c.prompts.development,cta:c.prompts.cta});
+  const [writer,setWriter]=useState(null);
+  useEffect(()=>{api('/writer').then(setWriter).catch(()=>setWriter({enabled:false,provider:''}))},[]);
   const fields=[['hook','Hook','0–4s'],['development','Desenvolvimento','4–12s'],['cta','Chamada para ação','12–15s']];
   const changed=Object.keys(draft).some(k=>draft[k]!==c.prompts[k]);
-  return <div className="script-editor"><WriterBadge c={c}/>{c.status!=='published'&&onRefresh&&<div className="script-refresh-actions"><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'])}>Atualizar hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'])}>Atualizar fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<ScriptBudget draft={draft}/></div>;
+  const aiName=writer?.provider==='gemini'?'Gemini':'ChatGPT';
+  return <div className="script-editor"><WriterBadge c={c}/>{c.status!=='published'&&onRefresh&&<><section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}><div><span className="eyebrow">ESCRITA POR API</span><strong>{writer?.enabled?`${aiName} está configurado`:'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera hook, desenvolvimento, CTA e legenda; o app audita o resultado antes de aceitar.':'Configure a chave uma vez para liberar a geração nesta etapa.'}</small></div>{writer?.enabled?<button className="primary" disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar roteiro com {aiName}</button>:<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}</section><div className="script-refresh-actions"><span className="help">Alternativas locais, sem usar API:</span><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'],{writerMode:'local'})}>Criar outro hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'local'})}>Criar outra fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div></>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}{changed&&<button className="full" disabled={busy||Object.values(draft).some(v=>!v.trim())} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<ScriptBudget draft={draft}/></div>;
 }

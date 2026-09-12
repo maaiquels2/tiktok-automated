@@ -15,8 +15,9 @@ from contextlib import closing
 from pathlib import Path
 import ipaddress
 from urllib.parse import urlsplit
-from flask import Flask, g, jsonify, request, send_file, send_from_directory
+from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
 from werkzeug.exceptions import HTTPException
+from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
 from services.media import inspect_media
 from services.prompts import color_variants, generate, generate_variants, package_text, refresh_script_fields, build_caption
@@ -43,6 +44,25 @@ def create_app(config=None):
         app.config[key] = Path(app.config[key])
     app.config['DATA_DIR'].mkdir(parents=True,exist_ok=True)
     app.config['MEDIA_DIR'].mkdir(parents=True,exist_ok=True)
+    cloud_mode=bool(app.config.get('CLOUD_MODE',os.environ.get('FABRICA_CLOUD','0')=='1'))
+    auth_required=bool(app.config.get('AUTH_REQUIRED',cloud_mode or os.environ.get('FABRICA_AUTH_REQUIRED','0')=='1'))
+    secret_path=app.config['DATA_DIR']/'session_secret.txt'
+    secret=os.environ.get('FABRICA_SECRET_KEY','').strip()
+    if not secret:
+        try:
+            secret=secret_path.read_text(encoding='utf-8').strip()
+        except OSError:
+            secret=''
+    if not secret:
+        import secrets
+        secret=secrets.token_urlsafe(48)
+        try:
+            secret_path.write_text(secret,encoding='utf-8')
+        except OSError:
+            pass
+    app.secret_key=secret
+    app.config.update(SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=cloud_mode,
+                      CLOUD_MODE=cloud_mode,AUTH_REQUIRED=auth_required)
     db_path = app.config['DATA_DIR']/'fabrica_tiktok.db'
 
     def connect():
@@ -123,6 +143,17 @@ def create_app(config=None):
                     color TEXT NOT NULL,prompts TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(campaign_id,color));
                 CREATE INDEX IF NOT EXISTS idx_campaign_variants_campaign ON campaign_variants(campaign_id,id);
+                CREATE TABLE IF NOT EXISTS device_videos (
+                    campaign_id INTEGER NOT NULL REFERENCES campaigns(id),slot TEXT NOT NULL DEFAULT '',
+                    original_name TEXT NOT NULL,mime TEXT NOT NULL DEFAULT 'video/mp4',size INTEGER NOT NULL,
+                    metadata TEXT NOT NULL DEFAULT '{}',approved_at TEXT,approved_by TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(campaign_id,slot));
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL UNIQUE,
+                    display_name TEXT NOT NULL,password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'editor',active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
             if version<1:
                 conn.execute("UPDATE campaigns SET migration_note='Campanha importada do protótipo (estado anterior: ' || status || '). Reanexe as mídias e revise as etapas.',status='briefing' WHERE status!='briefing'")
@@ -244,9 +275,9 @@ def create_app(config=None):
     @app.before_request
     def local_only():
         hostname = urlsplit('http://' + request.host).hostname
-        if not _host_allowed(hostname):
+        if not cloud_mode and not _host_allowed(hostname):
             raise Invalid('Este aplicativo so aceita localhost ou rede local privada (LAN).', 403)
-        if not _is_loopback_client() and request.endpoint not in {'lan_unlock', 'static_asset', 'brand_asset', 'favicon'}:
+        if not cloud_mode and not _is_loopback_client() and request.endpoint not in {'lan_unlock', 'static_asset', 'brand_asset', 'favicon'}:
             given = (request.cookies.get('fabrica_pin') or request.headers.get('X-Fabrica-Pin') or '').strip()
             if given != lan_pin():
                 if request.path.startswith('/api/'):
@@ -260,13 +291,21 @@ def create_app(config=None):
             origin = request.headers.get('Origin')
             if origin:
                 origin_host = urlsplit(origin).hostname
-                if not _host_allowed(origin_host):
+                if (not cloud_mode and not _host_allowed(origin_host)) or (cloud_mode and origin_host!=hostname):
                     raise Invalid('Origem externa bloqueada.', 403)
                 # Same-origin for the host the client actually used (localhost or LAN IP).
                 if origin.rstrip('/') != request.host_url.rstrip('/'):
                     raise Invalid('Origem externa bloqueada.', 403)
             if request.headers.get('X-Local-App') != 'fabrica-tiktok':
                 raise Invalid('Reabra a interface local para executar esta acao.', 403)
+        public_api={'health','auth_session','auth_login','auth_setup','auth_logout'}
+        if auth_required and request.path.startswith('/api/') and request.endpoint not in public_api:
+            uid=session.get('user_id')
+            user=db().execute('SELECT id,username,display_name,role FROM users WHERE id=? AND active=1',(uid,)).fetchone() if uid else None
+            if not user:
+                session.pop('user_id',None)
+                raise Invalid('Faça login para acessar a Fábrica TikTok.',401)
+            g.current_user=dict(user)
 
     @app.after_request
     def headers(response):
@@ -297,6 +336,90 @@ def create_app(config=None):
         if not isinstance(data,dict):
             raise Invalid('Envie um objeto JSON válido.')
         return data
+
+    def clean_username(value):
+        username=(value or '').strip().casefold()
+        if not username or len(username)>80 or not all(ch.isalnum() or ch in '._-@' for ch in username):
+            raise Invalid('Use um usuário válido com letras, números, ponto, hífen ou @.')
+        return username
+
+    def public_user(row):
+        return {key:row[key] for key in ('id','username','display_name','role')}
+
+    @app.get('/api/auth/session')
+    def auth_session():
+        count=db().execute('SELECT COUNT(*) FROM users WHERE active=1').fetchone()[0]
+        row=None
+        if session.get('user_id'):
+            row=db().execute('SELECT id,username,display_name,role FROM users WHERE id=? AND active=1',(session['user_id'],)).fetchone()
+        return jsonify(required=auth_required,authenticated=bool(row),setup_required=bool(auth_required and count==0),
+                       user=public_user(row) if row else None,shared_workspace=True)
+
+    @app.post('/api/auth/setup')
+    def auth_setup():
+        if not auth_required:
+            raise Invalid('O login não está ativado nesta instalação.',409)
+        data=body()
+        username=clean_username(data.get('username'))
+        display=(data.get('display_name') or '').strip()
+        password=data.get('password') or ''
+        if not display or len(display)>80:
+            raise Invalid('Informe o nome que aparecerá no estúdio.')
+        if not isinstance(password,str) or len(password)<8:
+            raise Invalid('A senha precisa ter pelo menos 8 caracteres.')
+        db().execute('BEGIN IMMEDIATE')
+        if db().execute('SELECT 1 FROM users WHERE active=1').fetchone():
+            db().rollback()
+            raise Invalid('O acesso principal já foi criado.',409)
+        uid=db().execute('INSERT INTO users(username,display_name,password_hash,role) VALUES(?,?,?,\'owner\')',
+                         (username,display,generate_password_hash(password))).lastrowid
+        db().commit()
+        session.clear();session['user_id']=uid
+        return jsonify(authenticated=True,user={'id':uid,'username':username,'display_name':display,'role':'owner'}),201
+
+    @app.post('/api/auth/login')
+    def auth_login():
+        data=body()
+        username=clean_username(data.get('username'))
+        password=data.get('password') or ''
+        row=db().execute('SELECT * FROM users WHERE username=? AND active=1',(username,)).fetchone()
+        if not row or not check_password_hash(row['password_hash'],password):
+            raise Invalid('Usuário ou senha incorretos.',401)
+        session.clear();session['user_id']=row['id']
+        return jsonify(authenticated=True,user=public_user(row))
+
+    @app.post('/api/auth/logout')
+    def auth_logout():
+        session.clear()
+        return jsonify(authenticated=False)
+
+    @app.get('/api/users')
+    def list_users():
+        return jsonify([public_user(row) for row in db().execute('SELECT id,username,display_name,role FROM users WHERE active=1 ORDER BY id')])
+
+    @app.post('/api/users')
+    def create_user():
+        if g.current_user.get('role')!='owner':
+            raise Invalid('Somente o responsável pelo estúdio pode criar acessos.',403)
+        data=body()
+        username=clean_username(data.get('username'))
+        display=(data.get('display_name') or '').strip()
+        password=data.get('password') or ''
+        if not display or len(display)>80:
+            raise Invalid('Informe o nome da pessoa.')
+        if not isinstance(password,str) or len(password)<8:
+            raise Invalid('A senha precisa ter pelo menos 8 caracteres.')
+        if db().execute('SELECT COUNT(*) FROM users WHERE active=1').fetchone()[0]>=2:
+            raise Invalid('Este protótipo aceita dois acessos.',409)
+        try:
+            uid=db().execute('INSERT INTO users(username,display_name,password_hash,role) VALUES(?,?,?,\'editor\')',
+                             (username,display,generate_password_hash(password))).lastrowid
+            db().commit()
+        except sqlite3.IntegrityError:
+            db().rollback()
+            raise Invalid('Este usuário já existe.',409)
+        row=db().execute('SELECT id,username,display_name,role FROM users WHERE id=?',(uid,)).fetchone()
+        return jsonify(public_user(row)),201
 
     def campaign(cid):
         row=db().execute('SELECT * FROM campaigns WHERE id=?',(cid,)).fetchone()
@@ -330,6 +453,18 @@ def create_app(config=None):
 
     def assets_of(cid,kind):
         return [dict(r) for r in db().execute('SELECT * FROM assets WHERE campaign_id=? AND kind=? AND active=1 ORDER BY id',(cid,kind))]
+
+    def device_videos_of(cid):
+        rows=[]
+        for row in db().execute('SELECT * FROM device_videos WHERE campaign_id=? ORDER BY slot',(cid,)):
+            item=dict(row)
+            try:
+                item['metadata']=json.loads(item.get('metadata') or '{}')
+            except (TypeError,ValueError):
+                item['metadata']={}
+            item['device_only']=True
+            rows.append(item)
+        return rows
 
     def image_slots_for(c):
         colors=color_variants(c.get('color'))
@@ -389,6 +524,25 @@ def create_app(config=None):
         path_for(row)
         return row
 
+    def need_videos(cid,approved=False):
+        """Return one usable video record per color, including device-only files."""
+        c=campaign(cid)
+        slots=image_slots_for(c)
+        physical={row.get('slot') or '':row for row in assets_of(cid,'video')}
+        local={row.get('slot') or '':row for row in device_videos_of(cid)}
+        rows=[]
+        missing=[]
+        for slot in slots:
+            row=physical.get(slot) or local.get(slot)
+            if not row or (approved and not row.get('approved_at')):
+                missing.append(slot or 'vídeo')
+            else:
+                rows.append(row)
+        if missing:
+            action='Aprove' if approved else 'Selecione'
+            raise Invalid(f"{action} o vídeo de cada cor antes de avançar. Falta: {', '.join(missing)}.",409)
+        return rows
+
     def detail(cid):
         c=campaign(cid)
         c['layout']=json.loads(c['layout'])
@@ -402,6 +556,7 @@ def create_app(config=None):
             a['url']=f"/api/assets/{a['id']}/file"
             a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
             c['assets'].append(a)
+        c['device_videos']=device_videos_of(cid)
         c['product_assets']=[]
         for row in db().execute('SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id',(cid,)):
             a=dict(row)
@@ -460,6 +615,8 @@ def create_app(config=None):
     def clear_after(cid,kinds):
         for kind in kinds:
             db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=?',(cid,kind))
+            if kind=='video':
+                db().execute('DELETE FROM device_videos WHERE campaign_id=?',(cid,))
 
     def save_prompts(cid,values):
         for kind,content in values.items():
@@ -606,7 +763,7 @@ def create_app(config=None):
             raise Invalid('Pasta da campanha inválida.',500)
         db().execute('BEGIN IMMEDIATE')
         try:
-            for table in ('campaign_variants','prompts','product_assets','assets','steps'):
+            for table in ('device_videos','campaign_variants','prompts','product_assets','assets','steps'):
                 db().execute(f'DELETE FROM {table} WHERE campaign_id=?',(cid,))
             db().execute('DELETE FROM campaigns WHERE id=?',(cid,))
             db().commit()
@@ -775,7 +932,7 @@ def create_app(config=None):
         db().commit()
         return jsonify(layout=positions)
 
-    def write_with_llm(campaign, pack, cid=None):
+    def write_with_llm(campaign, pack, cid=None, required=False):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
 
         A auditoria local decide se o texto entra. Reprovado duas vezes, fica o
@@ -791,11 +948,15 @@ def create_app(config=None):
         settings = copywriter.load_settings(app.config['DATA_DIR'])
         if not settings.get('enabled'):
             registrar('local')
+            if required:
+                raise Invalid('Ative e teste o ChatGPT em Configurar escrita por IA antes de gerar o roteiro.', 409)
             return pack, ''
         written, motivo = copywriter.write_script(campaign, settings)
         if not written:
             app.logger.info('Escrita por IA recusada: %s', motivo)
             registrar('local', motivo)
+            if required:
+                raise Invalid('O ChatGPT não gerou um roteiro aprovado: '+(motivo or 'resposta inválida.'), 422)
             return pack, motivo
         merged = dict(pack)
         merged.update({k: written[k] for k in ('hook', 'development', 'cta', 'caption')})
@@ -952,9 +1113,11 @@ def create_app(config=None):
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='image'",(cid,))
         elif kind=='video':
             c=campaign(cid)
+            db().execute('DELETE FROM device_videos WHERE campaign_id=? AND slot=?',(cid,slot))
             slots=image_slots_for(c)
             present={r['slot'] for r in assets_of(cid,'video')}
-            if set(slots).issubset(present) or (slots==[''] and present):
+            present.update(r.get('slot') or '' for r in device_videos_of(cid))
+            if set(slots).issubset(present):
                 state(cid,'video_ready')
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'",(cid,))
         touch(cid)
@@ -1009,6 +1172,55 @@ def create_app(config=None):
             raise
         finally:
             temp.unlink(missing_ok=True)
+        return jsonify(detail(cid)),201
+
+    @app.post('/api/campaigns/<int:cid>/device-video')
+    def register_device_video(cid):
+        """Register a video kept in the phone gallery without receiving its bytes."""
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        need_asset(cid,'image',True)
+        if STATES.index(c['status'])<STATES.index('script_ready'):
+            raise Invalid('Revise o roteiro antes de selecionar o vídeo.',409)
+        name=data.get('original_name')
+        mime=data.get('mime') or 'video/mp4'
+        meta=data.get('metadata') or {}
+        try:
+            size=int(data.get('size') or 0)
+            duration=float(meta.get('duration') or 0)
+            width=int(meta.get('width') or 0)
+            height=int(meta.get('height') or 0)
+        except (TypeError,ValueError):
+            raise Invalid('Não foi possível ler os dados do vídeo.')
+        if not isinstance(name,str) or not name.strip() or len(name)>240:
+            raise Invalid('Nome do vídeo inválido.')
+        if not name.casefold().endswith('.mp4') or mime not in {'video/mp4','application/mp4',''}:
+            raise Invalid('Selecione um vídeo MP4.')
+        if size<=0 or size>250*1024*1024:
+            raise Invalid('O vídeo deve ter até 250 MB.')
+        if duration<=0 or width<=0 or height<=0:
+            raise Invalid('O navegador não conseguiu validar duração e dimensões do vídeo.')
+        slots=image_slots_for(c)
+        slot=(data.get('color') or data.get('slot') or '').strip()
+        if len(slots)==1 and not slot:
+            slot=slots[0]
+        if slot not in slots:
+            raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
+        clean_meta={'duration':round(duration,3),'width':width,'height':height,'device_only':True}
+        db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=\'video\' AND slot=?',(cid,slot))
+        db().execute('''INSERT INTO device_videos(campaign_id,slot,original_name,mime,size,metadata,approved_at,approved_by)
+                        VALUES(?,?,?,?,?,?,NULL,'')
+                        ON CONFLICT(campaign_id,slot) DO UPDATE SET
+                          original_name=excluded.original_name,mime=excluded.mime,size=excluded.size,
+                          metadata=excluded.metadata,approved_at=NULL,approved_by='',created_at=CURRENT_TIMESTAMP''',
+                     (cid,slot,name.strip(),mime or 'video/mp4',size,json.dumps(clean_meta)))
+        present={r.get('slot') or '' for r in assets_of(cid,'video')}
+        present.update(r.get('slot') or '' for r in device_videos_of(cid))
+        if set(slots).issubset(present):
+            state(cid,'video_ready')
+        touch(cid)
+        db().commit()
         return jsonify(detail(cid)),201
 
 
@@ -1314,8 +1526,16 @@ def create_app(config=None):
         allowed={'hook','development','cta','caption'}
         if not isinstance(fields,list) or not fields or any(not isinstance(f,str) or f not in allowed for f in fields):
             raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
+        writer_mode=data.get('writer_mode','auto')
+        if writer_mode not in {'auto','ai','local'}:
+            raise Invalid('Modo de escrita inválido.')
         merged=refresh_script_fields(c,c['color'],current['prompts'],fields=fields)
-        rewritten,_=write_with_llm(c,merged,cid)
+        if writer_mode=='local':
+            patch_checklist(cid, {'writer': {'by': 'local', 'reason': ''}})
+            rewritten=merged
+        else:
+            writer_campaign={**c,'previous_script':{k:current['prompts'].get(k,'') for k in ('hook','development','cta')}}
+            rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
         # Refresh so da legenda nao precisa reescrever as falas.
         merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
         if set(fields)&{'hook','development','cta'}:
@@ -1343,6 +1563,12 @@ def create_app(config=None):
         fields=data.get('fields') or ['hook','caption']
         if not isinstance(fields,list) or any(not isinstance(f,str) for f in fields):
             raise Invalid('Campos inválidos para refresh.')
+        allowed={'hook','development','cta','caption'}
+        if not fields or any(f not in allowed for f in fields):
+            raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
+        writer_mode=data.get('writer_mode','auto')
+        if writer_mode not in {'auto','ai','local'}:
+            raise Invalid('Modo de escrita inválido.')
         current=json.loads(row['prompts'])
         try:
             merged=refresh_script_fields(c,row['color'],current,fields=fields,bump=1)
@@ -1351,6 +1577,14 @@ def create_app(config=None):
         # keep existing image prompt if present
         if current.get('image'):
             merged['image']=current['image']
+        if writer_mode=='local':
+            patch_checklist(cid, {'writer': {'by': 'local', 'reason': ''}})
+        else:
+            writer_campaign={**c,'color':row['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
+            rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
+            merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
+            if set(fields)&{'hook','development','cta'}:
+                merged['video']=rewritten.get('video',merged.get('video'))
         db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(merged,ensure_ascii=False),vid))
         variants=detail(cid)['variants']
         if variants and variants[0]['id']==vid:
@@ -1645,7 +1879,7 @@ def create_app(config=None):
         # Reconcile the legacy approval bug before changing state or checking
         # the selected slot. This also repairs the one-video case when the
         # campaign was already advanced to video_approved.
-        need_asset(cid,'video',True)
+        approved_videos=need_videos(cid,True)
         if c['status']=='video_approved':
             state(cid,'ready_to_publish',True)
             c=campaign(cid)
@@ -1656,12 +1890,12 @@ def create_app(config=None):
         if color not in slots and slots!=['']:
             raise Invalid('Cor inválida para esta campanha.')
         # require approved video for that slot
-        row=asset(cid,'video',color if slots!=[''] else '')
-        if not row and slots==['']:
-            row=asset(cid,'video')
-        if not row or not row['approved_at']:
+        target_slot=color if slots!=[''] else ''
+        row=next((item for item in approved_videos if (item.get('slot') or '')==target_slot),None)
+        if not row:
             raise Invalid(f'Aprove o vídeo da cor {color or "única"} antes de publicar.',409)
-        path_for(row)
+        if not row.get('device_only'):
+            path_for(row)
         checks=data.get('checklist',{})
         if not isinstance(checks,dict) or any(checks.get(k) is not True for k in ['account','product','caption','review','published']):
             raise Invalid('Confirme conta, produto, legenda, revisão e publicação desta cor.',409)
@@ -1928,11 +2162,9 @@ def create_app(config=None):
                 raise Invalid('Gere e revise todos os textos primeiro.',409)
         elif target=='video_approved':
             need_asset(cid,'image',True)
-            rows=need_asset(cid,'video')
+            rows=need_videos(cid)
             # Duration/resolution are advisory only — do not block approval.
             expected=(1080,1920) if c['generator']=='flow' else (720,1280)
-            if not isinstance(rows,list):
-                rows=[rows]
             warnings=[]
             for a in rows:
                 meta=json.loads(a['metadata']) if isinstance(a['metadata'],str) else a['metadata']
@@ -1945,12 +2177,16 @@ def create_app(config=None):
                 # This must not live inside the soft-warning branch: a valid
                 # video has no warning, and a multi-colour campaign needs every
                 # colour marked independently.
-                db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
+                if a.get('device_only'):
+                    db().execute("UPDATE device_videos SET approved_at=CURRENT_TIMESTAMP,approved_by=? WHERE campaign_id=? AND slot=?",
+                                 ((data.get('approved_by') or '').strip()[:80],cid,a.get('slot') or ''))
+                else:
+                    db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
             if warnings:
                 # Keep the note after state() resets the transition checklist.
                 soft_warnings=warnings
         elif target in {'ready_to_publish','published'}:
-            need_asset(cid,'video',True)
+            need_videos(cid,True)
             need_asset(cid,'image',True)
         if target=='published':
             checks=data.get('checklist',{})
@@ -1996,6 +2232,11 @@ def create_app(config=None):
                 prefix={'reference':'referencia-modelo','image':'imagem-aprovada','video':'video-aprovado'}[a['kind']]
                 path=path_for(a)
                 archive.write(path,prefix+path.suffix)
+            if c.get('device_videos'):
+                lines=['Os vídeos abaixo permanecem no dispositivo e não estão incluídos neste ZIP:']
+                for item in c['device_videos']:
+                    lines.append(f"- {item.get('slot') or 'Vídeo'}: {item['original_name']}")
+                archive.writestr('videos-no-dispositivo.txt','\n'.join(lines).encode('utf-8-sig'))
             for number,a in enumerate(c['product_assets'],1):
                 path=path_for(a)
                 archive.write(path,f'produto/referencia-produto-{number:02d}{path.suffix}')
@@ -2387,7 +2628,7 @@ def create_app(config=None):
                 stage='publish'
             if stage!='publish' or c['status'] not in {'ready_to_publish','published','video_approved'}:
                 raise Invalid('Prepare a publicação após aprovar o vídeo.',409)
-            need_asset(cid,'video',True)
+            need_videos(cid,True)
         else:
             if service!=c['generator'] or stage=='publish':
                 raise Invalid('Use o gerador escolhido no briefing.')
