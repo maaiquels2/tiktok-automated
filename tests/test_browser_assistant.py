@@ -28,13 +28,17 @@ class BrowserAssistantTests(unittest.TestCase):
             repeated = self.assistant.open_grok_for_video(12)
         args = popen.call_args.args[0]
         self.assertEqual(args[0], self.executable)
-        self.assertIn('--user-data-dir='+str(self.assistant.profile_root/'flow-maaiquels'), args)
+        self.assertIn('--user-data-dir='+str(self.assistant.profile_root/'gen-maaiquels'), args)
         self.assertEqual(args[-1], 'https://grok.com/imagine')
         self.assertFalse(any('remote-debugging' in arg or 'enable-automation' in arg for arg in args))
-        self.assertEqual(result['mode'], 'manual')
-        self.assertEqual(repeated['profile'], 'flow-maaiquels')
+        # Grok/Flow rodam em Chrome nativo: o modo reporta a origem da janela.
+        self.assertEqual(result['mode'], 'native_chrome')
+        self.assertEqual(repeated['profile'], 'gen-maaiquels')
         self.assertIsNone(self.assistant.playwright)
-        popen.assert_called_once()
+        # A primeira chamada abre a janela; a segunda entra como aba nela.
+        self.assertEqual(popen.call_count, 2)
+        self.assertIn('--new-window', popen.call_args_list[0].args[0])
+        self.assertNotIn('--new-window', popen.call_args_list[1].args[0])
 
     def test_windows_side_by_side_error_is_actionable(self):
         error = OSError('Side by side configuration invalid')
@@ -44,14 +48,18 @@ class BrowserAssistantTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, '14001'):
                 self.assistant.open_grok_for_image(1)
 
-    def test_grok_refuses_active_flow_profile(self):
-        self.assistant.contexts['flow-maaiquels'] = Mock()
+    def test_grok_shares_the_generation_profile_with_flow(self):
+        # Grok e Flow passaram a dividir a mesma janela (abas) no perfil de
+        # geracao. Abrir o Grok com o Flow ativo deixou de ser um erro.
+        self.assistant.contexts['gen-maaiquels'] = Mock()
+        process = Mock()
+        process.poll.return_value = None
         try:
             with patch('services.browser_assistant.installed_browser', return_value=self.executable), \
-                 patch('services.browser_assistant.subprocess.Popen') as popen:
-                with self.assertRaisesRegex(RuntimeError, 'Feche todas as janelas do Flow'):
-                    self.assistant.open_grok_for_image(1)
-                popen.assert_not_called()
+                 patch('services.browser_assistant.subprocess.Popen', return_value=process) as popen:
+                result = self.assistant.open_grok_for_image(1)
+                popen.assert_called_once()
+            self.assertEqual(result['profile'], 'gen-maaiquels')
         finally:
             self.assistant.contexts.clear()
 

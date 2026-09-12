@@ -628,6 +628,11 @@ class BrowserAssistant:
             self.active_gen_campaign_id = 0
 
         url = URLS[service]
+        # Grok e Flow dividem a mesma janela: com o Chrome do perfil de geracao
+        # ja aberto, pedir --new-window criaria uma segunda janela em vez de uma
+        # aba, que e justamente o que o fluxo quer evitar.
+        running = self.native.get(profile)
+        already_open = bool(running and running.poll() is None) or bool(busy)
         args = [
             executable,
             f'--user-data-dir={directory}',
@@ -635,9 +640,10 @@ class BrowserAssistant:
             '--no-first-run',
             '--no-default-browser-check',
             '--disable-session-crashed-bubble',
-            '--new-window',
-            url,
         ]
+        if not already_open:
+            args.append('--new-window')
+        args.append(url)
         try:
             proc = subprocess.Popen(
                 args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL

@@ -7,6 +7,15 @@ def _phrase(value):
     return ' '.join(str(value or '').strip().rstrip('.').split())
 
 
+def _clean_punct(value):
+    """Junta falas sem criar pontuacao dupla ('movimento?.' vira 'movimento?')."""
+    text = ' '.join(str(value or '').split())
+    text = re.sub(r'([!?])\s*\.', r'\1', text)
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    text = re.sub(r'\.{2,}', '.', text)
+    return text.strip()
+
+
 def _pt_br(value):
     """Normalize common production/marketing English before spoken copy is built."""
     text = _phrase(value)
@@ -27,28 +36,6 @@ def _pt_br(value):
     for pattern, replacement in replacements:
         text = re.sub(pattern, replacement, text, flags=re.I)
     return text
-
-
-def _focus(c):
-    """Pick concrete attributes that are actually present in the briefing."""
-    source = ' '.join(_phrase(c.get(key)).casefold() for key in ('product', 'outfit', 'details', 'angle'))
-    angle = _phrase(c.get('angle')).casefold()
-    angle = re.sub(r'^(mostrar|mostre|destacar|destaque|focar em)\s+', '', angle)
-    if angle and angle not in {'detalhes', 'os detalhes', 'o caimento e os detalhes', 'caimento e detalhes'}:
-        return angle
-    known = ('cintura alta', 'cintura média', 'cintura baixa', 'bolso lateral', 'bolso interno',
-             'tecido leve', 'tecido macio', 'tecido encorpado', 'caimento', 'cós largo',
-             'recorte', 'costura', 'alça', 'decote', 'manga', 'barra', 'secagem rápida',
-             'compressão', 'sem transparência', 'estampa', 'acabamento')
-    found=[]
-    for item in known:
-        if item in source and item not in found:
-            found.append(item)
-    if found:
-        return ' e '.join(found[:3])
-    if angle:
-        return angle
-    return 'o caimento e os detalhes da peça'
 
 
 _PRODUCT_FEATURES = (
@@ -240,7 +227,16 @@ def _with_article(value):
     if value.casefold() in articles:
         return f"{articles[value.casefold()]} {value}"
     if ' e ' in value or ',' in value:
-        return value
+        # "bolso lateral e cintura alta" precisa de artigo em cada item, senao a
+        # fala sai como "Olha bolso lateral e cintura alta".
+        parts = [p.strip() for p in re.split(r'\s+e\s+|,\s*', value) if p.strip()]
+        marked = []
+        for part in parts:
+            article = articles.get(part.casefold())
+            marked.append(f'{article} {part}' if article else part)
+        if len(marked) == 1:
+            return marked[0]
+        return ', '.join(marked[:-1]) + ' e ' + marked[-1]
     return f'o detalhe de {value}'
 
 
@@ -378,7 +374,15 @@ def _spoken_line(value, fallback='') -> str:
     )
     meta = ('hook falado:', 'fala (pt-br):', 'desenvolvimento:', 'cta:', 'caption_seed:', 'shot list:')
     kept = [part for part in chunks if not silent_start.search(part) and not any(m in part.casefold() for m in meta)]
-    cleaned = '. '.join(kept).strip()
+    cleaned = ''
+    for part in kept:
+        if not cleaned:
+            cleaned = part
+        elif cleaned.endswith(('.', '!', '?')):
+            cleaned = f'{cleaned} {part}'
+        else:
+            cleaned = f'{cleaned}. {part}'
+    cleaned = _clean_punct(cleaned)
     if not cleaned:
         return _phrase(fallback)
     return cleaned
@@ -455,7 +459,15 @@ def _niche_hashtags(c, color):
     color_tag = _slug_tag(color, 16)
     if product_tag and product_tag not in specific:
         specific.insert(0, product_tag)
-    ordered = specific + ([color_tag] if color_tag else []) + ['TikTokShop', 'Achadinhos', 'ModaFeminina', 'ForYou']
+    # A cauda generica nao pode assumir publico feminino: um produto unissex,
+    # masculino, infantil, de casa ou pet recebia #ModaFeminina e era entregue
+    # para o publico errado.
+    tail = ['TikTokShop', 'Achadinhos']
+    if (_product_family(c) == 'moda' and not _is_unisex(c)
+            and re.search(r'\b(mulher|feminin|elas|meninas|garotas)\w*', blob)):
+        tail.append('ModaFeminina')
+    tail.append('ForYou')
+    ordered = specific + ([color_tag] if color_tag else []) + tail
     # Keep caption readable: 5 tags max, prioritizing searchable product terms.
     uniq = []
     seen = set()
@@ -564,6 +576,12 @@ def build_caption(c, color=None, cta=None, variation_index=0):
     """
     full_product = _pt_br(c.get('product')) or 'essa peça'
     nick = _product_nick(full_product)
+    # A legenda e lida pelo cliente final: concordancia errada ("uma vestido")
+    # derruba a credibilidade da peca inteira.
+    nick_gender = _PIECE_GENDER.get(nick.casefold()) or _piece_forms(c)['art'].replace('a', 'f').replace('o', 'm')
+    fem = nick_gender == 'f'
+    uma, esta, essa, art = ('uma', 'esta', 'essa', 'a') if fem else ('um', 'este', 'esse', 'o')
+    mesma = 'mesma' if fem else 'mesmo'
     color_raw = _phrase(color or c.get('color'))
     parts = color_variants(color_raw)
     color = parts[0] if parts else color_raw
@@ -587,26 +605,26 @@ def build_caption(c, color=None, cta=None, variation_index=0):
             body += f' {shop_cta}'
     else:
         openings = [
-            f'Quer escolher uma {nick} pelo caimento? Olha esta {nick}{color_word}.',
-            f'Antes de decidir pela {nick}, veja este detalhe{color_word}: {detail}.',
-            f'Uma mesma {nick} muda muito no corpo conforme a cor. Esta é a versão {color}.',
-            f'Você usaria esta {nick}{color_word}? Repara {_with_em(detail)}.',
+            f'Quer escolher {uma} {nick} pelo caimento? Olha {esta} {nick}{color_word}.',
+            f'Antes de decidir {"pela" if fem else "pelo"} {nick}, veja este detalhe{color_word}: {detail}.',
+            f'{uma.capitalize()} {mesma} {nick} muda muito no corpo conforme a cor. Esta é a versão {color}.',
+            f'Você usaria {esta} {nick}{color_word}? Repara {_with_em(detail)}.',
             f'Para quem procura {nick}{color_word}, o ponto principal é observar {detail}.',
-            f'Olha a {nick}{color_word} em movimento e confere {detail}.',
+            f'Olha {art} {nick}{color_word} em movimento e confere {detail}.',
         ] if color else [
-            f'Quer escolher uma {nick} pelo caimento? Repara {_with_em(detail)}.',
-            f'Antes de decidir pela {nick}, veja este detalhe: {detail}.',
-            f'Você usaria esta {nick}? Olha como ela veste no corpo.',
+            f'Quer escolher {uma} {nick} pelo caimento? Repara {_with_em(detail)}.',
+            f'Antes de decidir {"pela" if fem else "pelo"} {nick}, veja este detalhe: {detail}.',
+            f'Você usaria {esta} {nick}? Olha como {"ela" if fem else "ele"} veste no corpo.',
             f'Para quem procura {nick}, o ponto principal é observar {detail}.',
-            f'Olha a {nick} em movimento e confere {detail}.',
-            f'Essa {nick} merece um olhar de perto: {detail}.',
+            f'Olha {art} {nick} em movimento e confere {detail}.',
+            f'{essa.capitalize()} {nick} merece um olhar de perto: {detail}.',
         ]
         persuasion_captions = {
-            'economia': f'Quer economizar sem abrir mão do visual? Olha esta {nick}{color_word}.',
-            'qualidade': f'Quer ver qualidade nos detalhes? Repara nesta {nick}{color_word}: {detail}.',
-        'versatilidade': f'Uma {nick}, vários momentos: olha esta {nick}{color_word} em movimento.',
-            'autoestima': f'Quando o caimento ajuda na confiança, o detalhe aparece: olha esta {nick}{color_word}.',
-            'ocasiões': f'Do trabalho ao encontro com as amigas, esta {nick}{color_word} acompanha o movimento.',
+            'economia': f'Quer economizar sem abrir mão do visual? Olha {esta} {nick}{color_word}.',
+            'qualidade': f'Quer ver qualidade nos detalhes? Repara {"nesta" if fem else "neste"} {nick}{color_word}: {detail}.',
+        'versatilidade': f'{uma.capitalize()} {nick}, vários momentos: olha {esta} {nick}{color_word} em movimento.',
+            'autoestima': f'Quando o caimento ajuda na confiança, o detalhe aparece: olha {esta} {nick}{color_word}.',
+            'ocasiões': f'Do trabalho ao encontro com as amigas, {esta} {nick}{color_word} acompanha o movimento.',
         }
         for signal in reversed(_persuasion_signals(c)):
             if signal in persuasion_captions:
@@ -633,154 +651,300 @@ def color_variants(value):
     return variants
 
 
-def _script_variation(c, color, index=0):
-    """Build a varied 15-second script from explicit product evidence.
+# ---------------------------------------------------------------------------
+# Motor de copy: familia de produto, motor de persuasao e orcamento por trecho.
+# Regra de honestidade: necessidade so existe com objecao informada; escassez so
+# existe com oferta real informada. Sem esses campos, o gerador usa desejo, que
+# nao afirma nada alem do que esta no briefing.
+# ---------------------------------------------------------------------------
 
-    Variation changes the persuasion angle (question, comparison, proof or
-    objection), while keeping the same facts. This makes regeneration useful
-    without pretending that the creator tested the item or that it has a detail
-    which was never entered.
-    """
-    product = _pt_br(c.get('product')) or 'produto'
-    color = _phrase(color) or _phrase(c.get('color')) or 'essa cor'
-    focus, features = _focus_parts(c)
+_FAMILY_WORDS = (
+    ('beleza', ('batom', 'base', 'sérum', 'serum', 'creme', 'hidratante', 'protetor solar',
+                'máscara de cílios', 'maquiagem', 'skincare', 'shampoo', 'perfume', 'esmalte', 'gloss')),
+    ('casa', ('organizador', 'cesto', 'pote', 'suporte de parede', 'luminária', 'luminaria',
+              'tapete', 'cortina', 'panela', 'utensílio', 'utensilio', 'almofada', 'edredom')),
+    ('gadget', ('fone', 'carregador', 'cabo usb', 'smartwatch', 'caixa de som', 'teclado', 'mouse', 'power bank')),
+    ('pet', ('coleira', 'comedouro', 'arranhador', 'caminha para', 'brinquedo para cachorro', 'brinquedo para gato')),
+    ('infantil', ('infantil', 'bebê', 'bebe', 'criança', 'crianca', 'kids')),
+)
+
+_FAMILY_VOCAB = {
+    'moda': dict(noun='peça', gender='f', on='no corpo', quality='caimento'),
+    'beleza': dict(noun='produto', gender='m', on='na pele', quality='textura'),
+    'casa': dict(noun='item', gender='m', on='em uso', quality='acabamento'),
+    'gadget': dict(noun='aparelho', gender='m', on='em uso', quality='acabamento'),
+    'pet': dict(noun='item', gender='m', on='no pet', quality='acabamento'),
+    'infantil': dict(noun='peça', gender='f', on='na criança', quality='caimento'),
+}
+
+_PIECE_GENDER = {
+    'legging': 'f', 'calça': 'f', 'saia': 'f', 'blusa': 'f', 'camiseta': 'f', 'camisa': 'f',
+    'peça': 'f', 'bermuda': 'f', 'regata': 'f', 'jaqueta': 'f',
+    'vestido': 'm', 'conjunto': 'm', 'short': 'm', 'top': 'm', 'maiô': 'm', 'biquíni': 'm',
+    'produto': 'm', 'item': 'm', 'aparelho': 'm', 'cropped': 'm', 'macacão': 'm',
+}
+
+_PIECE_WORDS = ('legging', 'vestido', 'conjunto', 'camiseta', 'camisa', 'blusa', 'calça', 'saia',
+                'short', 'top', 'maiô', 'biquíni', 'macacão', 'cropped', 'regata', 'jaqueta', 'bermuda')
+
+# Objecao informada -> dor (usada no hook) e verificacao (usada na prova do meio).
+# A dor e sempre da CATEGORIA, nunca uma afirmacao sobre este produto.
+_OBJECTION_PRESETS = (
+    ('transparencia', ('transparente', 'transparência', 'transparencia', 'aparece a calcinha'),
+     'ficar transparente', 'Olha contra a luz e confira a cobertura'),
+    ('desce', ('desce', 'escorrega', 'não fica no lugar', 'nao fica no lugar', 'cai o tempo todo'),
+     'a peça descer no movimento', 'No movimento dá para ver se o cós segura'),
+    ('tamanho', ('tamanho', 'serve em mim', 'manequim', 'medida', 'numeração', 'numeracao'),
+     'não saber se serve', 'Aqui aparece a peça no corpo inteiro'),
+    ('qualidade', ('qualidade', 'acabamento', 'parece barat', 'frágil', 'fragil'),
+     'parecer barata de perto', 'Repara no acabamento e na costura'),
+    ('durabilidade', ('durabilidade', 'estraga', 'desbota', 'lavagem', 'não dura', 'nao dura'),
+     'não durar muito', 'Olha a costura e o acabamento de perto'),
+    ('conforto', ('conforto', 'incomoda', 'aperta', 'coça', 'coca'),
+     'incomodar no uso', 'Em movimento dá para ver como ela acompanha'),
+    ('preco', ('preço', 'preco', 'caro', 'custo', 'valor'),
+     'pagar caro por uma peça só', 'Olha quantas combinações saem da mesma peça'),
+    ('marca', ('marca o corpo', 'marca tudo', 'sobra', 'aperta demais'),
+     'marcar o corpo', 'De frente e de lado dá para conferir'),
+)
+
+_NICHE_OCCASION = {
+    'academia': 'no treino e depois na rua',
+    'praia': 'na praia e na piscina',
+    'casual': 'no dia a dia',
+    'dia-a-dia': 'em casa e para sair rápido',
+    'intima': 'no dia a dia',
+    'fantasia': 'na festa',
+}
+
+
+def _product_family(c):
+    blob = ' '.join(_phrase(c.get(k)).casefold() for k in ('product', 'outfit', 'details', 'audience'))
+    for family, needles in _FAMILY_WORDS:
+        if any(n in blob for n in needles):
+            return family
+    return 'moda'
+
+
+def _piece_noun(c):
+    # Substantivo real do produto, usado tanto na fala quanto no prompt de imagem.
+    product = _pt_br(c.get('product')).casefold()
+    outfit = _pt_br(c.get('outfit')).casefold()
+    if _is_unisex(c):
+        return 'peça'
+    # O campo "produto" manda: o "outfit" costuma descrever o look inteiro
+    # ("vestido com legging por baixo") e nao a peca que esta sendo vendida.
+    for source in (product, outfit):
+        for name in _PIECE_WORDS:
+            if re.search(r'\b' + re.escape(name) + r'\b', source):
+                return name
+    return _FAMILY_VOCAB[_product_family(c)]['noun']
+
+
+def _piece_forms(c):
+    piece = _piece_noun(c)
+    gender = _PIECE_GENDER.get(piece) or _FAMILY_VOCAB[_product_family(c)]['gender']
+    if gender == 'f':
+        return dict(piece=piece, art='a', de='da', dem='essa', prep='nessa', pron='ela')
+    return dict(piece=piece, art='o', de='do', dem='esse', prep='nesse', pron='ele')
+
+
+def _objection_parts(c):
+    # Retorna (dor, verificacao) a partir do campo de objecao do briefing.
+    raw = _phrase(c.get('objection'))
+    if not raw or _is_meta_field(raw):
+        return '', ''
+    low = raw.casefold()
+    for _key, needles, pain, check in _OBJECTION_PRESETS:
+        if any(n in low for n in needles):
+            return pain, check
+    # Texto livre: usa como dor, sem inventar verificacao.
+    words = raw.split()
+    pain = ' '.join(words[:7]).rstrip('.,;:').casefold()
+    return pain, ''
+
+
+def _offer_text(c):
+    raw = _phrase(c.get('offer'))
+    if not raw or _is_meta_field(raw):
+        return ''
+    return ' '.join(raw.split()[:10]).rstrip('.,;:')
+
+
+def _dominant_motor(c):
+    if _objection_parts(c)[0]:
+        family = _product_family(c)
+        if family != 'moda':
+            return 'necessidade'
+        if (c.get('niche') or '') in ('academia', 'dia-a-dia'):
+            return 'necessidade'
+        return 'necessidade'
+    return 'desejo'
+
+
+def _count_words(text):
+    return len([w for w in _phrase(text).split() if w])
+
+
+def _pick_in_budget(candidates, index, low, high):
+    # Prefere as opcoes dentro do orcamento falado; se nenhuma couber, usa a mais curta.
+    clean = [c for c in candidates if _phrase(c)]
+    if not clean:
+        return ''
+    fits = [c for c in clean if low <= _count_words(c) <= high]
+    if not fits:
+        # Nenhum candidato coube: usa os mais proximos da faixa, nao os mais
+        # curtos - um hook curto demais vira rotulo e nao prende ninguem.
+        def distance(item):
+            n = _count_words(item)
+            return low - n if n < low else (n - high if n > high else 0)
+        fits = sorted(clean, key=distance)[:3]
+    return fits[int(index or 0) % len(fits)]
+
+
+def _hook_pool(c, detail, forms):
+    # Orcamento do hook: 10 a 12 palavras (4s a 2,8 palavras por segundo).
+    dem, prep, piece, art = forms['dem'], forms['prep'], forms['piece'], forms['art']
+    det = _phrase(detail)
+    det_em = _with_em(det)
+    pain, _check = _objection_parts(c)
+    offer = _offer_text(c)
+    desejo = [
+        f'Olha {det} com {art} {piece} em movimento, bem de perto.',
+        f'É {det} que muda o visual inteiro {prep} {piece}.',
+        f'Antes de escolher {dem} {piece}, repara {det_em} com calma.',
+        f'Vale olhar {det} bem de perto antes de decidir.',
+        f'O que decide {prep} {piece} é {det}. Olha só.',
+        f'Poucas pessoas reparam {det_em}, e é o que muda tudo.',
+    ]
+    necessidade = []
+    if pain:
+        necessidade = [
+            f'Se você já desistiu {forms["de"]} {piece} por {pain}, olha isto.',
+            f'O que mais segura a compra costuma ser {pain}. Olha isto.',
+            f'Como saber se vai {pain}? Repara {det_em} agora.',
+            f'Cansou de {pain}? Então olha {det} com atenção.',
+        ]
+    escassez = []
+    if offer:
+        escassez = [
+            f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes de acabar.',
+            f'Antes de acabar: {offer}. Repara {det_em}.',
+        ]
+    motor = _dominant_motor(c)
+    order = {
+        'necessidade': [necessidade, desejo, escassez],
+        'desejo': [desejo, necessidade, escassez],
+    }[motor]
+    if offer:
+        order.insert(1, escassez)
+    pool = []
+    for group in order:
+        for item in group:
+            if item and item not in pool:
+                pool.append(item)
+    return pool
+
+
+def _development_line(c, detail, features, forms, index):
+    # Tres batidas: prova (4-6s), objecao quebrada (6-10s), posse (10-12s).
+    # Orcamento total: 20 a 24 palavras. Se estourar, cai a posse primeiro -
+    # a prova nunca e descartada.
+    feats = list(features or [])
+    benefit_preview = _benefit_clause(c).casefold()
+    # Se o beneficio ja cita o primeiro fato, a prova usa o segundo. Repetir a
+    # mesma palavra em duas batidas queima segundos sem acrescentar argumento.
+    if feats and len(feats) > 1 and feats[0].casefold() in benefit_preview:
+        det = _with_article(feats[1])
+    else:
+        det = _phrase(detail)
+    det_em = _with_em(det)
+    provas = [
+        f'Olha {det} de perto.',
+        f'Repara {det_em} com calma.',
+        f'Aqui aparece {det}.',
+        f'Começa {det_em}.',
+    ]
+    prova = provas[int(index or 0) % len(provas)]
+    _pain, check = _objection_parts(c)
     benefit = _benefit_clause(c)
-    audience = _pt_br(c.get('audience'))
-    piece = next((name for name in (
-        'legging', 'vestido', 'conjunto', 'camiseta', 'blusa', 'calça', 'saia', 'short', 'top', 'maiô', 'biquíni'
-    ) if re.search(r'\b' + name + r'\b', product.casefold())), 'produto')
-    unisex = _is_unisex(c)
-    if unisex:
-        piece = 'peça'
-    feminine = unisex or piece in {'legging', 'camiseta', 'blusa', 'calça', 'saia', 'legging', 'camisa'}
-    article = 'essa' if feminine else 'esse'
-    prep = 'nessa' if feminine else 'nesse'
-    # Keep hooks short with one hero detail; let the development demonstrate
-    # the complete angle entered by the operator.
-    hook_detail = _with_article(features[0] if features else focus if focus else 'o caimento')
-    detail = _with_article(focus if focus else 'o caimento')
-    # Four-second hooks are intentionally complete and specific. Keep the
-    # sentences short enough to speak naturally, but longer than a label.
-    hooks = [
-        f'Quer ver {article} {piece} no corpo? Veja {hook_detail} na versão {color}.',
-        f'Como fica {article} {piece} em movimento? Olha {hook_detail} em {color}.',
-        f'Pensando {prep} {piece}? Veja de perto {hook_detail} antes de escolher a versão {color}.',
-        f'Você usaria {article} {piece} em {color}? Olha {hook_detail} no corpo.',
-        f'Antes de escolher {article} {piece}, confira {hook_detail} nesta versão {color}.',
-        f'O que vale observar {prep} {piece}? {hook_detail.capitalize()} na versão {color}.',
-        f'Quer conferir como {article} {piece} veste? Repara {_with_em(hook_detail)} na cor {color}.',
-        f'Dá para notar {hook_detail} logo no primeiro olhar para {article} {piece} em {color}.',
-        f'Essa versão {color} mostra {hook_detail} sem esconder os detalhes da peça.',
-        f'Se você procura {article} {piece} para treinar, observe {hook_detail} em {color}.',
-        f'Repara no que muda no visual: {hook_detail} nesta {piece} {color}.',
-        f'Vale observar {hook_detail} antes de escolher {article} {piece} na cor {color}.',
-    ]
-    persuasion_hooks = {
-        'economia': f'Quer economizar sem abrir mão do visual? Veja {hook_detail} na versão {color}.',
-        'qualidade': f'Quer conferir a qualidade? Observe {hook_detail} de perto na versão {color}.',
-        'versatilidade': f'Uma peça, vários momentos: veja {hook_detail} na versão {color}.',
-        'autoestima': f'Um bom caimento muda a confiança? Veja {hook_detail} na versão {color}.',
-        'ocasiões': f'Do trabalho ao encontro com as amigas: veja {hook_detail} na versão {color}.',
-    }
-    # Put the strongest explicit angle first, then deduplicate while retaining
-    # twelve useful regeneration options and the concrete product detail.
-    for signal in reversed(_persuasion_signals(c)):
-        candidate = persuasion_hooks[signal]
-        if 9 <= len(candidate.split()) <= 16:
-            hooks.insert(0, candidate)
-    unique_hooks = []
-    for candidate in hooks:
-        if candidate.casefold() not in {item.casefold() for item in unique_hooks}:
-            unique_hooks.append(candidate)
-    hooks = unique_hooks[:12]
-
     benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
-    if benefit_text:
+    if check:
+        meio = _sentence(check)
+    elif benefit_text:
         if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega)\b', benefit_text, re.I):
-            spoken_benefit = f'essa peça {benefit_text}'
-        elif re.match(r'^versát(?:il|eis)\b|^versat(?:il|eis)\b', benefit_text, re.I):
-            spoken_benefit = f'essa peça é {benefit_text}'
+            meio = _sentence(f'{forms["dem"].capitalize()} {forms["piece"]} {benefit_text}')
         else:
-            spoken_benefit = f'essa peça tem {benefit_text}'
+            meio = _sentence(f'{forms["dem"].capitalize()} {forms["piece"]} tem {benefit_text}')
     else:
-        spoken_benefit = ''
-    # Demographic labels (especially age ranges) belong in targeting metadata,
-    # not in the creator's spoken line. They make the sentence artificial and
-    # do not prove anything about the product.
-    audience_prefix = ''
-    benefit_line = f'{audience_prefix}{spoken_benefit}.' if spoken_benefit else ''
-    # These are spoken lines. Camera directions belong to the video prompt below,
-    # so the model never has to say "aproxime a câmera" on screen.
-    persuasion_evidence = {
-        'economia': f'Olha a economia na prática: {detail}. {benefit_line}',
-        'qualidade': f'Repara na qualidade visível: {detail}. {benefit_line}',
-        'versatilidade': f'Essa peça funciona em vários momentos: {detail}. {benefit_line}',
-        'autoestima': f'Olha como o caimento muda a confiança: {detail}. {benefit_line}',
-        'ocasiões': f'Do trabalho ao encontro, {detail} aparece em movimento. {benefit_line}',
-    }
-    evidence = [persuasion_evidence[s] for s in _persuasion_signals(c) if s in persuasion_evidence] + [
-        f'Veja {detail}. {benefit_line}',
-        f'Olha {detail} em movimento. {benefit_line}',
-        f'Aqui aparece {detail}. {benefit_line}',
-        f'No treino, dá para observar {detail}. {benefit_line}',
-        f'Vale notar {detail}. {benefit_line}',
-        f'De frente e de lado, dá para observar {detail}. {benefit_line}',
-    ]
-    evidence += [
-        f'Observe {detail} com a peça no corpo. {benefit_line}',
-        f'O detalhe mais importante aqui é {detail}. {benefit_line}',
-        f'Na prática, repare {_with_em(detail)}. {benefit_line}',
-        f'Para decidir, veja {detail} no corpo. {benefit_line}',
-        f'Fica fácil conferir {detail} nesta peça. {benefit_line}',
-        f'Olhe de frente e em movimento para notar {detail}. {benefit_line}',
-    ]
-    evidence = evidence[:12]
-    developments = [line.strip() for line in evidence]
-    # A CTA should state the next action and only mention multiple colours when
-    # the brief actually contains a colour list.
+        meio = ''
+    occasion = _NICHE_OCCASION.get((c.get('niche') or '').strip(), '')
+    posse = _sentence(f'Dá para usar {occasion}') if occasion else ''
+    beats = [b for b in (_sentence(prova), meio, posse) if b]
+    while len(beats) > 1 and _count_words(' '.join(beats)) > 24:
+        beats.pop()
+    return ' '.join(beats)
+
+
+def _cta_pool(c, forms):
+    # Orcamento do CTA: 7 a 9 palavras.
+    piece, dem, art = forms['piece'], forms['dem'], forms['art']
     colors = color_variants(c.get('color'))
+    pain, _check = _objection_parts(c)
+    offer = _offer_text(c)
+    direto = [
+        'Toque no produto marcado e confira os detalhes.',
+        'Toque no produto marcado e veja os tamanhos.',
+        f'Quer {art} {piece}? Está no produto marcado.',
+    ]
     if len(colors) > 1:
-        ctas = [
-            'Gostou? Toque no produto marcado e confira esta cor.',
-            'Quer comparar as cores? Toque no produto marcado.',
-            'Salve o vídeo e escolha sua cor no produto marcado.',
-            'Toque no produto marcado e veja as opções disponíveis.',
-            'Escolha a sua cor no produto marcado e confira os detalhes.',
-            'Comente sua cor favorita e toque no produto marcado para ver as opções.',
-            'Veja esta cor no produto marcado e confira os detalhes.',
-            'Toque no produto marcado para comparar as opções.',
-            'Gostou desta versão? Confira a cor no produto marcado.',
-            'Salve para depois e veja os tamanhos no produto marcado.',
-            'Confira a disponibilidade desta cor no produto marcado.',
-            'Escolha a sua preferida tocando no produto marcado.',
-        ]
-    else:
-        ctas = [
-            'Gostou? Toque no produto marcado e confira os detalhes.',
-            f'Quer {article} {piece}? Toque no produto marcado.',
-            'Salve o vídeo e toque no produto marcado para ver a peça.',
-            'Toque no produto marcado e confira o tamanho disponível.',
-            'Veja os detalhes no produto marcado e escolha o seu tamanho.',
-            'Se fizer sentido para você, toque no produto marcado para conferir.',
-            'Confira esta peça no produto marcado.',
-            'Toque no produto marcado e veja as opções disponíveis.',
-            'Salve o vídeo e confira a peça no produto marcado.',
-            'Veja o tamanho disponível no produto marcado.',
-            'Gostou do caimento? Confira os detalhes no produto marcado.',
-            'Escolha o seu tamanho tocando no produto marcado.',
-        ]
+        direto = [
+            'Toque no produto marcado e escolha a sua cor.',
+            'As cores estão todas no produto marcado.',
+            'Escolha a sua cor no produto marcado.',
+        ] + direto
+    condicional = [f'Se isso te incomoda, está no produto marcado.'] if pain else []
+    escassez = [_sentence(f'{offer}. Confira no produto marcado')] if offer else []
+    posse = [
+        'Pega a sua no produto marcado.',
+        f'Leve {dem} {piece} pelo produto marcado.',
+    ]
+    motor = _dominant_motor(c)
+    order = ([condicional, direto, posse] if motor == 'necessidade' else [posse, direto, condicional])
+    if offer:
+        order.insert(0, escassez)
+    pool = []
+    for group in order:
+        for item in group:
+            if item and item not in pool:
+                pool.append(item)
+    return pool
+
+
+def _script_variation(c, color, index=0):
+    # Constroi as tres falas a partir de evidencia explicita do briefing.
+    # A cor NAO entra no hook: o espectador ja a ve na tela, e cada palavra do
+    # hook vale ~0,36s. Ela permanece na legenda e no prompt de imagem.
+    forms = _piece_forms(c)
+    focus, features = _focus_parts(c)
+    hook_detail = _with_article(features[0] if features else (focus or 'o caimento'))
+    detail = _with_article(focus if focus else 'o caimento')
     i = int(index or 0)
-    selected_hook = hooks[i % len(hooks)]
-    selected_development = developments[i % len(developments)]
-    selected_cta = ctas[i % len(ctas)]
-    # A long audience label can push an otherwise good script past 15 seconds.
-    # Remove that optional context before cutting a factual product sentence.
-    if len(' '.join((selected_hook, selected_development, selected_cta)).split()) > 45 and audience_prefix:
-        selected_development = selected_development.replace(audience_prefix, '', 1).lstrip()
-    if len(' '.join((selected_hook, selected_development, selected_cta)).split()) > 45:
-        sentences = [part.strip() for part in re.split(r'(?<=[.!?])\s+', selected_development) if part.strip()]
-        if len(sentences) > 1:
-            selected_development = sentences[-1]
+
+    selected_hook = _pick_in_budget(_hook_pool(c, hook_detail, forms), i, 10, 13)
+    selected_development = _development_line(c, detail, features, forms, i)
+    selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10)
+
+    # Teto absoluto de 45 palavras faladas (~15s). Se estourar, encurta o
+    # desenvolvimento pela ultima batida, nunca pela prova.
+    def total():
+        return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
+    if total() > 45:
+        sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
+        while len(sentences) > 1 and total() > 45:
+            sentences.pop()
+            selected_development = ' '.join(sentences)
+
     if selected_development and selected_development[0].islower():
         selected_development = selected_development[0].upper() + selected_development[1:]
     selected_development = re.sub(
@@ -788,10 +952,20 @@ def _script_variation(c, color, index=0):
         lambda m: m.group(1).upper(),
         selected_development,
     )
-    selected_hook = re.sub(r'([!?])\.', r'\1', selected_hook)
-    selected_development = re.sub(r'([!?])\.', r'\1', selected_development)
-    selected_cta = re.sub(r'([!?])\.', r'\1', selected_cta)
+    selected_hook = _clean_punct(selected_hook)
+    selected_development = _clean_punct(selected_development)
+    selected_cta = _clean_punct(selected_cta)
     return selected_hook, selected_development, selected_cta
+
+
+def script_budget(hook, development, cta):
+    # Orcamento falado por trecho, usado pela interface e pelo prompt de video.
+    return {
+        'hook': dict(words=_count_words(hook), low=10, high=12),
+        'development': dict(words=_count_words(development), low=20, high=24),
+        'cta': dict(words=_count_words(cta), low=7, high=9),
+        'total': dict(words=_count_words(' '.join((hook, development, cta))), low=38, high=45),
+    }
 
 
 def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
@@ -924,12 +1098,13 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
         f"0–4s HOOK: plano médio frontal, olhar na lente, produto já visível no corpo; "
         f"micro-gesto que aponta/mostra a peça. Fala (PT-BR): \"{hook}\"\n"
-        f"4.0–6.0s PROVA 1: câmera se aproxima OU mostra de perto o detalhe que vende (tecido, cós, alça, barra, acessório). "
-        f"Mãos tocam o produto de forma natural. Iniciar a fala do desenvolvimento, distribuída entre 4 e 12s.\n"
-        f"6.0–11.0s PROVA 2: movimento completo que demonstra o benefício ({benefit_l}) — "
-        f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis. "
-        f"Fala (PT-BR, somente esta frase; câmera e demonstração ficam silenciosas): \"{development}\"\n"
-        f"11.0–12.0s DESEJO: plano médio de novo, sorriso confiante, 1 detalhe hero do produto em destaque.\n"
+        f"4–12s DESENVOLVIMENTO — uma única fala, dita de forma contínua e natural neste intervalo; "
+        f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
+        f"   · 4–6s PROVA 1 (somente câmera, sem nova fala): aproxima OU mostra de perto o detalhe que vende "
+        f"(tecido, cós, alça, barra, acessório); mãos tocam o produto de forma natural.\n"
+        f"   · 6–11s PROVA 2 (somente câmera, sem nova fala): movimento completo que demonstra o benefício ({benefit_l}) — "
+        f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis.\n"
+        f"   · 11–12s DESEJO (somente câmera, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
         f"12–15s CTA: olhar para a lente e manter as mãos naturais, sem acenar nem levantar os braços; o produto marcado pode ser indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
         f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
         f"Estilo visual: {style}. Tom de performance: {tone}. "
@@ -943,11 +1118,13 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
 
 def generate_variants(c):
     colors = color_variants(c.get('color'))
-    return [{'color': color, 'prompts': generate({**c, 'color': color}, variant_index=index)}
+    # A primeira cor cria a fotografia-base; as seguintes sao edicao localizada
+    # dessa base, o que mantem cenario, pose e enquadramento identicos.
+    return [{'color': color, 'prompts': generate({**c, 'color': color}, variant_index=index, base_image=index > 0)}
             for index, color in enumerate(colors)]
 
 
-def generate(c, script=None, variant_index=0):
+def generate(c, script=None, variant_index=0, base_image=False):
     # Always treat color as a single variant for one image/video package.
     colors = color_variants(c.get('color'))
     if len(colors) > 1:
@@ -990,19 +1167,37 @@ def generate(c, script=None, variant_index=0):
     if len(angle_context_words) > 16:
         angle_context = ' '.join(angle_context_words[:16]) + '…'
     scene_lock = _scene_lock(c)
+    forms = _piece_forms(c)
+    piece_ref = f"{forms['art']} {forms['piece']}"
+    # Dois modos incompativeis nao podem conviver no mesmo prompt. Na primeira
+    # cor ainda nao existe imagem aprovada: pedir "edicao localizada" de uma
+    # foto-base inexistente derruba a adesao do modelo a todas as instrucoes.
+    if base_image:
+        mode_block = (
+            "EDIÇÃO LOCALIZADA: trate a imagem aprovada desta campanha como a fotografia-base final, não como inspiração para uma nova cena. "
+            "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, peças complementares, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica. "
+            f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante da imagem visualmente idêntico. "
+            "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere as peças complementares, não crie outro ângulo e não gere uma nova fotografia. "
+        )
+    else:
+        mode_block = (
+            "FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA: esta é a primeira imagem da campanha. "
+            "Gere uma fotografia inédita usando a referência anexada apenas como fonte de identidade da modelo. "
+            f"Enquadre a pessoa inteira ou até os joelhos, com {piece_ref} claramente visível e bem iluminada. "
+            "Pose natural e estável, mãos corretas, olhar na câmera ou levemente para o lado. "
+            "Esta imagem será a base fotográfica das outras cores: escolha um enquadramento que possa ser repetido. "
+        )
     image = (
         identity + product_reference + f"Roupa: {_pt_br(c['outfit'])}. Cor: {c['color']}. Produto: {product}. "
-        "EDIÇÃO LOCALIZADA: trate a imagem aprovada da modelo como a fotografia-base final, não como inspiração para uma nova cena. "
-        "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, top, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica. "
-        "Altere somente a área ocupada pela legging, mantendo todo o restante da imagem visualmente idêntico. "
-        "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere o top, não crie outro ângulo e não gere uma nova fotografia. "
-        f"VARIAÇÃO ÚNICA: gere somente esta cor ({c['color']}); não misture cores nem crie outras versões na mesma imagem. "
+        + mode_block
+        + f"VARIAÇÃO ÚNICA: gere somente esta cor ({c['color']}); não misture cores nem crie outras versões na mesma imagem. "
         f"FATOS DO PRODUTO A PRESERVAR: {facts_for_image}. "
         f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials_for_image}; preservar textura, brilho e caimento sem substituir por outro material. "
         f"FOCO VISUAL: {_focus_parts(c)[0]}. "
         + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
-        + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores; fundo nítido, sem desfoque e sem substituição. Se existir imagem aprovada de outra cor, usá-la como referência do cenário sem copiar a cor da roupa. "
-        + "INTEGRAÇÃO FOTOGRÁFICA: a legging nova deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. "
+        + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores; fundo nítido, sem desfoque e sem substituição. "
+        + ("Use a imagem aprovada da campanha como referência do cenário, sem copiar a cor da roupa. " if base_image else "")
+        + ("INTEGRAÇÃO FOTOGRÁFICA: a peça substituída deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. " if base_image else "")
         + "Contexto de comunicação (não inserir texto nem inventar atributo): "
         f"público {_pt_br(c['audience']) or 'geral'}; ângulo {angle_context or 'mostrar detalhes do produto'}. "
         f"Estilo: {_pt_br(c['style']) or 'natural e realista'}. Tom: {_pt_br(c['tone']) or 'conversacional'}. "
@@ -1030,11 +1225,11 @@ def generate(c, script=None, variant_index=0):
 
 def package_text(c):
     p = c['prompts']
-    blocks = [f"FÁBRICA TIKTOK  -  CAMPANHA {c['id']:04d}", c['name'],
+    blocks = [f"FÁBRICA TIKTOK — CAMPANHA {c['id']:04d}", c['name'],
               f"Modelo: {c['model_name']}\nProduto: {c['product']}\nLook: {c['outfit']} · {c['color']}",
               f"Destino: {c['generator'].upper()} · 9:16 · 15 segundos\nEstado: {c['status']}"]
     if c.get('product_assets'):
-        blocks.append('FOTOS DO PRODUTO  -  anexar após a referência da modelo\n'+'\n'.join(
+        blocks.append('FOTOS DO PRODUTO — anexar após a referência da modelo\n'+'\n'.join(
             f"{i}. {a['original_name']}" for i,a in enumerate(c['product_assets'],1)))
     if c.get('movements'):
         blocks.append(f"MOVIMENTOS DO PRODUTO\n{c['movements']}")
@@ -1046,7 +1241,7 @@ def package_text(c):
             for a in images))
     for variant in c.get('variants',[]):
         vp=variant.get('prompts',{})
-        blocks.append(f"VARIAÇÃO DE COR  -  {variant['color']}\n"
+        blocks.append(f"VARIAÇÃO DE COR — {variant['color']}\n"
                       f"PROMPT DE IMAGEM\n{vp.get('image','')}\n"
                       f"PROMPT DE VÍDEO\n{vp.get('video','')}\n"
                       f"ROTEIRO\n{vp.get('hook','')}\n{vp.get('development','')}\n{vp.get('cta','')}\n"

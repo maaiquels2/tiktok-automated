@@ -23,7 +23,7 @@ from services.prompts import color_variants, generate, generate_variants, packag
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
-FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','generator']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','objection','offer','generator']
 PROMPTS = ['image','video','hook','development','cta','caption']
 NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
 
@@ -50,6 +50,30 @@ def create_app(config=None):
         conn.execute('PRAGMA foreign_keys=ON')
         return conn
 
+    def daily_backup():
+        """Copia diaria do banco, com 10 dias de historico.
+
+        Todo o trabalho da fabrica vive neste arquivo e ele fica fora do Git de
+        proposito. Sem copia automatica, um disco com defeito ou um `data/`
+        apagado por engano levam campanhas, playbook, identidade e historico.
+        """
+        try:
+            if not db_path.exists() or db_path.stat().st_size == 0:
+                return
+            folder = app.config['DATA_DIR']/'backups'
+            folder.mkdir(parents=True,exist_ok=True)
+            from datetime import date
+            target = folder/f'fabrica-{date.today().isoformat()}.db'
+            if not target.exists():
+                with closing(connect()) as conn, closing(sqlite3.connect(target)) as dest:
+                    conn.backup(dest)
+            copies = sorted(folder.glob('fabrica-*.db'))
+            for old_copy in copies[:-10]:
+                old_copy.unlink(missing_ok=True)
+        except Exception as exc:
+            # Backup nunca pode impedir o app de subir.
+            app.logger.warning('Backup diario nao realizado: %s', exc)
+
     def migrate():
         with closing(connect()) as conn:
             version=conn.execute('PRAGMA user_version').fetchone()[0]
@@ -66,7 +90,7 @@ def create_app(config=None):
                 generator TEXT NOT NULL DEFAULT 'flow',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             columns={r['name'] for r in conn.execute('PRAGMA table_info(campaigns)')}
-            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note','niche']}
+            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note','niche','objection','offer']}
             additions.update(version='INTEGER NOT NULL DEFAULT 1',layout="TEXT NOT NULL DEFAULT '{}'",
                              checklist="TEXT NOT NULL DEFAULT '{}'",published_url="TEXT NOT NULL DEFAULT ''")
             for name,definition in additions.items():
@@ -131,7 +155,9 @@ def create_app(config=None):
             """)
             conn.commit()
             conn.execute('PRAGMA journal_mode=WAL')
+    daily_backup()   # snapshot antes de qualquer migracao
     migrate()
+    daily_backup()   # primeira execucao: o banco so passa a existir aqui
     browser_init_lock = threading.Lock()
 
     def db():
@@ -342,9 +368,34 @@ def create_app(config=None):
             c['variants'].append(variant)
         return c
 
+    def read_checklist(cid):
+        row=db().execute('SELECT checklist FROM campaigns WHERE id=?',(cid,)).fetchone()
+        try:
+            data=json.loads((row['checklist'] if row else '') or '{}')
+        except (TypeError,ValueError):
+            data={}
+        return data if isinstance(data,dict) else {}
+
+    def patch_checklist(cid,updates):
+        """Mescla chaves no checklist em vez de sobrescrever o objeto inteiro."""
+        data=read_checklist(cid)
+        data.update(updates or {})
+        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(data,ensure_ascii=False),cid))
+        return data
+
     def state(cid,target,human=False):
         index=STATES.index(target)
-        db().execute("UPDATE campaigns SET status=?,checklist='{}',published_url='',migration_note='' WHERE id=?",(target,cid))
+        # O checklist guarda quatro coisas diferentes: confirmacoes da transicao,
+        # cores ja publicadas (slots), metricas e insights. Zerar o objeto a cada
+        # transicao apagava registro de publicacao e metricas em silencio.
+        previous=read_checklist(cid)
+        row=db().execute('SELECT published_url FROM campaigns WHERE id=?',(cid,)).fetchone()
+        kept={k:v for k,v in previous.items() if k in ('performance','insights')}
+        if index>=STATES.index('ready_to_publish') and isinstance(previous.get('slots'),dict):
+            kept['slots']=previous['slots']
+        keep_url=((row['published_url'] if row else '') or '') if index>=STATES.index('published') else ''
+        db().execute("UPDATE campaigns SET status=?,checklist=?,published_url=?,migration_note='' WHERE id=?",
+                     (target,json.dumps(kept,ensure_ascii=False),keep_url,cid))
         for i,name in enumerate(STATES):
             if i<=index:
                 db().execute('UPDATE steps SET completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP) WHERE campaign_id=? AND name=?',(cid,name))
@@ -1767,12 +1818,10 @@ def create_app(config=None):
                     raise Invalid('Use um link HTTPS do TikTok.')
         state(cid,target,True)
         if soft_warnings:
-            db().execute(
-                'UPDATE campaigns SET checklist=? WHERE id=?',
-                (json.dumps({'video_soft_warnings':soft_warnings},ensure_ascii=False),cid),
-            )
+            patch_checklist(cid,{'video_soft_warnings':soft_warnings})
         if target=='published':
-            db().execute('UPDATE campaigns SET checklist=?,published_url=? WHERE id=?',(json.dumps(checks),url,cid))
+            patch_checklist(cid,checks)
+            db().execute('UPDATE campaigns SET published_url=? WHERE id=?',(url,cid))
         touch(cid)
         db().commit()
         return jsonify(detail(cid))

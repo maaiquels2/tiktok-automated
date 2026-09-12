@@ -66,7 +66,10 @@ export function Uploader({kind,busy,onUpload,exists=false,disabled=false,color})
   const names={reference:'referência da modelo',image:color?`imagem · ${color}`:'imagem gerada',video:color?`vídeo · ${color}`:'vídeo MP4'};
   return <><input ref={ref} type="file" hidden accept={kind==='video'?'video/mp4,.mp4':'image/jpeg,image/png,image/webp'} onChange={e=>{const f=e.target.files?.[0];if(f)onUpload(kind,f,color);e.target.value=''}}/><button className="upload-button" onClick={()=>ref.current.click()} disabled={busy||disabled}>{kind==='video'?<Film size={18}/>:<ImagePlus size={18}/>} {exists?'Substituir':'Anexar'} {names[kind]}</button><small className="help">{kind==='video'?'MP4 · até 250 MB · 15s · vertical 9:16':'JPG, PNG ou WebP · até 40 MB'}</small></>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',generator:'flow'};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow'};
+// Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
+// lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
+export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
 export const NICHES=[{id:'praia',label:'Moda praia'},{id:'academia',label:'Moda academia'},{id:'casual',label:'Moda casual'},{id:'dia-a-dia',label:'Moda dia a dia'},{id:'intima',label:'Moda íntima'},{id:'fantasia',label:'Fantasia'}];
 export function ProductGallery({photos=[]}){
   if(!photos.length)return null;
@@ -799,6 +802,18 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
       </label>
       <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>
+      <section className="sell-fields" aria-label="Argumento de venda">
+        <div className="section-title"><h3>Argumento de venda</h3><span className="help">Opcional, mas muda muito o roteiro</span></div>
+        <label>O que mais segura a compra?
+          <input list="objection-options" value={draft.objection||''} onChange={e=>change('objection',e.target.value)} placeholder="Escolha ou escreva a dúvida do cliente" maxLength={500}/>
+          <datalist id="objection-options">{OBJECTIONS.map(o=><option key={o} value={o}/>)}</datalist>
+          <small className="help">Com esse campo preenchido, o hook passa a falar da dor do cliente e o meio do roteiro mostra a prova que derruba a dúvida.</small>
+        </label>
+        <label>Oferta real (se existir)
+          <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
+          <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
+        </label>
+      </section>
       <section className="generator-choice" aria-label="Escolha do gerador">
         <div className="section-title"><h3>Gerador</h3><span className="help">Escolha como criar imagem e vídeo</span></div>
         <p className="help generator-choice-help">A opção fica visível para você trocar entre os dois serviços antes de salvar o briefing.</p>

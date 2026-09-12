@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image
 from app import create_app
-from services.prompts import build_caption, generate, refresh_script_fields
+from services.prompts import build_caption, generate, refresh_script_fields, script_budget
 
 
 def image_bytes():
@@ -156,6 +156,87 @@ class WorkflowTests(unittest.TestCase):
                 self.assertNotIn('mudou meu treino',prompt['hook'])
                 self.assertNotIn('Antes eu duvidava',prompt['hook'])
 
+    def test_daily_backup_keeps_a_copy_of_the_database(self):
+        # Todo o trabalho vive em data/ e essa pasta fica fora do Git. Sem copia
+        # automatica, perder o disco e perder campanhas, playbook e historico.
+        backups=sorted((Path(self.config['DATA_DIR'])/'backups').glob('fabrica-*.db'))
+        self.assertTrue(backups,'a inicializacao precisa gerar a copia do dia')
+        self.assertGreater(backups[-1].stat().st_size,0)
+        with sqlite3.connect(backups[-1]) as copy:
+            names={row[0] for row in copy.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        self.assertIn('campaigns',names)
+
+    def test_transition_preserves_metrics_and_publish_slots(self):
+        # O checklist guarda quatro coisas; zera-lo a cada transicao apagava
+        # metricas e registro de publicacao em silencio.
+        self.video_approved()
+        response=self.post('/performance',{'color':'Azul','metrics':{'views_7d':1200,'watch_pct':38}})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(self.post('/transition',{'target':'ready_to_publish','confirmed':True}).status_code,200)
+        checklist=self.get()['checklist']
+        self.assertIn('performance',checklist)
+        self.assertEqual(checklist['performance']['Azul']['views_7d'],1200)
+
+    def test_objection_drives_the_hook_and_the_middle_beat(self):
+        campaign=dict(model_name='Micaela',product='legging cintura alta',outfit='legging',color='preto',
+                      audience='mulheres que treinam',benefit='tem cós largo',angle='mostrar o cós',
+                      tone='conversacional',style='natural',details='',movements='',generator='flow',
+                      niche='academia',objection='Fica transparente no agachamento')
+        prompts=generate(campaign)
+        self.assertIn('transparente',prompts['hook'].lower())
+        self.assertIn('contra a luz',prompts['development'].lower())
+        self.assertIn('produto marcado',prompts['cta'].lower())
+
+    def test_offer_is_the_only_source_of_urgency(self):
+        base=dict(model_name='Micaela',product='legging cintura alta',outfit='legging',color='preto',
+                  audience='mulheres',benefit='tem cós largo',angle='mostrar o cós',tone='conversacional',
+                  style='natural',details='',movements='',generator='flow',niche='academia')
+        sem_oferta=generate(base)
+        falas=' '.join(sem_oferta[k] for k in ('hook','development','cta')).lower()
+        for palavra in ('últimas','ultimas','acaba','só hoje','so hoje','corre'):
+            self.assertNotIn(palavra,falas)
+        com_oferta=generate({**base,'offer':'20% até domingo'})
+        self.assertIn('20%',' '.join(com_oferta[k] for k in ('hook','cta')))
+
+    def test_image_prompt_names_the_real_piece(self):
+        for product,expected in (('Vestido midi','vestido'),('Conjunto de moletom','conjunto'),('Legging cintura alta','legging')):
+            prompts=generate({**self.brief,'product':product,'outfit':product,'details':''},base_image=True)
+            self.assertIn(f'área ocupada por',prompts['image'])
+            self.assertIn(expected,prompts['image'])
+            if expected!='legging':
+                self.assertNotIn('legging',prompts['image'])
+
+    def test_first_color_creates_the_base_photo_and_others_edit_it(self):
+        self.upload('reference')
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'color':'azul, branco'},headers=self.headers)
+        response=self.post('/variants/generate')
+        self.assertEqual(response.status_code,200,response.json)
+        primeira,segunda=response.json['variants'][0]['prompts']['image'],response.json['variants'][1]['prompts']['image']
+        self.assertIn('FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA',primeira)
+        self.assertNotIn('EDIÇÃO LOCALIZADA',primeira)
+        self.assertIn('EDIÇÃO LOCALIZADA',segunda)
+        self.assertNotIn('FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA',segunda)
+
+    def test_hashtags_do_not_assume_a_female_audience(self):
+        neutro=build_caption(dict(product='Camiseta unissex de algodão',outfit='camiseta',color='preto',
+                                  audience='adultos',benefit='tem algodão',angle='mostrar o caimento',
+                                  details='',niche='casual'),color='preto')
+        self.assertNotIn('#ModaFeminina',neutro)
+        feminino=build_caption(dict(product='Legging cintura alta',outfit='legging',color='preto',
+                                    audience='mulheres que treinam',benefit='tem cós largo',
+                                    angle='mostrar o cós',details='',niche='academia'),color='preto')
+        self.assertIn('#ModaFeminina',feminino)
+
+    def test_spoken_lines_never_get_double_punctuation(self):
+        campaign=dict(model_name='Micaela',product='vestido midi',outfit='vestido',color='azul',
+                      audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',tone='conversacional',
+                      style='natural',details='',movements='',generator='flow',niche='casual')
+        prompts=generate(campaign)
+        again=generate(campaign,script={**prompts,'hook':'Como fica esse vestido em movimento? Olha o tecido.'})
+        for texto in (again['hook'],again['development'],again['cta'],again['video']):
+            self.assertNotIn('?.',texto)
+            self.assertNotIn('!.',texto)
+
     def test_human_confirmation_required(self):
         self.image_ready()
         response=self.post('/transition',{'target':'image_approved'})
@@ -195,7 +276,9 @@ class WorkflowTests(unittest.TestCase):
         self.video_approved()
         self.move('ready_to_publish')
         response=self.client.patch(f'/api/campaigns/{self.cid}/prompts',json={'prompts':{'caption':'Nova legenda'}},headers=self.headers)
-        self.assertEqual(response.json['status'],'video_approved')
+        # Trocar so a legenda nao invalida video aprovado nem a preparacao.
+        self.assertEqual(response.json['status'],'ready_to_publish')
+        self.assertEqual(response.json['prompts']['caption'],'Nova legenda')
         self.assertTrue(next(a for a in response.json['assets'] if a['kind']=='video')['approved_at'])
 
     def test_format_validation_and_wrong_resolution(self):
@@ -203,10 +286,13 @@ class WorkflowTests(unittest.TestCase):
         self.script_ready()
         self.assertEqual(self.upload('video',b'not a video').status_code,400)
         self.assertEqual(self.upload('video',mp4_metadata(720,1280)).status_code,201)
-        self.assertEqual(self.move('video_approved').status_code,409)
-        self.assertEqual(self.upload('video',mp4_metadata(seconds=8)).status_code,201)
-        self.assertEqual(self.move('video_approved').status_code,409)
-        self.assertEqual(self.get()['status'],'video_ready')
+        # Resolucao/duracao fora do alvo avisam, mas nao bloqueiam a aprovacao.
+        response=self.move('video_approved')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json['status'],'video_approved')
+        warnings=(response.json.get('checklist') or {}).get('video_soft_warnings') or []
+        self.assertTrue(warnings,'o desvio de formato precisa virar aviso')
+        self.assertIn('1080x1920',' '.join(warnings).replace(' × ','x'))
 
     def test_grok_720p(self):
         self.client.patch(f'/api/campaigns/{self.cid}',json={'generator':'grok'},headers=self.headers)
@@ -349,9 +435,9 @@ class WorkflowTests(unittest.TestCase):
                       movements='caminhar dois passos, virar de lado e ajustar o cós',generator='flow')
         prompts=generate(campaign)
         self.assertIn('bolso lateral',prompts['hook'].lower())
-        self.assertIn('mulheres que treinam',prompts['development'])
+        self.assertNotIn('mulheres que treinam',prompts['development'])
         self.assertIn('veste muito bem no corpo e é leve',prompts['development'])
-        self.assertIn('cós e o bolso lateral',prompts['development'])
+        self.assertIn('cós',prompts['development'].lower())
         self.assertIn('legging de treino cintura alta com bolso lateral',prompts['image'])
         self.assertIn('caminhar dois passos, virar de lado e ajustar o cós',prompts['video'])
         self.assertGreaterEqual(len(' '.join(prompts[k] for k in ('hook','development','cta')).split()),28)
@@ -366,7 +452,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertLessEqual(len(spoken.split()),45)
         self.assertNotIn('Mostre ', prompts['development'])
         self.assertNotIn('Aproxime a câmera', prompts['development'])
-        self.assertIn('mulheres que treinam', prompts['development'])
+        # O rotulo de publico saiu da fala de proposito: ele nao prova nada sobre
+        # o produto e consome segundos. O desenvolvimento carrega fato + prova.
+        self.assertNotIn('mulheres que treinam', prompts['development'])
+        self.assertIn('cós', prompts['development'].lower())
+        budget=script_budget(prompts['hook'],prompts['development'],prompts['cta'])
+        self.assertLessEqual(budget['development']['words'],24)
+        self.assertGreaterEqual(budget['development']['words'],8)
 
     def test_negative_attributes_are_not_presented_as_features(self):
         campaign=dict(model_name='Micaela',product='legging sem bolso lateral e sem compressão',
@@ -500,7 +592,8 @@ class WorkflowTests(unittest.TestCase):
         response=self.post('/variants/generate')
         self.assertEqual(response.status_code,200,response.json)
         self.assertEqual([variant['color'] for variant in response.json['variants']],['azul','branco','preto'])
-        self.assertEqual(len(response.json['variants'][0]['prompts']),6)
+        self.assertEqual(set(response.json['variants'][0]['prompts']),
+                         {'image','video','hook','development','cta','caption','variation_index'})
         self.assertIn('Cor: azul',response.json['variants'][0]['prompts']['image'])
         self.assertIn('Cor: branco',response.json['variants'][1]['prompts']['image'])
         package=self.client.get(f'/api/campaigns/{self.cid}/package.txt').data.decode('utf-8-sig')
