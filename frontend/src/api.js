@@ -114,6 +114,8 @@ export const modelLibrary = (model_name='Micaela') => api('/model-library?model_
 
 export const uploadModelLibrary = (form) => api('/model-library',{method:'POST',body:form});
 export const renameModelLibraryLabel = (body) => api('/model-library/label',{method:'PATCH',body});
+export const listModelLibraryModels = () => api('/model-library/models');
+export const deleteModelLibraryPhoto = (body) => api('/model-library',{method:'DELETE',body});
 
 export const requestModelLibraryUploadUrl = (body) => api('/model-library/upload-url',{method:'POST',body});
 export const confirmModelLibraryUpload = (body) => api('/model-library/confirm',{method:'POST',body});

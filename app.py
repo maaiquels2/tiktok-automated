@@ -1818,6 +1818,35 @@ def create_app(config=None):
             temp.unlink(missing_ok=True)
 
 
+    @app.get('/api/model-library/models')
+    def list_model_library_models():
+        """Lista os modelos que ja tem alguma foto padrao salva, pra alimentar
+        o seletor da tela (permite outra pessoa ter o proprio conjunto)."""
+        from services import model_library as ml
+        names = ml.list_models(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        return jsonify({'models': names})
+
+    @app.delete('/api/model-library')
+    def delete_model_library_photo():
+        """Remove a foto padrao de um nicho de um modelo (mantem o nome
+        customizado da moda, se houver). Campanhas ja criadas nao sao afetadas."""
+        from services import model_library as ml
+        data = body()
+        model_name = (data.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche = (data.get('niche') or '').strip()
+        if niche not in ml.NICHE_IDS:
+            raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
+        try:
+            entry = ml.delete_photo(
+                app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche,
+                storage_get=(_storage_get if cloud_mode else None),
+                storage_put=(_storage_put if cloud_mode else None),
+                storage_delete=(_storage_delete if cloud_mode else None),
+            )
+        except ValueError as exc:
+            raise Invalid(str(exc)) from exc
+        return jsonify(entry)
+
     @app.get('/api/model-library')
     def get_model_library():
         from services import model_library as ml

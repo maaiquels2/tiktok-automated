@@ -132,6 +132,14 @@ def save_library(data_dir: Path, data: dict, storage_put=None) -> None:
     tmp.replace(path)
 
 
+def list_models(data_dir: Path, storage_get=None) -> list[str]:
+    """Nomes de todos os modelos que ja tem alguma entrada na biblioteca
+    (mesmo que so uma foto de nicho), pra alimentar o seletor da tela."""
+    lib = load_library(data_dir, storage_get=storage_get)
+    names = sorted({k for k in lib.keys() if isinstance(k, str) and k.strip()}, key=str.casefold)
+    return names
+
+
 def get_entry(data_dir: Path, model_name: str, niche: str, storage_get=None):
     """Devolve o registro (path/mime/original_name/...) de um nicho, se existir."""
     lib = load_library(data_dir, storage_get=storage_get)
@@ -274,6 +282,51 @@ def confirm_photo(data_dir: Path, model_name: str, niche: str, rel_path: str, or
         raise ValueError("Nicho invalido.")
     model_key = (model_name or "Micaela").strip() or "Micaela"
     return _register_photo(data_dir, model_key, niche, rel_path, original_name, mime, storage_get=storage_get, storage_put=storage_put)
+
+
+def delete_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, storage_get=None, storage_put=None, storage_delete=None) -> dict:
+    """Remove a foto padrao de um nicho (arquivo + registro), mantendo o
+    nome customizado da moda (label) se houver. Nao mexe em campanhas ja
+    criadas - elas guardam sua propria copia da foto de referencia."""
+    if niche not in NICHE_IDS:
+        raise ValueError("Nicho invalido.")
+    model_key = (model_name or "Micaela").strip() or "Micaela"
+    lib = load_library(data_dir, storage_get=storage_get)
+    bucket = lib.get(model_key) if isinstance(lib.get(model_key), dict) else {}
+    for k in list(lib.keys()):
+        if isinstance(k, str) and k.casefold() == model_key.casefold() and k != model_key:
+            old = lib.pop(k)
+            if isinstance(old, dict):
+                bucket = {**old, **bucket}
+    entry = bucket.get(niche) if isinstance(bucket.get(niche), dict) else None
+    if not entry or not entry.get("path"):
+        raise ValueError("Nao ha foto padrao deste nicho para excluir.")
+    rel = entry.get("path")
+    label = (entry.get("label") or "").strip()
+    if storage_delete is not None:
+        try:
+            storage_delete(rel)
+        except Exception:
+            pass
+    else:
+        try:
+            (Path(media_dir) / rel).unlink(missing_ok=True)
+        except OSError:
+            pass
+    if label:
+        bucket[niche] = {"label": label}
+    else:
+        bucket.pop(niche, None)
+    lib[model_key] = bucket
+    save_library(data_dir, lib, storage_put=storage_put)
+    return {
+        "niche": niche,
+        "label": label or NICHE_LABELS[niche],
+        "model_name": model_key,
+        "has_photo": False,
+        "original_name": "",
+        "updated_at": "",
+    }
 
 
 def rename_label(data_dir: Path, model_name: str, niche: str, label: str, storage_get=None, storage_put=None) -> dict:

@@ -483,6 +483,47 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,502,response.json)
         self.assertIn('429',response.json['error'])
 
+    def upload_library_photo(self,model_name,niche,contents=None):
+        return self.client.post('/api/model-library',
+            data={'model_name':model_name,'niche':niche,'file':(io.BytesIO(contents or image_bytes()),'padrao.png')},
+            headers=self.headers)
+
+    def test_model_library_models_lists_only_models_with_saved_photos(self):
+        self.assertEqual(self.client.get('/api/model-library/models',headers=self.headers).json['models'],[])
+        self.assertEqual(self.upload_library_photo('Micaela','praia').status_code,200)
+        self.assertEqual(self.upload_library_photo('Ana','academia').status_code,200)
+        models=self.client.get('/api/model-library/models',headers=self.headers).json['models']
+        self.assertEqual(sorted(models),['Ana','Micaela'])
+
+    def test_deleting_a_model_library_photo_removes_it_but_keeps_the_label(self):
+        self.assertEqual(self.upload_library_photo('Ana','praia').status_code,200)
+        self.assertEqual(self.client.patch('/api/model-library/label',json={'model_name':'Ana','niche':'praia','label':'Verao'},headers=self.headers).status_code,200)
+        before=self.client.get('/api/model-library?model_name=Ana',headers=self.headers).json
+        self.assertTrue(next(n for n in before['niches'] if n['niche']=='praia')['has_photo'])
+        response=self.client.delete('/api/model-library',json={'model_name':'Ana','niche':'praia'},headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertFalse(response.json['has_photo'])
+        self.assertEqual(response.json['label'],'Verao')
+        after=self.client.get('/api/model-library?model_name=Ana',headers=self.headers).json
+        entry=next(n for n in after['niches'] if n['niche']=='praia')
+        self.assertFalse(entry['has_photo'])
+        self.assertEqual(entry['label'],'Verao')
+
+    def test_deleting_a_model_library_photo_does_not_affect_existing_campaigns(self):
+        self.assertEqual(self.upload_library_photo('Micaela','praia').status_code,200)
+        created=self.client.post('/api/campaigns',json={**self.brief,'name':'Outra campanha','niche':'praia'},headers=self.headers)
+        self.assertEqual(created.status_code,201,created.json)
+        other_cid=created.json['id']
+        reference_before=[a for a in created.json['assets'] if a['kind']=='reference']
+        self.assertTrue(reference_before,'a referencia padrao deveria ter sido anexada automaticamente na criacao')
+        self.assertEqual(self.client.delete('/api/model-library',json={'model_name':'Micaela','niche':'praia'},headers=self.headers).status_code,200)
+        reference_after=[a for a in self.client.get(f'/api/campaigns/{other_cid}').json['assets'] if a['kind']=='reference']
+        self.assertEqual(len(reference_before),len(reference_after),'campanha ja criada nao deveria perder a referencia so porque a foto padrao foi excluida')
+
+    def test_deleting_a_model_library_photo_without_one_saved_returns_400(self):
+        response=self.client.delete('/api/model-library',json={'model_name':'Micaela','niche':'praia'},headers=self.headers)
+        self.assertEqual(response.status_code,400,response.json)
+
     def test_explicit_ai_refresh_requires_an_enabled_writer(self):
         self.upload('reference')
         self.assertEqual(self.post('/generate').status_code,200)

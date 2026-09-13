@@ -1,8 +1,8 @@
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles } from 'lucide-react';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2 } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
@@ -1083,6 +1083,10 @@ export function DailyQueueCard({busy,onError,onFlash,onCreate}){
 }
 
 export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
+  const [activeModel,setActiveModel]=useState(modelName);
+  const [knownModels,setKnownModels]=useState([]);
+  const [newModelDraft,setNewModelDraft]=useState('');
+  const [addingModel,setAddingModel]=useState(false);
   const [items,setItems]=useState([]);
   const [loading,setLoading]=useState(true);
   const [selectedNiche,setSelectedNiche]=useState('');
@@ -1091,10 +1095,19 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
   const [renaming,setRenaming]=useState(null);
   const [renameDraft,setRenameDraft]=useState('');
   const fileRefs=useRef({});
+  useEffect(()=>{setActiveModel(modelName)},[modelName]);
+  async function loadModels(preferred){
+    try{
+      const data=await listModelLibraryModels();
+      let names=data.models||[];
+      if(preferred && !names.some(n=>n.toLocaleLowerCase()===preferred.toLocaleLowerCase())) names=[preferred,...names];
+      setKnownModels(names);
+    }catch(_){/* seletor e so um atalho, nao trava a tela se falhar */}
+  }
   async function load(){
     setLoading(true);
     try{
-      const data=await modelLibrary(modelName);
+      const data=await modelLibrary(activeModel);
       const niches=data.niches||[];
       setItems(niches);
       setSelectedNiche(prev=>{
@@ -1105,7 +1118,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     }catch(e){onError?.(e.message||String(e))}
     finally{setLoading(false)}
   }
-  useEffect(()=>{load()},[modelName]);
+  useEffect(()=>{load();loadModels(activeModel)},[activeModel]);
   useEffect(()=>{
     if(!lightbox) return;
     const onKey=e=>{ if(e.key==='Escape') setLightbox(null); };
@@ -1116,22 +1129,42 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     if(!file)return;
     try{
       if(isCloudMode()){
-        await uploadModelLibraryPhotoDirect(modelName,niche,file);
+        await uploadModelLibraryPhotoDirect(activeModel,niche,file);
       }else{
         const form=new FormData();
-        form.set('model_name',modelName);
+        form.set('model_name',activeModel);
         form.set('niche',niche);
         form.set('file',file);
         await uploadModelLibrary(form);
       }
       onFlash?.('Foto padrão salva: '+niche);
       await load();
+      await loadModels(activeModel);
       setSelectedNiche(niche);
     }catch(e){onError?.(e.message||String(e))}
     finally{
       if(inputEl) inputEl.value='';
       else if(fileRefs.current[niche]) fileRefs.current[niche].value='';
     }
+  }
+  async function onDelete(niche,e){
+    e?.stopPropagation?.();
+    const ok=window.confirm('Excluir a foto padrão deste nicho ('+activeModel+')? A foto some da biblioteca, mas campanhas já criadas continuam com a cópia que já tinham.');
+    if(!ok)return;
+    try{
+      await deleteModelLibraryPhoto({model_name:activeModel,niche});
+      onFlash?.('Foto padrão excluída: '+niche);
+      if(selectedNiche===niche) setSelectedNiche('');
+      await load();
+    }catch(e){onError?.(e.message||String(e))}
+  }
+  function confirmNewModel(e){
+    e?.preventDefault?.();
+    const name=(newModelDraft||'').trim();
+    if(!name){onError?.('Informe o nome do novo modelo.');return}
+    setActiveModel(name);
+    setNewModelDraft('');
+    setAddingModel(false);
   }
   function beginRename(item,e){
     e?.stopPropagation?.();
@@ -1191,9 +1224,32 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
       <div className="home-hero" style={{marginBottom:12}}>
         <div>
           <span className="eyebrow">MODELO FIXA · {(items.filter(x=>x.has_photo).length)}/{(items.length||6)} nichos</span>
-          <h2>Fotos padrão por nicho — {modelName}</h2>
-          <p>Uma foto por nicho. Clique na foto para ver em tela cheia. Pode renomear cada moda.</p>
+          <h2>Fotos padrão por nicho — {activeModel}</h2>
+          <p>Uma foto por nicho. Clique na foto para ver em tela cheia. Pode renomear cada moda ou excluir e enviar outra.</p>
         </div>
+      </div>
+      <div className="model-picker-row" style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
+        <label style={{display:'flex',flexDirection:'column',gap:4}}>
+          <span className="help">Modelo (cada nome tem seu próprio conjunto de fotos)</span>
+          {knownModels.length>0 ? (
+            <select value={activeModel} disabled={busy||loading} onChange={e=>{ if(e.target.value==='__new__'){setAddingModel(true);return} setAddingModel(false); setActiveModel(e.target.value); }}>
+              {knownModels.map(n=><option key={n} value={n}>{n}</option>)}
+              <option value="__new__">+ Criar novo modelo…</option>
+            </select>
+          ) : (
+            <input value={activeModel} disabled={busy||loading} onChange={e=>setActiveModel(e.target.value)} placeholder="Ana"/>
+          )}
+        </label>
+        {addingModel && (
+          <form onSubmit={confirmNewModel} style={{display:'flex',gap:6,alignItems:'flex-end'}}>
+            <label style={{display:'flex',flexDirection:'column',gap:4}}>
+              <span className="help">Nome do novo modelo</span>
+              <input autoFocus value={newModelDraft} maxLength={80} onChange={e=>setNewModelDraft(e.target.value)} placeholder="Ex.: Ana"/>
+            </label>
+            <button type="submit" className="primary" disabled={busy||loading}>Usar</button>
+            <button type="button" disabled={busy||loading} onClick={()=>{setAddingModel(false);setNewModelDraft('')}}>Cancelar</button>
+          </form>
+        )}
       </div>
       {loading && <div className="notice">Carregando biblioteca…</div>}
       <div className="model-library-grid">
@@ -1241,7 +1297,10 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
             </div>
             <small className="help">{item.original_name||'Envie a foto padrão deste look'}{item.updated_at?` · atualizada`:''}</small>
             <input ref={el=>{fileRefs.current[item.niche]=el}} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e=>onPick(item.niche,e.target.files?.[0],e.target)}/>
-            <button type="button" className="button" disabled={busy||loading} onClick={e=>{e.stopPropagation();fileRefs.current[item.niche]?.click()}}>{item.has_photo?'Trocar foto':'Enviar foto padrão'}</button>
+            <div style={{display:'flex',gap:6}}>
+              <button type="button" className="button" disabled={busy||loading} onClick={e=>{e.stopPropagation();fileRefs.current[item.niche]?.click()}}>{item.has_photo?'Trocar foto':'Enviar foto padrão'}</button>
+              {item.has_photo && <button type="button" className="button danger-action" title="Excluir foto padrão" aria-label={`Excluir foto padrão de ${item.label}`} disabled={busy||loading} onClick={e=>onDelete(item.niche,e)}><Trash2 size={14}/></button>}
+            </div>
           </article>
         ))}
       </div>
