@@ -1027,7 +1027,7 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
 
 export function SetupChecklist({busy,onError}){
   const [data,setData]=useState(null);
-  const [open,setOpen]=useState(true);
+  const [open,setOpen]=useState(!isMobileDevice());
   useEffect(()=>{ setupStatus().then(d=>{setData(d); if((d.ready_score||0)>=80) setOpen(false);}).catch(e=>onError?.(e.message)); },[]);
   if(!data) return null;
   const score=data.ready_score||0;
@@ -1307,9 +1307,9 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
         <div>
           <strong>Gerar ficha de consistência</strong>
           <p className="help">
-            Selecione um nicho com foto. Copie o prompt mestre de identidade ou abra o Grok:
-            cole o prompt e anexe a foto da biblioteca como referência.
-            {selected ? <> Nicho selecionado: <em>{selected.label}</em>.</> : <> Nenhum nicho com foto selecionado.</>}
+            {isMobileDevice()
+              ? (selected ? <>Nicho: <em>{selected.label}</em>.</> : <>Selecione um nicho com foto.</>)
+              : <>Selecione um nicho com foto. Copie o prompt mestre de identidade ou abra o Grok: cole o prompt e anexe a foto da biblioteca como referência.{selected ? <> Nicho selecionado: <em>{selected.label}</em>.</> : <> Nenhum nicho com foto selecionado.</>}</>}
           </p>
         </div>
         <div className="character-sheet-actions">
@@ -1320,7 +1320,6 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
             {isMobileDevice()?'Abrir Grok no celular':'Abrir no Grok'}
           </ServiceLaunch>
         </div>
-        {isMobileDevice()&&<p className="help">Copie a ficha primeiro. Depois abra o Grok, cole o texto e anexe a foto da biblioteca.</p>}
       </div>
       {lightbox && (
         <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label={lightbox.label} onClick={()=>setLightbox(null)}>

@@ -694,6 +694,9 @@ p {
   .identity-icon-label {
     display: none;
   }
+  .home-hero-sub {
+    display: none;
+  }
 }
 :root {
   --green: var(--ink-63);
