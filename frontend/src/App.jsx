@@ -448,15 +448,15 @@ export default function App(){
         <div className="home-launchers" aria-label="Atalhos de servicos">
           <span className="home-launchers-label">Abrir serviços</span>
           <div className="home-launchers-row">
-            <ServiceLaunch service="grok" className="home-launch-btn is-grok" disabled={busy} onClick={event=>openFreeService('grok',event)} title="Grok Imagine">
+            <ServiceLaunch service="grok" className="home-launch-btn is-grok" disabled={busy||loading} onClick={event=>openFreeService('grok',event)} title="Grok Imagine">
               <BrandMark kind="grok" size={20} tone="white"/>
               <span>Grok</span>
             </ServiceLaunch>
-            <ServiceLaunch service="flow" className="home-launch-btn is-flow" disabled={busy} onClick={event=>openFreeService('flow',event)} title="Google Flow / Labs">
+            <ServiceLaunch service="flow" className="home-launch-btn is-flow" disabled={busy||loading} onClick={event=>openFreeService('flow',event)} title="Google Flow / Labs">
               <BrandMark kind="labs" size={20}/>
               <span>Flow Labs</span>
             </ServiceLaunch>
-            <TikTokLaunchButtons className="home-launch-btn is-studio" disabled={busy} onOpenStudio={event=>openFreeService('studio',event)}/>
+            <TikTokLaunchButtons className="home-launch-btn is-studio" disabled={busy||loading} onOpenStudio={event=>openFreeService('studio',event)}/>
           </div>
           <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.'}</small>
         </div>
