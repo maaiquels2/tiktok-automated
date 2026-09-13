@@ -139,6 +139,14 @@ def create_app(config=None):
             self._conn.rollback()
         def close(self):
             self._conn.close()
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            if exc_type is None:
+                self.commit()
+            else:
+                self.rollback()
+            return False
 
     def connect():
         if cloud_mode:
