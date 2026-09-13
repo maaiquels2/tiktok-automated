@@ -1,5 +1,7 @@
 # Instalar a Fábrica TikTok em outro PC (outra creator)
 
+> **Alternativa mais rápida:** hoje existe uma **versão em nuvem** (Vercel + Supabase) — basta a segunda pessoa abrir a URL do deploy e entrar com uma conta de editor, sem instalar nada no PC dela. Este guia continua valendo para quem quer a instalação local completa (necessária para usar Grok/Flow com perfil de Chrome dedicado, misturar vídeos ou coletar métricas automaticamente do Studio — recursos que só existem na versão local; ver `DOCUMENTACAO-PROJETO.md`, seção 3.2). A conta de editor é criada pela responsável (owner) pelo ícone **Acessos do estúdio** no cabeçalho da versão em nuvem.
+
 ## Compartilhar (GitHub)
 - Código, `instalar.ps1`, `iniciar.vbs`, `requirements.txt`, este guia
 
@@ -37,3 +39,12 @@ git pull
 powershell -ExecutionPolicy Bypass -File .\instalar.ps1
 .\iniciar.vbs
 ```
+
+## Versão em nuvem, em vez de instalar aqui
+
+Se a ideia é só dar acesso a uma segunda pessoa (sem precisar de Grok/Flow com perfil de Chrome dedicado, mixer de vídeo ou coleta automática de métricas — que são só locais):
+
+1. Peça a URL do deploy na Vercel para a responsável.
+2. Abra a URL e clique em entrar (não em "Crie o acesso principal" — essa conta já existe).
+3. A responsável cria o login dela pelo ícone **Acessos do estúdio** no cabeçalho, com usuário e senha.
+4. As duas contas veem as mesmas campanhas em tempo real.

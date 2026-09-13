@@ -401,3 +401,66 @@ Vale registrar, porque em uma revisão é fácil só listar defeito:
 - **O controle de versão otimista** (`start()` comparando `version`), que impede duas janelas de sobrescreverem uma à outra em silêncio.
 - **A auto-migração do banco**, que permite atualizar o app sem perder dados.
 - **A decisão de manter geração e publicação manuais.** É o que mantém o custo em zero e a conta fora de risco.
+
+---
+
+## Auditoria adicional — 2026-09-13 (UI mobile/desktop e performance)
+
+**Data:** 2026-09-13
+**Base analisada:** commit `2be3344` até `c158bd2` (site publicado em produção; telas Início, Produzir, Resultados e conta/identidade, em mobile e desktop, revisadas ao vivo no navegador)
+**O que foi revisado:** navegação por hash, `styles.css` (cascata completa dos blocos `@media`), `App.jsx`, cabeçalhos de cache em `app.py`.
+
+### Status — o que já foi feito
+
+| Item | Estado |
+|---|---|
+| E1 cascata de CSS anulando media queries mobile | ✅ feito |
+| E2 tela em branco ao recarregar em campanha com etapa inválida | ✅ feito |
+| E3 contraste do texto do cabeçalho | ✅ feito |
+| E4 acordeões de Resultados quebrando em 3 linhas no celular | ✅ feito |
+| E5 bundle JS/CSS sem cache de longo prazo | ✅ feito |
+| E6 fotos da biblioteca de modelos sempre `no-store` | ✅ feito |
+| E7 suspeita de espaço desperdiçado no desktop (Início) | ❌ **achado incorreto, retirado** (ver abaixo) |
+
+---
+
+### E1. Cascata de CSS anulando media queries mobile
+**O que é.** Vários blocos `@media` ficavam fisicamente **antes**, no arquivo, de regras não-condicionais de mesma especificidade. O CSS resolve empates de especificidade pela ordem no arquivo, não pela "estreiteza" do media query — então essas regras responsivas eram silenciosamente anuladas mesmo com a viewport batendo a condição.
+
+**Por que importa.** Pelo menos dez seletores diferentes tinham o comportamento mobile combinado ignorado (grade de identidade virando 2 colunas, atalhos de serviço, cabeçalho do acordeão etc.), sem nenhum erro visível — só "não funciona".
+
+**Como corrigir.** Mover os blocos `@media` afetados para o fim do arquivo, garantindo que vençam o empate de especificidade. Feito para os blocos de 1650px/1200px/950px/650px, 1100px/850px e 720px, com comentário explicando o motivo no próprio CSS.
+
+---
+
+### E2. Tela em branco ao recarregar em campanha com etapa inválida
+**O que é.** Um link direto ou uma etapa que sobrou de outra campanha podia deixar o estado `selected` apontando para uma etapa que não existe em `stageInfo`; a tela quebrava tentando ler `stage.title` de `undefined`.
+
+**Por que importa.** Recarregar a página no meio de uma campanha (ou abrir um link salvo) podia travar a tela de produção por completo, sem mensagem de erro.
+
+**Como corrigir.** Leitura defensiva do título (`stage?.title||'Etapa'`) e uma rede de segurança: um `useEffect` que detecta `selected` inválido e devolve a navegação para a próxima etapa válida da campanha, em vez de travar.
+
+---
+
+### E3 e E4. Contraste do cabeçalho e quebra dos acordeões de Resultados
+**O que é.** O texto do cabeçalho tinha contraste baixo contra o fundo branco; os cabeçalhos dos acordeões de Resultados quebravam em até três linhas no celular por falta de `flex-wrap`.
+
+**Como corrigir.** Cor de texto mais escura em `.header` e `.workspace-name`; `flex-wrap` e `flex: 1 1 100%` em `.collapse-toggle` dentro do breakpoint de 650px.
+
+---
+
+### E5 e E6. Cache HTTP do bundle e das fotos da biblioteca
+**O que é.** O `after_request` global aplicava `Cache-Control: no-store` a **tudo**, inclusive o bundle JS/CSS com hash no nome (que nunca muda de conteúdo sob a mesma URL) e as fotos da biblioteca de modelos servidas por link assinado do Supabase.
+
+**Por que importa.** Isso força o navegador a rebaixar o bundle inteiro a cada visita e a regenerar/rebaixar fotos que não mudaram, direto no orçamento de banda do celular.
+
+**Como corrigir.** `/assets/*` (bundle com hash) ganhou `public, max-age=31536000, immutable`; o redirecionamento assinado das fotos da biblioteca ganhou `private, max-age` um pouco menor que o `expiresIn` do link assinado, em vez de `no-store` incondicional. As demais rotas de API continuam `no-store`, como deve ser.
+
+---
+
+### E7. Suspeita de espaço desperdiçado no desktop (Início) — retirado
+**O que é.** Uma primeira leitura de captura de tela (fortemente reduzida) sugeriu que o conteúdo da tela Início não usava toda a largura em telas grandes.
+
+**Por que foi retirado.** Medição direta (`getBoundingClientRect()`) no navegador ao vivo mostrou que o conteúdo já ocupa cerca de 1323–1360px de uma viewport de 1440px, com os cartões de nicho espalhados de ponta a ponta. A captura de tela original tinha sido mal interpretada; nenhuma mudança de CSS foi aplicada para este item.
+
+**Validação:** `npm run build` do frontend e os 90 testes de `tests/test_app.py`, todos `OK`, antes do commit `c158bd2`.

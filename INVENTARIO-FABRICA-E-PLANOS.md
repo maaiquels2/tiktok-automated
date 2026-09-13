@@ -1,23 +1,26 @@
 # Inventário da Fábrica TikTok (atualizado)
 
-**Data:** 2026-09-11  
+**Data:** 2026-09-13  
 **App local:** pasta do projeto + `iniciar.vbs` → http://127.0.0.1:5050  
+**App em nuvem:** URL do deploy na Vercel, com login (usuário/senha)  
 **GitHub:** https://github.com/maaiquels2/tiktok-automated  
 **Conta TikTok (este PC):** configurável em Identidade (`data/studio_identity.json`) — padrão Micaela / `@dicasdamiicaela`
 
 ## Em uma frase
 
-Fábrica local de Shorts/TikTok Shop (Flask + React + SQLite) com **Início / Produzir / Resultados**, identidade por PC, playbook a partir do Studio, fila de 5 posts/dia e Grok+Flow na **mesma janela** (abas).
+Fábrica de Shorts/TikTok Shop (Flask + React), que roda **local (SQLite) ou em nuvem (Postgres/Supabase, na Vercel)** com o mesmo código, com **Início / Produzir / Resultados**, playbook a partir do Studio, fila de 5 posts/dia e Grok+Flow na **mesma janela** (abas).
 
 ## Stack
 
 | Camada | Tecnologia |
 |--------|------------|
-| Backend | Python / Flask, SQLite |
-| Frontend | Vite + React (stepper de etapas; sem React Flow) |
-| Studio / métricas | Playwright + Chrome CDP (`browser_profiles/{modelo}-cdp`) |
-| Geração mídia | Manual via Grok Imagine / Google Flow (perfil compartilhado `flow-maaiquels` ou `gen-maaiquels`) |
-| Vídeo | FFmpeg mix + gate Critico |
+| Backend | Python / Flask — SQLite (local) ou Postgres/Supabase (nuvem, `FABRICA_CLOUD=1`) |
+| Frontend | Vite + React (stepper de etapas) |
+| Hospedagem nuvem | Vercel (`vercel.json`, `wsgi.py`) + Supabase Storage para mídia |
+| Studio / métricas | Playwright + Chrome CDP (`browser_profiles/{modelo}-cdp`) — **só na versão local** |
+| Geração mídia | Manual via Grok Imagine / Google Flow (perfil compartilhado `flow-maaiquels` ou `gen-maaiquels`) — abertura assistida só na versão local; na nuvem os links abrem direto |
+| Vídeo | FFmpeg mix + gate Critico — **só na versão local** |
+| Login (nuvem) | Contas `owner`/`editor` por sessão Flask, criadas pelo ícone Acessos do estúdio |
 | Agentes | Critico de Vendas, Editor de Mix |
 
 ## UI
@@ -43,7 +46,9 @@ Fábrica local de Shorts/TikTok Shop (Flask + React + SQLite) com **Início / Pr
 
 ## Multi-creator
 
-Cada PC tem `data/studio_identity.json`. **Não copiar** `browser_profiles/` nem `data/` entre creators. Ver `COMO-INSTALAR-NO-OUTRO-PC.md`.
+**Versão local:** cada PC tem `data/studio_identity.json`. **Não copiar** `browser_profiles/` nem `data/` entre creators. Ver `COMO-INSTALAR-NO-OUTRO-PC.md`.
+
+**Versão em nuvem:** não existe separação por PC — é a mesma conta (`users`) para todo mundo. A responsável cria a conta principal e, pelo ícone Acessos do estúdio, cria/reseta a senha da segunda pessoa.
 
 ## O que continua humano (de propósito)
 
@@ -57,5 +62,7 @@ Cada PC tem `data/studio_identity.json`. **Não copiar** `browser_profiles/` nem
 
 ## Limitações
 
-- Scrape do Studio pode quebrar se o TikTok mudar o DOM (há retries + mensagem clara)  
-- Cloud Agents Cursor Pro são opcionais; a fábrica roda local  
+- Scrape do Studio pode quebrar se o TikTok mudar o DOM (há retries + mensagem clara) — e só existe na versão local  
+- Na nuvem não há Chrome/Playwright no servidor: mixer de vídeo, auto-cut e coleta automática de métricas ficam indisponíveis lá (entrada manual)  
+- Cloud Agents Cursor Pro são opcionais; a fábrica roda local ou em nuvem própria (Vercel + Supabase), sem depender deles  
+- Deploy em produção está no domínio padrão da Vercel; domínio próprio ainda é próximo passo  
