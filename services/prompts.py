@@ -1333,9 +1333,12 @@ def generate(c, script=None, variant_index=0, base_image=False):
     )
     forms = _piece_forms(c)
     piece_ref = f"{forms['art']} {forms['piece']}"
-    # Dois modos incompativeis nao podem conviver no mesmo prompt. Na primeira
-    # cor ainda nao existe imagem aprovada: pedir "edicao localizada" de uma
-    # foto-base inexistente derruba a adesao do modelo a todas as instrucoes.
+    # Decisao de produto confirmada em 13/09/2026 (item 41 da auditoria): a
+    # primeira cor tambem preserva pose/cenario da modelo por meio de uma
+    # troca de roupa localizada, em vez de permitir uma composicao nova. A
+    # diferenca entre as duas cores agora e so QUAL foto e a base da edicao:
+    # a primeira cor edita a propria foto de referencia (ainda nao existe
+    # imagem aprovada da campanha); as demais cores editam a imagem aprovada.
     if base_image:
         mode_block = (
             "EDIÇÃO LOCALIZADA: trate a imagem aprovada desta campanha como a fotografia-base final, não como inspiração para uma nova cena. "
@@ -1346,12 +1349,14 @@ def generate(c, script=None, variant_index=0, base_image=False):
         )
     else:
         mode_block = (
-            "FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA: esta é a primeira imagem da campanha. "
-            "Gere uma fotografia inédita usando a referência anexada como fonte de identidade da modelo. "
-            "Se essa foto de referência mostrar um ambiente ou cenário nítido (quarto, estúdio, rua, praia, academia etc.), mantenha exatamente esse mesmo ambiente na nova foto; só use um cenário diferente se os detalhes do briefing pedirem isso explicitamente. "
-            f"Enquadre a pessoa inteira, garantindo que toda a extensão de {piece_ref} (barra, comprimento e calçados quando fizerem parte do look) fique visível e bem iluminada. "
-            "Pose natural e estável, mãos corretas, olhar na câmera ou levemente para o lado. "
-            "Esta imagem será a base fotográfica das outras cores: escolha um enquadramento que possa ser repetido. "
+            "EDIÇÃO LOCALIZADA: esta é a primeira cor da campanha, então a fotografia-base é a própria foto de referência anexada de "
+            f"{c['model_name']} — trate-a como a fotografia-base final, não como inspiração para uma nova cena. "
+            "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, peças complementares, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica já presentes nessa foto. "
+            f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante da imagem visualmente idêntico à referência. "
+            "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere as peças complementares, não crie outro ângulo e não gere uma nova fotografia. "
+            "Nesta cor, anexe primeiro a foto de referência da modelo (ela é a fotografia-base); as fotos do produto servem apenas de apoio para reproduzir corte, caimento e detalhes da peça, não como base da composição. "
+            f"Garanta que toda a extensão de {piece_ref} (barra, comprimento e calçados quando fizerem parte do look) fique visível e bem iluminada, ajustando o enquadramento da referência só o mínimo necessário para isso. "
+            "Esta imagem se tornará a fotografia-base das próximas cores: escolha, dentro do que a referência já mostra, um resultado que possa ser repetido. "
         )
     image = (
         identity + product_reference + f"Roupa: {_pt_br(c['outfit'])}. Cor: {c['color']}. Produto: {product}. "
@@ -1363,7 +1368,7 @@ def generate(c, script=None, variant_index=0, base_image=False):
         + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
         + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores, mantendo o mesmo nível de nitidez ou desfoque de fundo já presente na referência aprovada, sem trocar o cenário. "
         + ("Use a imagem aprovada da campanha como referência do cenário, sem copiar a cor da roupa. " if base_image else "")
-        + ("INTEGRAÇÃO FOTOGRÁFICA: a peça substituída deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. " if base_image else "")
+        + "INTEGRAÇÃO FOTOGRÁFICA: a peça substituída deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. "
         + "Contexto de comunicação (não inserir texto nem inventar atributo): "
         f"público {_pt_br(c['audience']) or 'geral'}; ângulo {angle_context or 'mostrar detalhes do produto'}. "
         f"Estilo: {_pt_br(c['style']) or 'natural e realista'}. Tom: {_pt_br(c['tone']) or 'conversacional'}. "

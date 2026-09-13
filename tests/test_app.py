@@ -249,16 +249,20 @@ class WorkflowTests(unittest.TestCase):
             if expected!='legging':
                 self.assertNotIn('legging',prompts['image'])
 
-    def test_first_color_creates_the_base_photo_and_others_edit_it(self):
+    def test_first_color_edits_the_reference_photo_and_others_edit_the_approved_image(self):
         self.upload('reference')
         self.client.patch(f'/api/campaigns/{self.cid}',json={'color':'azul, branco'},headers=self.headers)
         response=self.post('/variants/generate')
         self.assertEqual(response.status_code,200,response.json)
         primeira,segunda=response.json['variants'][0]['prompts']['image'],response.json['variants'][1]['prompts']['image']
-        self.assertIn('FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA',primeira)
-        self.assertNotIn('EDIÇÃO LOCALIZADA',primeira)
+        # As duas cores editam uma foto-base (nenhuma gera composicao nova) -
+        # a diferenca e so qual foto e a base de cada uma.
+        self.assertIn('EDIÇÃO LOCALIZADA',primeira)
+        self.assertIn('anexe primeiro a foto de referência da modelo',primeira)
+        self.assertNotIn('anexe primeiro a imagem aprovada desta campanha',primeira)
         self.assertIn('EDIÇÃO LOCALIZADA',segunda)
-        self.assertNotIn('FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA',segunda)
+        self.assertIn('anexe primeiro a imagem aprovada desta campanha',segunda)
+        self.assertNotIn('anexe primeiro a foto de referência da modelo',segunda)
 
     def test_hashtags_do_not_assume_a_female_audience(self):
         neutro=build_caption(dict(product='Camiseta unissex de algodão',outfit='camiseta',color='preto',
@@ -379,7 +383,8 @@ class WorkflowTests(unittest.TestCase):
                       audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',tone='natural',
                       style='natural',details='',movements='',generator='flow',niche='casual')
         image=generate(campaign)['image']
-        self.assertIn('mantenha exatamente esse mesmo ambiente na nova foto',image)
+        self.assertIn('EDIÇÃO LOCALIZADA',image)
+        self.assertIn('o mesmo ambiente mostrado na foto de referência da modelo',image)
 
     def test_academia_keeps_dynamic_camera_inside_the_same_scene(self):
         # Enquadramento consistente significa preservar cena e continuidade.
