@@ -1,7 +1,7 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
@@ -724,26 +724,26 @@ function UserAccessPanel({auth,onError,onFlash}){
     finally{setResetSaving(false)}
   }
   return <div className="user-access-panel">
-    <p>Os dois usuários trabalham nas mesmas campanhas. As senhas ficam protegidas e não aparecem nesta tela.</p>
+    <p className="help">Acesso compartilhado: as duas pessoas veem as mesmas campanhas.</p>
     <div className="user-list">{users.map(user=><div key={user.id}><UserCog size={17}/><span><strong>{user.display_name}</strong><small>{user.username} · {user.role==='owner'?'responsável':'editora'}</small></span>
-      {auth?.user?.role==='owner'&&<button type="button" className="button" disabled={saving||resetSaving} onClick={()=>beginReset(user)}>Redefinir senha</button>}
+      {auth?.user?.role==='owner'&&<button type="button" className="icon-button" title={`Redefinir senha de ${user.display_name}`} aria-label={`Redefinir senha de ${user.display_name}`} disabled={saving||resetSaving} onClick={()=>beginReset(user)}><KeyRound size={16}/></button>}
     </div>)}</div>
     {resetTarget&&<form className="auth-form" onSubmit={resetPassword}>
-      <h3>Redefinir senha de {resetTarget.display_name}</h3>
-      <label>Nova senha<input autoFocus required minLength={8} type="password" value={resetDraft} onChange={e=>setResetDraft(e.target.value)}/></label>
+      <h3><KeyRound size={17}/> Nova senha de {resetTarget.display_name}</h3>
+      <label><input autoFocus required minLength={8} type="password" placeholder="Mínimo 8 caracteres" value={resetDraft} onChange={e=>setResetDraft(e.target.value)}/></label>
       <div style={{display:'flex',gap:8}}>
-        <button className="primary" disabled={resetSaving}>{resetSaving?'Salvando…':'Salvar nova senha'}</button>
+        <button className="primary" disabled={resetSaving}>{resetSaving?'Salvando…':'Salvar'}</button>
         <button type="button" disabled={resetSaving} onClick={()=>{setResetTarget(null);setResetDraft('')}}>Cancelar</button>
       </div>
     </form>}
     {auth?.user?.role==='owner'&&users.length<2&&<form className="auth-form" onSubmit={add}>
       <h3><UserPlus size={18}/> Criar segundo acesso</h3>
-      <label>Nome exibido<input required maxLength={80} value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>
-      <label>Usuário ou e-mail<input required maxLength={80} autoCapitalize="none" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
-      <label>Senha inicial<input required minLength={8} type="password" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
+      <label><input required maxLength={80} placeholder="Nome (ex.: Ana)" value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>
+      <label><input required maxLength={80} autoCapitalize="none" placeholder="Usuário ou e-mail" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
+      <label><input required minLength={8} type="password" placeholder="Senha inicial (mín. 8 caracteres)" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
       <button className="primary" disabled={saving}>{saving?'Criando…':'Criar acesso'}</button>
     </form>}
-    {users.length>=2&&<div className="notice success"><Check size={16}/> Os dois acessos do protótipo estão configurados.</div>}
+    {users.length>=2&&<div className="notice success"><Check size={16}/> Acessos configurados.</div>}
   </div>;
 }
 

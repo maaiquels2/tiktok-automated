@@ -1224,13 +1224,13 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
       <div className="home-hero" style={{marginBottom:12}}>
         <div>
           <span className="eyebrow">MODELO FIXA · {(items.filter(x=>x.has_photo).length)}/{(items.length||6)} nichos</span>
-          <h2>Fotos padrão por nicho — {activeModel}</h2>
-          <p>Uma foto por nicho. Clique na foto para ver em tela cheia. Pode renomear cada moda ou excluir e enviar outra.</p>
+          <h2>Fotos padrão — {activeModel}</h2>
+          <p className="help">Toque na foto pra ampliar.</p>
         </div>
       </div>
       <div className="model-picker-row" style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
         <label style={{display:'flex',flexDirection:'column',gap:4}}>
-          <span className="help">Modelo (cada nome tem seu próprio conjunto de fotos)</span>
+          <span className="help">Modelo</span>
           {knownModels.length>0 ? (
             <select value={activeModel} disabled={busy||loading} onChange={e=>{ if(e.target.value==='__new__'){setAddingModel(true);return} setAddingModel(false); setActiveModel(e.target.value); }}>
               {knownModels.map(n=><option key={n} value={n}>{n}</option>)}
@@ -1243,8 +1243,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
         {addingModel && (
           <form onSubmit={confirmNewModel} style={{display:'flex',gap:6,alignItems:'flex-end'}}>
             <label style={{display:'flex',flexDirection:'column',gap:4}}>
-              <span className="help">Nome do novo modelo</span>
-              <input autoFocus value={newModelDraft} maxLength={80} onChange={e=>setNewModelDraft(e.target.value)} placeholder="Ex.: Ana"/>
+              <input autoFocus value={newModelDraft} maxLength={80} onChange={e=>setNewModelDraft(e.target.value)} placeholder="Nome do novo modelo"/>
             </label>
             <button type="submit" className="primary" disabled={busy||loading}>Usar</button>
             <button type="button" disabled={busy||loading} onClick={()=>{setAddingModel(false);setNewModelDraft('')}}>Cancelar</button>

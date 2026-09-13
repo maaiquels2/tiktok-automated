@@ -1269,6 +1269,30 @@ textarea:focus {
   border-radius: 10px;
   background: var(--surface-9);
 }
+.user-list span {
+  flex: 1;
+  min-width: 0;
+}
+.user-list .icon-button {
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .auth-form h3,
+  .model-library h2 {
+    font-size: 16px;
+  }
+  .model-picker-row {
+    width: 100%;
+  }
+  .model-picker-row label {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .model-picker-row select,
+  .model-picker-row input {
+    width: 100%;
+  }
+}
 .asset-view {
   margin: 12px 0;
   min-width: 0;
