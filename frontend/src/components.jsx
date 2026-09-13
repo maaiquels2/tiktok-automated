@@ -37,15 +37,19 @@ export async function copyText(text){
 
 export function CopyButton({text,onError,label='Copiar'}){
   const [copied,setCopied]=useState(false);
+  const [manualHint,setManualHint]=useState(false);
   const timer=useRef();
   useEffect(()=>()=>clearTimeout(timer.current),[]);
-  const markCopied=()=>{setCopied(true);clearTimeout(timer.current);timer.current=setTimeout(()=>setCopied(false),1800)};
+  const markCopied=()=>{setCopied(true);setManualHint(false);clearTimeout(timer.current);timer.current=setTimeout(()=>setCopied(false),1800)};
   return <button className="copy-button" disabled={!text} onClick={async()=>{
     if(await copyText(text)){markCopied();return}
-    const manual=window.prompt('Toque e segure no campo para selecionar e copiar:',text);
-    if(manual!==null) markCopied();
-    else onError?.('Toque e segure no texto para selecionar e copiar.');
-  }}>{copied?<Check size={14}/>:<Copy size={14}/>} {copied?'Copiado':label}</button>;
+    // Fechar esse prompt não prova que o usuário copiou nada - por isso o
+    // rótulo fica neutro ("Copie manualmente"), nunca "Copiado".
+    window.prompt('Não foi possível copiar automaticamente. Toque e segure no campo abaixo para selecionar e copiar manualmente:',text);
+    setCopied(false);setManualHint(true);
+    clearTimeout(timer.current);timer.current=setTimeout(()=>setManualHint(false),4000);
+    onError?.('Toque e segure no texto para selecionar e copiar.');
+  }}>{copied?<Check size={14}/>:<Copy size={14}/>} {copied?'Copiado':(manualHint?'Copie manualmente':label)}</button>;
 }
 export function TextEditor({title,value,field,onSave,busy,onError,onDirty,readOnly=false,rows=5}){
   const [draft,setDraft]=useState(value||'');
@@ -102,6 +106,19 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
     if(focus!=='script') return;
     writerSettings().then(setWriter).catch(()=>setWriter({enabled:false,provider:''}));
   },[focus]);
+  // Acordeao de verdade: so uma cor aberta por vez, comecando na primeira
+  // pendente (ou na primeira cor, se nao houver pendencia). Antes disso as
+  // cores todas abriam juntas nas visoes de imagem/video/roteiro, o que
+  // enchia a tela num celular com varias cores.
+  const [openColor,setOpenColor]=useState(()=>{
+    if(!variants.length) return null;
+    const byImg=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
+    const byVid=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
+    const byDev=Object.fromEntries((deviceVideos||[]).map(a=>[a.slot||'',a]));
+    if(focus==='image') return (variants.find(v=>!byImg[v.color])||variants[0]).color;
+    if(focus==='video') return (variants.find(v=>!byVid[v.color]&&!byDev[v.color])||variants[0]).color;
+    return variants[0].color;
+  });
   if(!variants.length)return null;
   const byImage=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
   const byVideo=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
@@ -124,7 +141,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
       const status=focus==='image'?(img?(img.approved_at?'Imagem aprovada':'Imagem anexada'):'Falta anexar')
         :focus==='video'?((vid||deviceVid)?((vid||deviceVid).approved_at?'Vídeo aprovado':deviceVid?'Vídeo na galeria':'Vídeo anexado'):'Falta selecionar')
         :'Roteiro';
-      return <details className="variant-card" key={variant.id||variant.color} open={focus==='image'||focus==='video'||focus==='script'||idx===0}>
+      return <details className="variant-card" key={variant.id||variant.color} open={variant.color===openColor} onToggle={e=>setOpenColor(e.target.open?variant.color:(openColor===variant.color?null:openColor))}>
         <summary><strong>{variant.color}</strong><span>{status}</span></summary>
         <div className="variant-content">
           {focus==='image'&&<>

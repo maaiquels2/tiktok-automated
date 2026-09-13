@@ -124,7 +124,11 @@ def _feature_present(source: str, needle: str, label: str = '') -> bool:
     if not re.search(rf'\b{escaped}\b', source, re.I):
         return False
     if label.startswith('sem '):
-        return True
+        # "sem transparencia" pode aparecer dentro de uma duvida ou negacao
+        # do proprio usuario ("nao e sem transparencia", "nao sei se e sem
+        # transparencia") -- nesse caso nao confirma o atributo.
+        doubt = rf'\b(?:não|nao)\b(?:\s+(?:sei\s+se|tenho\s+certeza\s+se|sei))?(?:\s+\w+){{0,2}}\s*{escaped}\b'
+        return not re.search(doubt, source, re.I)
     negative = rf'\b(?:sem|não|nao)(?:\s+(?:possui|tem|oferece))?\s+(?:um|uma|o|a)?\s*{escaped}\b'
     return not re.search(negative, source, re.I)
 
@@ -326,9 +330,9 @@ def _image_details(details: str) -> str:
     timing = re.compile(r'^\s*\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*s?\s*:', re.I)
     video_hints = (
         'vídeo', 'video', '15 segundos', '15s', 'ugc', 'fala', 'frases',
-        'jogo de câmera', 'jogo de cameras', 'enquadramento', 'movimentos de ia',
+        'jogo de câmera', 'jogo de cameras', 'movimentos de ia',
         'movimento', 'agachar', 'caminhar', 'alongar', 'girar', 'senta', 'sentar',
-        'shot list', 'câmera fixa', 'camera fixa', 'câmera', 'camera', 'frame',
+        'shot list', 'câmera fixa', 'camera fixa',
         'quadro', 'take', 'clipe', 'duração', 'duracao', 'roteiro', 'ação:', 'acao:',
         'prova no corpo', 'produto no frame', 'cta', 'hook', 'fyp', 'query quente',
         'legenda', 'caption', 'loja', 'chamada para ação', 'chamada para acao',
@@ -816,14 +820,16 @@ def _piece_noun(c):
     # Substantivo real do produto, usado tanto na fala quanto no prompt de imagem.
     product = _pt_br(c.get('product')).casefold()
     outfit = _pt_br(c.get('outfit')).casefold()
-    if _is_unisex(c):
-        return 'peça'
     # O campo "produto" manda: o "outfit" costuma descrever o look inteiro
     # ("vestido com legging por baixo") e nao a peca que esta sendo vendida.
     for source in (product, outfit):
         for name in _PIECE_WORDS:
             if re.search(r'\b' + re.escape(name) + r'\b', source):
                 return name
+    # So cai no generico "peça" quando nenhum substantivo especifico foi
+    # encontrado -- unissex nao deve apagar "camisa", so evita generizar.
+    if _is_unisex(c):
+        return 'peça'
     return _FAMILY_VOCAB[_product_family(c)]['noun']
 
 
@@ -1066,6 +1072,35 @@ def script_budget(hook, development, cta):
     }
 
 
+_SPOKEN_LINE_RE = re.compile(r'Fala \(PT-BR\): "([^"]*)"')
+_WORD_COUNT_RE = re.compile(r'(Total das falas fornecidas: )\d+( palavras)')
+
+
+def _replace_spoken_lines(video_text, hook, development, cta):
+    """Atualiza somente as tres falas entre aspas dentro de um prompt de video
+    ja existente, preservando qualquer ajuste manual de camera, coreografia ou
+    encerramento que o usuario tenha feito. Retorna None quando o texto nao
+    tem exatamente as 3 marcacoes esperadas (ex.: prompt vazio ou reescrito de
+    forma que a substituicao segura nao pode ser garantida) -- nesse caso o
+    chamador deve regenerar o prompt inteiro como antes.
+    """
+    if not video_text:
+        return None
+    matches = list(_SPOKEN_LINE_RE.finditer(video_text))
+    if len(matches) != 3:
+        return None
+    parts = []
+    last = 0
+    for match, new_line in zip(matches, (hook, development, cta)):
+        parts.append(video_text[last:match.start(1)])
+        parts.append(new_line)
+        last = match.end(1)
+    parts.append(video_text[last:])
+    updated = ''.join(parts)
+    total = len((hook + ' ' + development + ' ' + cta).split())
+    return _WORD_COUNT_RE.sub(rf'\g<1>{total}\g<2>', updated)
+
+
 def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
     """Cycle script variation for selected fields (hook/caption/etc.)."""
     fields = fields or ['hook', 'development', 'cta', 'caption']
@@ -1080,10 +1115,19 @@ def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
         merged[f] = fresh[f]
     if 'caption' in fields:
         merged['caption'] = build_caption({**c, 'color': color}, color=color, cta=None, variation_index=index)
-    # Refreshing only the caption must preserve an edited video prompt. Rebuild
-    # video only when a spoken line actually changed.
+    # Refreshing only the spoken lines must preserve any manual visual
+    # direction (camera, coreography, ending) already saved in the video
+    # prompt. Try a targeted substitution first; only rebuild the whole
+    # video prompt from scratch when that is not safely possible.
     if set(fields) & {'hook', 'development', 'cta'}:
-        merged['video'] = generate({**c, 'color': color}, script=merged, variant_index=index)['video']
+        patched = _replace_spoken_lines(
+            (current_prompts or {}).get('video'),
+            merged.get('hook', ''), merged.get('development', ''), merged.get('cta', ''),
+        )
+        if patched is not None:
+            merged['video'] = patched
+        else:
+            merged['video'] = generate({**c, 'color': color}, script=merged, variant_index=index)['video']
     if 'image' not in merged and fresh.get('image'):
         merged['image'] = fresh['image']
     merged['variation_index'] = index
@@ -1197,28 +1241,27 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
         f"Benefício a provar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
         f"CENÁRIO FIXO ({niche}, todos os frames e variações de cor): {scene_lock}. "
-        f"Repetir exatamente fundo, objetos, posição da câmera, distância, perspectiva e iluminação; não trocar a locação nem desfocar o fundo. "
+        f"Repetir exatamente fundo, objetos e iluminação, sem trocar a locação nem desfocar o fundo; a câmera pode se aproximar ou acompanhar a modelo durante a demonstração (ver COREOGRAFIA e CÂMERA abaixo), retornando à distância e ao enquadramento do quadro inicial no encerramento. "
         f"CÂMERA: {dirn['camera']}. "
         f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
         f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
         f"{proof_block}"
-        "MÃOS: uma das mãos mantém contato com a peça o tempo todo (na cintura, no cós ou na barra) e a outra é a que mostra os detalhes. "
-        "As duas nunca ficam soltas ao mesmo tempo. "
-        f"COREOGRAFIA / AÇÕES (executar nesta ordem, TODAS entre 0s e 11s; no máximo uma ação por beat, ritmo natural): {moves}. "
+        "MÃOS: uma das mãos mantém contato com a peça o tempo todo (na cintura, no cós ou na barra) e a outra é a que mostra os detalhes; as duas só ficam livres ao mesmo tempo durante um gesto específico que exija isso (por exemplo, abrir a peça ou ajustar um acessório com as duas mãos), por no máximo 1 segundo. "
+        f"COREOGRAFIA / AÇÕES (escolha 2 a 3 destas ações, na ordem em que aparecem, executadas entre 0s e 11s; no máximo uma ação por beat, ritmo natural -- não é obrigatório usar a lista inteira): {moves}. "
         f"ENCERRAMENTO (12–15s), posição obrigatória: a modelo está de frente para a lente, {closing_hands}. "
         "As mãos permanecem ocupadas nessa posição até o último quadro, na altura da cintura ou abaixo dela. "
         "O corpo fica parado e estável; apenas o rosto e o olhar se movem."
         f"{extras}\n"
         f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
-        f"0–4s HOOK: a modelo se aproxima um passo da câmera, como quem vai contar um segredo; plano médio frontal, "
+        f"0–4s HOOK: a modelo se aproxima um passo da câmera, com a energia direta do gancho a seguir; plano médio frontal, "
         f"olhar na lente, produto já visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
         f"4–12s DESENVOLVIMENTO — uma única fala, dita de forma contínua e natural neste intervalo; "
         f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
-        f"   · 4–6s PROVA 1 (somente câmera, sem nova fala): aproxima OU mostra de perto o detalhe que vende "
+        f"   · 4–6s PROVA 1 (ação silenciosa da modelo, sem nova fala): aproxima OU mostra de perto o detalhe que vende "
         f"(tecido, cós, alça, barra, acessório); mãos tocam o produto de forma natural.\n"
-        f"   · 6–11s PROVA 2 (somente câmera, sem nova fala): movimento completo que demonstra o benefício ({benefit_l}) — "
+        f"   · 6–11s PROVA 2 (ação silenciosa da modelo, sem nova fala): movimento completo que demonstra o benefício ({benefit_l}) — "
         f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis.\n"
-        f"   · 11–12s DESEJO (somente câmera, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
+        f"   · 11–12s DESEJO (ação silenciosa da modelo, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
         f"12–15s CTA: manter a posição de encerramento descrita acima, olhar firme na lente; o produto marcado é indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
         f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
         "ENQUADRAMENTO: não altere o enquadramento entre os beats; use jogo de câmeras apenas se for necessário, mantendo a mesma cena. "
@@ -1229,8 +1272,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
         f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "
         f"Total das falas fornecidas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; se ultrapassar 15s em leitura natural, sinalize para revisão em vez de acelerar. "
-        f"Sem promessas não demonstradas no vídeo. "
-        f"Se o gerador entregar clipes curtos, una na ordem acima e exporte 1 MP4 de 15s antes de anexar."
+        f"Sem promessas não demonstradas no vídeo."
     )
 
 
@@ -1300,13 +1342,14 @@ def generate(c, script=None, variant_index=0, base_image=False):
             "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, peças complementares, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica. "
             f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante da imagem visualmente idêntico. "
             "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere as peças complementares, não crie outro ângulo e não gere uma nova fotografia. "
+            "Nesta cor, anexe primeiro a imagem aprovada desta campanha (ela é a fotografia-base); a foto de referência da modelo e as fotos do produto servem apenas de apoio para identidade e detalhes, não como base da composição. "
         )
     else:
         mode_block = (
             "FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA: esta é a primeira imagem da campanha. "
             "Gere uma fotografia inédita usando a referência anexada como fonte de identidade da modelo. "
             "Se essa foto de referência mostrar um ambiente ou cenário nítido (quarto, estúdio, rua, praia, academia etc.), mantenha exatamente esse mesmo ambiente na nova foto; só use um cenário diferente se os detalhes do briefing pedirem isso explicitamente. "
-            f"Enquadre a pessoa inteira ou até os joelhos, com {piece_ref} claramente visível e bem iluminada. "
+            f"Enquadre a pessoa inteira, garantindo que toda a extensão de {piece_ref} (barra, comprimento e calçados quando fizerem parte do look) fique visível e bem iluminada. "
             "Pose natural e estável, mãos corretas, olhar na câmera ou levemente para o lado. "
             "Esta imagem será a base fotográfica das outras cores: escolha um enquadramento que possa ser repetido. "
         )
@@ -1318,7 +1361,7 @@ def generate(c, script=None, variant_index=0, base_image=False):
         f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials_for_image}; preservar textura, brilho e caimento sem substituir por outro material. "
         f"FOCO VISUAL: {_focus_parts(c)[0]}. "
         + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
-        + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores; fundo nítido, sem desfoque e sem substituição. "
+        + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores, mantendo o mesmo nível de nitidez ou desfoque de fundo já presente na referência aprovada, sem trocar o cenário. "
         + ("Use a imagem aprovada da campanha como referência do cenário, sem copiar a cor da roupa. " if base_image else "")
         + ("INTEGRAÇÃO FOTOGRÁFICA: a peça substituída deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. " if base_image else "")
         + "Contexto de comunicação (não inserir texto nem inventar atributo): "
@@ -1374,6 +1417,7 @@ def package_text(c):
                        ('cta', 'CTA · 12–15s'), ('caption', 'LEGENDA')]:
         blocks.append(f"{title}\n{p.get(key, '(ainda não gerado)')}")
     blocks.append('REVISÃO HUMANA\n[ ] Conferir conta da Micaela\n[ ] Subir o MP4 aprovado\n'
+                  '[ ] Unir clipes e exportar 1 único MP4 de 15s, se o gerador entregar em partes\n'
                   '[ ] Selecionar o produto manualmente no TikTok Shop\n[ ] Colar e revisar a legenda\n'
                   '[ ] Revisar vídeo, áudio e direitos de uso\n[ ] Publicar manualmente no Studio')
     return '\n\n'.join(blocks) + '\n'

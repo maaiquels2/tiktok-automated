@@ -333,7 +333,8 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn(termo,video,f'o prompt nao pode citar "{termo}"')
         self.assertIn('ENCERRAMENTO',video)
         self.assertIn('mãos tocando',video)
-        self.assertIn('TODAS entre 0s e 11s',video)
+        self.assertIn('escolha 2 a 3 destas ações',video)
+        self.assertIn('entre 0s e 11s',video)
 
     def test_negative_attributes_stay_grammatical(self):
         campaign=dict(model_name='Micaela',product='Legging grossa sem transparência',outfit='legging',
@@ -370,7 +371,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('Evite movimentos artificiais de IA',video)
         self.assertIn('um único discurso contínuo',video)
         self.assertIn('MÃOS:',video)
-        self.assertIn('como quem vai contar um segredo',video)
+        self.assertIn('como quem ajusta a peça',video)
+        self.assertNotIn('contar um segredo',video)
 
     def test_first_image_prompt_keeps_the_environment_from_the_reference_photo(self):
         campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',

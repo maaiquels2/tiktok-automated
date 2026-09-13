@@ -1,14 +1,36 @@
-export async function api(path, options = {}) {
+export async function api(path, { timeoutMs, ...options } = {}) {
 
   const form = options.body instanceof FormData;
 
-  const response = await fetch('/api' + path, {...options, headers: {
+  // Sem prazo, uma conexao ruim ou um provedor de IA travado deixava a
+  // requisicao pendurada pra sempre e o app preso em "carregando". Uploads
+  // (FormData, normalmente video) ganham mais tempo por serem maiores.
+  const prazo = timeoutMs ?? (form ? 300000 : 120000);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), prazo);
 
-    'X-Local-App': 'fabrica-tiktok', ...(!form && options.body ? {'Content-Type':'application/json'} : {}),
+  let response;
+  try {
 
-    ...options.headers,
+    response = await fetch('/api' + path, {...options, signal: options.signal || controller.signal, headers: {
 
-  }, body: form ? options.body : options.body ? JSON.stringify(options.body) : undefined});
+      'X-Local-App': 'fabrica-tiktok', ...(!form && options.body ? {'Content-Type':'application/json'} : {}),
+
+      ...options.headers,
+
+    }, body: form ? options.body : options.body ? JSON.stringify(options.body) : undefined});
+
+  } catch (err) {
+
+    if (err.name === 'AbortError') throw new Error('A operação demorou demais e foi cancelada. Verifique sua conexão e tente novamente.');
+
+    throw err;
+
+  } finally {
+
+    clearTimeout(timer);
+
+  }
 
   const data = await response.json().catch(() => ({}));
 

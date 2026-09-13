@@ -51,18 +51,24 @@ export default function App(){
         setCampaigns(list);setReferences(refs);
         const route=parseRoute();
         let camp=first;
+        let notFound=false;
         if(route.campaignId){
           const hit=list.find(x=>x.id===route.campaignId);
-          if(hit){try{camp=await api('/campaigns/'+hit.id)}catch(e){camp=first}}
+          if(hit){try{camp=await api('/campaigns/'+hit.id)}catch(e){camp=null;notFound=true}}
+          else{camp=null;notFound=true}
         }
         setC(camp);
         if(camp){
           if(route.mode==='produce'&&route.stage&&produceStages.some(s=>s.id===route.stage)) setSelected(route.stage);
           else setSelected(nextStage(camp)==='performance'?'studio':(nextStage(camp)||'model'));
         }
-        setMode(route.mode);
+        setMode(notFound?'home':route.mode);
         setResultsTab(route.resultsTab||'studio');
         if(location.pathname==='/creator')setModal({type:'create'});
+        if(notFound){
+          setError(`Campanha ${route.campaignId} não encontrada. Mostrando a lista de campanhas.`);
+          try{history.replaceState(null,'','#/inicio')}catch(e){location.hash='/inicio'}
+        }
         bootHash.current=false;
       }
     }catch(e){if(active)setError(e.message)}finally{if(active)setLoading(false)}})();
@@ -104,7 +110,7 @@ export default function App(){
   }
   function goMode(m, tab){
     if(busy)return;
-    if(m!=='home'&&!discard())return;
+    if(!discard())return;
     if(m==='produce'&&!c){setMode('home');syncHash({mode:'home'});return}
     setMode(m);
     if(m==='results'){
@@ -145,7 +151,13 @@ export default function App(){
       if(route.mode==='produce'&&route.stage&&produceStages.some(s=>s.id===route.stage)) setSelected(route.stage);
       if(route.campaignId&&c?.id!==route.campaignId){
         const hit=campaigns.find(x=>x.id===route.campaignId);
-        if(hit){ api('/campaigns/'+hit.id).then(result=>{setC(result); if(route.mode==='produce'){const st=route.stage||nextStage(result); setSelected(st==='performance'?'studio':st)}}).catch(()=>{}); }
+        const naoEncontrada=()=>{
+          setError(`Campanha ${route.campaignId} não encontrada. Mostrando a lista de campanhas.`);
+          setC(null);setMode('home');
+          try{history.replaceState(null,'','#/inicio')}catch(e){location.hash='/inicio'}
+        };
+        if(hit){ api('/campaigns/'+hit.id).then(result=>{setC(result); if(route.mode==='produce'){const st=route.stage||nextStage(result); setSelected(st==='performance'?'studio':st)}}).catch(naoEncontrada); }
+        else{ naoEncontrada(); }
       }
     }
     window.addEventListener('hashchange', onHash);
@@ -490,12 +502,12 @@ export default function App(){
     </nav>
     <div className="header-right">
       {auth?.authenticated&&<button type="button" className="identity-icon-btn" title="Acessos do estúdio" onClick={()=>setModal({type:'users',title:'Acessos do estúdio'})}><UserCog size={17}/><span className="identity-icon-label">{auth.user.display_name}</span></button>}
-      <span className="device-badge" aria-label={`Dispositivo de acesso: ${device.label}`} title={`Acessando por ${device.label}. Os dados ficam no computador que executa a fábrica.`}><DeviceIcon size={15} aria-hidden="true"/><span>{device.label}</span></span>
+      <span className="device-badge" aria-label={`Dispositivo de acesso: ${device.label}`} title={isCloudMode()?`Acessando por ${device.label}. Os dados ficam salvos na nuvem (Supabase).`:`Acessando por ${device.label}. Os dados ficam no computador que executa a fábrica.`}><DeviceIcon size={15} aria-hidden="true"/><span>{device.label}</span></span>
       <button type="button" className="identity-icon-btn" title="Identidade do estudio" aria-label="Identidade do estudio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estudio'})}}>
         <UserCog size={18}/>
         <span className="identity-icon-label">{identity?.model_name||'Identidade'}</span>
       </button>
-      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':'Dados no computador'}</span>
+      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':(isCloudMode()?'Dados salvos na nuvem':'Dados no computador')}</span>
       {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash(lanPin?`Link copiado. No celular, o PIN e ${lanPin}.`:'Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
       {lanPin && lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <span className="lan-pin" title="Quem abrir pela rede local precisa digitar este PIN. Fica em data/lan_pin.txt.">PIN {lanPin}</span> : null}
       {auth?.authenticated&&<button type="button" className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17}/></button>}
@@ -530,7 +542,7 @@ export default function App(){
             </ServiceLaunch>
             <TikTokLaunchButtons className="home-launch-btn is-studio" bare disabled={busy||loading} onOpenStudio={event=>openFreeService('studio',event)}/>
           </div>
-          <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.'}</small>
+          <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':(isCloudMode()?'TikTok Studio e TikTok abrem em novas abas deste navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.')}</small>
         </div>
 <ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
         <div className="home-grid">

@@ -18,6 +18,7 @@ configurada, ou sem internet, o app continua funcionando exatamente como antes.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import urllib.error
@@ -108,11 +109,11 @@ Forte: "Eu achei que ela ia parecer barata, até olhar de perto." / "O acabament
 
 REGRAS INEGOCIÁVEIS
 1. Só pode afirmar o que estiver em FATOS CONFIRMADOS. Nada de compressão, elasticidade, durabilidade, secagem, proteção ou qualquer desempenho que não esteja lá.
-2. Urgência (últimas peças, corre, acaba hoje, desconto) só se houver OFERTA REAL no briefing. Sem oferta, nenhuma palavra de urgência.
+2. Urgência (últimas peças, acaba hoje, desconto) só se houver OFERTA REAL no briefing. Sem oferta, nenhuma palavra de urgência sobre estoque, prazo ou preço.
 3. Nunca repita a mesma expressão em duas batidas. Se o hook usou uma palavra-chave, o desenvolvimento usa outra.
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
-6. Fale na primeira pessoa, com a naturalidade de quem comprou e está recomendando. Não narre gestos nem movimentos que o público já está vendo.
+6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Não afirme ter comprado, testado ou usado por um período (isso não está confirmado no briefing) e não narre gestos nem movimentos que o público já está vendo.
 7. "Corre", "garante a tua" e afins são entusiasmo e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "acaba hoje", "50% off", "promoção relâmpago".
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
 
@@ -252,7 +253,7 @@ def audit(pack: dict, c: dict) -> list[str]:
     if total > TOTAL_MAX:
         problemas.append(f'as três falas somam {total} palavras; o teto para 15 segundos é {TOTAL_MAX}')
 
-    falado = ' '.join((pack.get(k) or '') for k in ('hook', 'development', 'cta')).casefold()
+    falado = ' '.join((pack.get(k) or '') for k in ('hook', 'development', 'cta', 'caption')).casefold()
     hook = (pack.get('hook') or '').strip().casefold()
     development = (pack.get('development') or '').strip().casefold()
     cta = (pack.get('cta') or '').strip().casefold()
@@ -296,8 +297,8 @@ def audit(pack: dict, c: dict) -> list[str]:
         for field in ('hook','development','cta'):
             old = re.sub(r'\W+', ' ', str(previous.get(field) or '').casefold()).strip()
             new = re.sub(r'\W+', ' ', str(pack.get(field) or '').casefold()).strip()
-            if old and new and old == new:
-                problemas.append(f'{field} repetiu exatamente o roteiro atual')
+            if old and new and difflib.SequenceMatcher(None, old, new).ratio() > 0.85:
+                problemas.append(f'{field} repete quase literalmente o roteiro atual (poucas palavras trocadas)')
 
     caption = (pack.get('caption') or '')
     if not caption.strip():
@@ -532,9 +533,11 @@ def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | Non
 # --------------------------------------------------------------------------- visao (analise de produto)
 VISION_SYSTEM_PROMPT = """Você é um analista de produtos de moda para vídeos UGC de TikTok Shop.
 
-Você recebe até duas fotos:
-1. Foto do produto/roupa (como ele é, cor, tecido, corte).
-2. Foto da página de descrição do produto no TikTok Shop/loja (specs, tecido, características escritas).
+Você recebe até quatro fotos, nesta ordem:
+1. Uma ou mais fotos do produto/roupa (como ele é, cor, tecido, corte; podem ser ângulos diferentes da mesma peça).
+2. Por último, a foto da página de descrição do produto no TikTok Shop/loja (specs, tecido, características escritas).
+
+Cada foto vem identificada por função na mensagem do usuário - use essa identificação para saber qual é qual.
 
 Sua tarefa: olhar SOMENTE o que está visível ou escrito nas fotos e devolver um JSON com estes campos,
 todos em português do Brasil, para preencher automaticamente o briefing de um vídeo:
@@ -574,22 +577,28 @@ def _parse_vision_result(raw: str) -> dict:
     return out
 
 
-def analyze_product(images: list[tuple[bytes, str]], settings: dict, context: str = '') -> tuple[dict | None, str]:
+def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, context: str = '') -> tuple[dict | None, str]:
     """Analisa fotos do produto (e/ou da descrição) e devolve sugestoes pros
-    campos do briefing. Usa a mesma configuracao (provedor/chave/modelo) das
-    Configuracoes de Escrita com IA - se o modelo suportar visao (gpt-4o-mini
-    e gemini-2.0-flash suportam, e sao os padroes do app), funciona sem
-    nenhuma chave nova. Devolve (campos_sugeridos, motivo_da_falha)."""
+    campos do briefing. Cada item de `images` e (bytes, mime, rotulo) - o
+    rotulo diz pra IA qual foto e qual (produto ou descricao), na mesma
+    ordem descrita no prompt de visao. Usa a mesma configuracao
+    (provedor/chave/modelo) das Configuracoes de Escrita com IA - se o
+    modelo suportar visao (gpt-4o-mini e gemini-2.0-flash suportam, e sao
+    os padroes do app), funciona sem nenhuma chave nova. Devolve
+    (campos_sugeridos, motivo_da_falha)."""
     caller = CALLERS.get(settings.get('provider'))
     if not caller or not settings.get('api_key'):
         return None, 'Configure a IA em "Configurações de Escrita com IA" antes de analisar fotos.'
     if not images:
         return None, 'Nenhuma foto para analisar.'
+    identificacao = '; '.join(f'Foto {i}: {rotulo}' for i, (_, _, rotulo) in enumerate(images, start=1) if rotulo)
     user = 'Analise as fotos anexadas e devolva o JSON pedido.'
+    if identificacao:
+        user += f'\n\nIdentificação de cada foto, na ordem enviada: {identificacao}.'
     if context:
         user += f'\n\nContexto adicional (não invente além disso): {context}'
     try:
-        bruto = caller(settings, VISION_SYSTEM_PROMPT, user, images)
+        bruto = caller(settings, VISION_SYSTEM_PROMPT, user, [(dados, mime) for dados, mime, _ in images])
         campos = _parse_vision_result(bruto)
     except ProviderError as exc:
         if exc.status:

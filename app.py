@@ -174,7 +174,10 @@ def create_app(config=None):
                     'FABRICA_CLOUD=1 exige a variavel FABRICA_DATABASE_URL '
                     '(string de conexao do Postgres/Supabase, em Configuracoes > Database no painel do Supabase).'
                 )
-            pg_conn = psycopg2.connect(dsn, cursor_factory=RealDictCursor)
+            pg_conn = psycopg2.connect(
+                dsn, cursor_factory=RealDictCursor,
+                connect_timeout=10, options='-c statement_timeout=30000',
+            )
             return _CloudConnection(pg_conn)
         conn = sqlite3.connect(db_path,timeout=20)
         conn.row_factory = sqlite3.Row
@@ -454,9 +457,13 @@ def create_app(config=None):
             # visita/recarregada, so quando sai um deploy novo (nome novo).
             response.headers['Cache-Control']='public, max-age=31536000, immutable'
         elif request.path.startswith('/api/') or request.path == '/':
-            # A pagina (index.html) e as respostas da API mudam com
-            # frequencia - continuam sempre revalidando, sem cache.
-            response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+            # A pagina (index.html) e a maioria das respostas da API mudam
+            # com frequencia - continuam sempre revalidando, sem cache. Uma
+            # rota que ja definiu seu proprio Cache-Control (ex.:
+            # model_library_file, com cache privado do tamanho do link
+            # assinado) mantem o valor dela: setdefault so preenche quando
+            # ainda nao ha um cabecalho, em vez de sobrescrever sempre.
+            response.headers.setdefault('Cache-Control','no-store, no-cache, must-revalidate, max-age=0')
         return response
 
     @app.errorhandler(Invalid)
@@ -601,8 +608,22 @@ def create_app(config=None):
                 raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.',409)
         return c
 
-    def touch(cid):
-        db().execute('UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=?',(cid,))
+    def touch(cid, expected_version=None):
+        # Sem expected_version (fluxos que nao leram a campanha com start()
+        # antes), mantem o incremento incondicional de sempre.
+        if expected_version is None:
+            db().execute('UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=?',(cid,))
+            return
+        # Com expected_version, o UPDATE so aplica se a versao ainda for a
+        # mesma lida no inicio da requisicao -- funciona igual em SQLite e
+        # Postgres, sem depender do lock de BEGIN IMMEDIATE (que na nuvem
+        # nao existe: e um no-op do adaptador Postgres).
+        cur = db().execute(
+            'UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=? AND version=?',
+            (cid, expected_version),
+        )
+        if cur.rowcount == 0:
+            raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.', 409)
 
     def asset(cid,kind,slot=None):
         if slot is None:
@@ -1098,7 +1119,7 @@ def create_app(config=None):
             if values['model_name']!=c['model_name']:
                 clear_after(cid,['reference'])
         db().execute(f"UPDATE campaigns SET {','.join(k+'=?' for k in FIELDS)} WHERE id=?",(*[values[k] for k in FIELDS],cid))
-        touch(cid)
+        touch(cid, c['version'])
 
     @app.patch('/api/campaigns/<int:cid>')
     def update_campaign(cid):
@@ -1240,20 +1261,23 @@ def create_app(config=None):
         return jsonify(detail(cid))
 
     def _run_product_analysis(cid,c,description_bytes,description_mime):
-        """Chama a IA (mesma config de Escrita com IA) com a foto da
-        descricao do produto + a primeira foto do produto ja salva (se
-        houver) e preenche automaticamente os campos do briefing que
-        ainda estao vazios - nunca sobrescreve o que ja foi escrito."""
+        """Chama a IA (mesma config de Escrita com IA) com as fotos do
+        produto ja salvas (ate 3, se houver) seguidas da foto da descricao
+        do produto - nessa ordem, a mesma que o prompt de visao descreve -
+        e preenche automaticamente os campos do briefing que ainda estao
+        vazios - nunca sobrescreve o que ja foi escrito."""
         from services import copywriter
         settings=copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
-        images=[(description_bytes,description_mime)]
-        product_row=db().execute(
-            'SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id LIMIT 1',(cid,)).fetchone()
-        if product_row:
+        images=[]
+        product_rows=db().execute(
+            'SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id LIMIT 3',(cid,)).fetchall()
+        for idx,product_row in enumerate(product_rows,start=1):
             try:
-                images.append((read_asset(product_row),product_row['mime']))
+                label='foto do produto/roupa' if len(product_rows)==1 else f'foto do produto/roupa (ângulo {idx})'
+                images.append((read_asset(product_row),product_row['mime'],label))
             except Invalid:
                 pass
+        images.append((description_bytes,description_mime,'foto da página de descrição do produto'))
         context=f"Produto: {c.get('product') or c.get('name') or ''}. Nicho: {c.get('niche') or ''}."
         campos,motivo=copywriter.analyze_product(images,settings,context=context)
         if campos is None:
@@ -1506,7 +1530,7 @@ def create_app(config=None):
         else:
             pack,_=write_with_llm(current,generate(current),cid)
             save_prompts(cid,pack)
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -1533,7 +1557,7 @@ def create_app(config=None):
             db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
                          (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
         save_prompts(cid,variants[0]['prompts'])
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -1564,7 +1588,7 @@ def create_app(config=None):
             pass
         save_prompts(cid,changed)
         if changed:
-            touch(cid)
+            touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -1572,6 +1596,9 @@ def create_app(config=None):
         """Parte de attach() que so mexe em banco/estado - igual pro arquivo
         recebido pelo servidor (attach) ou mandado direto pro Storage pelo
         navegador (attach_uploaded)."""
+        # Lido uma vez aqui para o touch(cid, c['version']) no final: o ramo
+        # kind=='reference' nao teria outra forma de obter a versao atual.
+        c=campaign(cid)
         slot=(slot or '').strip()
         if kind in {'image','video'}:
             db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=? AND slot=?',(cid,kind,slot))
@@ -1605,7 +1632,7 @@ def create_app(config=None):
             if set(slots).issubset(present):
                 state(cid,'video_ready')
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'",(cid,))
-        touch(cid)
+        touch(cid, c['version'])
 
     def attach(cid,kind,path,original,metadata,ext,mime,slot=''):
         rel_path=f'campanha-{cid:04d}/{kind}-{uuid.uuid4().hex}{ext}'
@@ -1720,6 +1747,9 @@ def create_app(config=None):
         temp=Path(temp)
         try:
             file_bytes=_storage_get(rel_path)
+            if len(file_bytes)>250*1024*1024:
+                _storage_delete(rel_path)
+                raise Invalid('O arquivo enviado é maior que o limite de 250 MB.',413)
             temp.write_bytes(file_bytes)
             try:
                 metadata,_ext,mime=inspect_media(temp,kind)
@@ -1803,7 +1833,7 @@ def create_app(config=None):
         present.update(r.get('slot') or '' for r in device_videos_of(cid))
         if set(slots).issubset(present):
             state(cid,'video_ready')
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid)),201
 
@@ -2241,7 +2271,7 @@ def create_app(config=None):
         # Caption-only refresh stays on the current publish step — never kick back to roteiro/video.
         elif only_caption:
             pass
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2291,7 +2321,7 @@ def create_app(config=None):
                     clear_after(cid, ['video'])
         elif only_caption:
             pass  # caption-only: stay on publish step
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2323,7 +2353,7 @@ def create_app(config=None):
         if STATES.index(c['status'])>=2 and set(changed)&{'hook','development','cta','video'}:
             state(cid,'image_approved')
             clear_after(cid,['video'])
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2371,7 +2401,7 @@ def create_app(config=None):
         perf[key]=merged
         checklist['performance']=perf
         db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2456,7 +2486,7 @@ def create_app(config=None):
                 perf[alias] = entry
         checklist['performance'] = perf
         db().execute('UPDATE campaigns SET checklist=? WHERE id=?', (json.dumps(checklist, ensure_ascii=False), cid))
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         out = detail(cid)
         out['_fetch'] = {'message': result.get('message'), 'metrics': cleaned, 'analytics_url': entry.get('analytics_url')}
@@ -2495,7 +2525,7 @@ def create_app(config=None):
             (url, json.dumps(checklist, ensure_ascii=False), cid),
         )
         # do not force status=published if still in pipeline — only store the link
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2553,7 +2583,7 @@ def create_app(config=None):
             insights[key]=card
         checklist['insights']=insights
         db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2610,7 +2640,7 @@ def create_app(config=None):
             state(cid,'published',True)
             db().execute('UPDATE campaigns SET checklist=?,published_url=? WHERE id=?',
                          (json.dumps(checklist,ensure_ascii=False), url or '', cid))
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2907,7 +2937,7 @@ def create_app(config=None):
         if target=='published':
             patch_checklist(cid,checks)
             db().execute('UPDATE campaigns SET published_url=? WHERE id=?',(url,cid))
-        touch(cid)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2928,12 +2958,24 @@ def create_app(config=None):
         bundle=tempfile.SpooledTemporaryFile(max_size=8*1024*1024)
         with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED) as archive:
             archive.writestr('pacote-tiktok.txt',text.encode('utf-8-sig'))
-            for a in c['assets']:
-                if a['kind']!='reference' and not a['approved_at']:
-                    continue
+            included=[a for a in c['assets'] if a['kind']=='reference' or a['approved_at']]
+            by_kind={}
+            for a in included:
+                by_kind.setdefault(a['kind'],[]).append(a)
+            for a in included:
                 prefix={'reference':'referencia-modelo','image':'imagem-aprovada','video':'video-aprovado'}[a['kind']]
                 suffix=Path(a['path']).suffix
-                archive.writestr(prefix+suffix,read_asset(a))
+                if len(by_kind[a['kind']])==1:
+                    # Caso comum (uma cor): mantem o nome simples de sempre.
+                    name=f"{prefix}{suffix}"
+                else:
+                    # Mais de um arquivo do mesmo tipo (varias cores): incluir a
+                    # cor (slot) e o id do asset no nome evita que duas cores
+                    # com a mesma extensao colidam no mesmo arquivo dentro do
+                    # ZIP (ex.: duas entradas "imagem-aprovada.png").
+                    slot_slug=re.sub(r'[^a-z0-9]+','-',(a.get('slot') or '').strip().lower()).strip('-')
+                    name=f"{prefix}{('-'+slot_slug) if slot_slug else ''}-{a['id']}{suffix}"
+                archive.writestr(name,read_asset(a))
             if c.get('device_videos'):
                 lines=['Os vídeos abaixo permanecem no dispositivo e não estão incluídos neste ZIP:']
                 for item in c['device_videos']:

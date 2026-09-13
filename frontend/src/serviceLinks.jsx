@@ -32,10 +32,16 @@ export function TikTokLaunchButtons({onOpenStudio, disabled, className = 'button
   // where we still skip the server automation - open in a new tab instead,
   // so people do not lose the Fabrica TikTok page they were on.
   const target = realMobile ? undefined : '_blank';
+  // No celular, mantem o link nativo que o app do TikTok ja assume certo.
+  // No computador acessando a nuvem (sem automacao de servidor disponivel),
+  // o botao vira link tambem, mas precisa ir pro endereco de verdade do
+  // TikTok Studio - nao pra home do TikTok, que e o botao ao lado.
+  const studioHref = realMobile ? 'https://www.tiktok.com/' : 'https://www.tiktok.com/tiktokstudio';
+  const studioTitle = realMobile ? 'Abrir TikTok neste aparelho' : 'Abrir TikTok Studio';
   // On mobile, use a native link without invoking the PC-launch callback.
   // On desktop, keep the configured Chrome profile for manual publication.
   const studioBtn = mobile && !disabled ? <a className={`service-launch-link ${className} tiktok-brand-button is-tiktok-studio`}
-      href="https://www.tiktok.com/" target={target} rel="noopener noreferrer" aria-label="TikTok Studio" title="Abrir TikTok neste aparelho"><TikTokBrand studio/></a> :
+      href={studioHref} target={target} rel="noopener noreferrer" aria-label="TikTok Studio" title={studioTitle}><TikTokBrand studio/></a> :
     <button type="button" className={`${className} tiktok-brand-button is-tiktok-studio`} disabled={disabled} onClick={onOpenStudio} aria-label={opening?'Abrindo TikTok Studio':'TikTok Studio'} title="TikTok Studio">
       {opening?'Abrindo…':<TikTokBrand studio/>}
     </button>;

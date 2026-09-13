@@ -95,16 +95,25 @@ def library_path(data_dir: Path) -> Path:
 
 
 def load_library(data_dir: Path, storage_get=None) -> dict:
-    """Le a biblioteca (Storage do Supabase na nuvem, arquivo local no modo padrao)."""
+    """Le a biblioteca (Storage do Supabase na nuvem, arquivo local no modo padrao).
+
+    So um arquivo genuinamente inexistente (404 -- biblioteca nunca criada)
+    volta como {}. Qualquer outra falha (rede, permissao, resposta invalida)
+    e propagada: engolir esse erro e devolver {} faria a interface achar que
+    as fotos foram apagadas, e uma gravacao subsequente poderia sobrescrever
+    a biblioteca real com uma vazia.
+    """
     if storage_get is not None:
         try:
             raw = storage_get("model-library/model_library.json")
-        except Exception:
-            return {}
+        except Exception as exc:
+            if getattr(exc, "status", None) == 404:
+                return {}
+            raise
         try:
             data = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return {}
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Biblioteca de fotos corrompida no armazenamento.") from exc
         return data if isinstance(data, dict) else {}
     path = library_path(data_dir)
     if not path.exists():
