@@ -645,7 +645,8 @@ export default function App(){
     {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
     {notice&&!error&&<div className="toast" role="status"><Check size={19}/>{notice}</div>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
-      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[])=>{
+      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[],descriptionPhoto=null)=>{
+        let analysisOutcome=null;
         const created=await run(async()=>{
           let result=await api('/campaigns',{method:'POST',body:values});
           if(photos?.length){
@@ -660,6 +661,14 @@ export default function App(){
               result=await api(`/campaigns/${result.id}/look`,{method:'POST',body:form});
             }
           }
+          if(descriptionPhoto){
+            try{
+              result=isCloudMode()?await analyzeProductPhotoDirect(result.id,descriptionPhoto):await analyzeProductPhotoLocal(result.id,descriptionPhoto);
+              analysisOutcome={filled:result.analysis?.filled||[]};
+            }catch(e){
+              analysisOutcome={error:e.message};
+            }
+          }
           setMode('produce');
           const st=nextStage(result)||'model';
           // If product photos already attached, skip asking again on look when possible
@@ -670,6 +679,11 @@ export default function App(){
           syncHash({mode:'produce',campaignId:result.id,stage:go});
           return result;
         }, photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a producao.');
+        if(created&&analysisOutcome){
+          if(analysisOutcome.error)setError(`Campanha criada, mas a análise da IA da foto de descrição falhou: ${analysisOutcome.error}`);
+          else if(analysisOutcome.filled.length)flash(`Campanha criada. A IA leu a foto da descrição e preencheu: ${analysisOutcome.filled.map(k=>ANALYSIS_FIELD_LABELS[k]||k).join(', ')}.`);
+          else flash('Campanha criada. A IA não encontrou nada de novo pra preencher com a foto da descrição.');
+        }
         if(created)setModal(null);
       }}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
       {error&&<p className="inline-error" role="alert">{error}</p>}
