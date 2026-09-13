@@ -20,6 +20,22 @@ export async function api(path, options = {}) {
 
 export const health=()=>api('/health');
 
+// Upload direto ao Supabase Storage (usado na versao online, no lugar do
+// FormData de sempre): o navegador manda o arquivo para o Storage sem
+// passar pelo servidor, contornando o limite de 4,5 MB por requisicao das
+// funcoes do Vercel. Em 3 passos: pede o link assinado, envia o arquivo
+// direto pra la, e avisa o servidor que terminou (pra ele validar e salvar
+// no banco).
+export const requestAssetUploadUrl = (cid, body) => api(`/campaigns/${cid}/assets/upload-url`,{method:'POST',body});
+export const confirmAssetUpload = (cid, body) => api(`/campaigns/${cid}/assets/confirm`,{method:'POST',body});
+
+export async function uploadAssetDirect(cid, kind, file, extra = {}) {
+  const {upload_url, path} = await requestAssetUploadUrl(cid, {kind, filename: file.name, ...extra});
+  const put = await fetch(upload_url, {method:'PUT', headers:{'Content-Type': file.type || 'application/octet-stream'}, body: file});
+  if (!put.ok) throw new Error('Não foi possível enviar o arquivo para o armazenamento.');
+  return confirmAssetUpload(cid, {kind, path, original_name: file.name, ...extra});
+}
+
 export const states = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published'];
 
 export const statusLabels = {briefing:'Em preparação',image_ready:'Imagem para revisar',image_approved:'Imagem aprovada',script_ready:'Roteiro pronto',video_ready:'Vídeo para revisar',video_approved:'Vídeo aprovado',ready_to_publish:'Pronta para publicar',published:'Publicada'};

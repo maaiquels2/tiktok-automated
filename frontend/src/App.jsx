@@ -1,9 +1,9 @@
 import { getDeviceInfo } from './device';
-import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode } from './serviceLinks';
+import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
 
 
@@ -262,7 +262,21 @@ export default function App(){
   function upload(kind,file,color){
     if(!discard())return;
     if(file.size>(kind==='video'?250:40)*1024*1024){setError('Arquivo acima do limite permitido.');return}
-    const action=()=>{const form=new FormData();form.set('kind',kind);form.set('file',file);form.set('version',c.version);if(color)form.set('color',color);const stay=kind==='image'?'image':kind==='video'?'video':'look';return run(()=>api(`/campaigns/${c.id}/assets`,{method:'POST',body:form}),color?`Imagem ${color} salva.`:'Mídia salva localmente.',stay)};
+    const action=()=>{
+      const stay=kind==='image'?'image':kind==='video'?'video':'look';
+      // Na nuvem, o arquivo vai direto pro Supabase Storage (o navegador nao
+      // manda mais pro nosso servidor) - contorna o limite de 4,5 MB por
+      // requisicao das funcoes do Vercel. No computador, continua igual.
+      const doUpload=()=>{
+        if(isCloudMode()){
+          const extra=color?{color,version:c.version}:{version:c.version};
+          return uploadAssetDirect(c.id,kind,file,extra);
+        }
+        const form=new FormData();form.set('kind',kind);form.set('file',file);form.set('version',c.version);if(color)form.set('color',color);
+        return api(`/campaigns/${c.id}/assets`,{method:'POST',body:form});
+      };
+      return run(doUpload,color?`Imagem ${color} salva.`:'Mídia salva localmente.',stay);
+    };
     const existsSame=c.assets.some(a=>a.kind===kind && (!color || a.slot===color || a.metadata?.color===color));
     if(existsSame)confirm('Substituir esta mídia?',color?`Substituir a imagem da cor ${color}? A versão anterior continua guardada localmente.`:'A nova mídia precisa ser revisada e invalida as etapas seguintes. A versão anterior continua guardada localmente.',action,'Substituir');else action();
   }

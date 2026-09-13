@@ -9,6 +9,7 @@ export { isMobileDevice } from './device';
 // do mesmo jeito que ja acontece no celular.
 let cloudMode = false;
 export function setCloudMode(value) { cloudMode = !!value; }
+export function isCloudMode() { return cloudMode; }
 
 function TikTokBrand({studio = false}) {
   // Crop only the presentation viewport; keep the supplied PNGs intact.

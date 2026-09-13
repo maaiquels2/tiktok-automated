@@ -45,7 +45,13 @@ class Invalid(Exception):
 def create_app(config=None):
     app = Flask(__name__, static_folder=None)
     home = Path(sys.executable).parent if getattr(sys,'frozen',False) else ROOT
-    app.config.update(DATA_DIR=home/'data',MEDIA_DIR=home/'media',PROFILE_DIR=home/'browser_profiles',
+    _cloud_env = bool((config or {}).get('CLOUD_MODE', os.environ.get('FABRICA_CLOUD','0')=='1'))
+    if _cloud_env:
+        _tmp_root = Path(tempfile.gettempdir())/'fabrica-tiktok'
+        _default_data_dir, _default_media_dir, _default_profile_dir = _tmp_root/'data', _tmp_root/'media', _tmp_root/'browser_profiles'
+    else:
+        _default_data_dir, _default_media_dir, _default_profile_dir = home/'data', home/'media', home/'browser_profiles'
+    app.config.update(DATA_DIR=_default_data_dir,MEDIA_DIR=_default_media_dir,PROFILE_DIR=_default_profile_dir,
                       FRONTEND_DIR=ROOT/'frontend'/'dist',MAX_CONTENT_LENGTH=250*1024*1024)
     app.config.update(config or {})
     app.json.ensure_ascii = False
@@ -655,6 +661,22 @@ def create_app(config=None):
             return True
         except Invalid:
             return False
+
+    def _storage_create_upload_url(key):
+        """Link assinado de UPLOAD: o navegador manda os bytes direto pro
+        Storage do Supabase, sem passar pelo servidor. Existe por causa do
+        limite de 4,5 MB por requisicao das funcoes do Vercel - fotos e
+        principalmente videos passam disso facil."""
+        _storage_check()
+        url=f"{storage_url}/storage/v1/object/upload/sign/{storage_bucket}/{key}"
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json'}
+        req=urllib.request.Request(url,data=b'{}',headers=headers,method='POST')
+        with urllib.request.urlopen(req,timeout=30) as resp:
+            payload=json.loads(resp.read().decode('utf-8'))
+        signed=payload.get('url') or ''
+        if not signed:
+            raise Invalid('Não foi possível preparar o envio do arquivo.',502)
+        return f"{storage_url}/storage/v1{signed}"
 
     def read_asset(row):
         """Bytes do arquivo guardado (Storage do Supabase na nuvem, disco local no modo padrão)."""
@@ -1326,18 +1348,10 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
-    def attach(cid,kind,path,original,metadata,ext,mime,slot=''):
-        rel_path=f'campanha-{cid:04d}/{kind}-{uuid.uuid4().hex}{ext}'
-        destination=app.config['MEDIA_DIR']/rel_path
-        if cloud_mode:
-            data=Path(path).read_bytes()
-            _storage_put(rel_path,data,mime)
-            Path(path).unlink(missing_ok=True)
-            size=len(data)
-        else:
-            destination.parent.mkdir(exist_ok=True)
-            shutil.move(str(path),destination)
-            size=destination.stat().st_size
+    def _attach_record(cid,kind,rel_path,original,metadata,mime,size,slot=''):
+        """Parte de attach() que so mexe em banco/estado - igual pro arquivo
+        recebido pelo servidor (attach) ou mandado direto pro Storage pelo
+        navegador (attach_uploaded)."""
         slot=(slot or '').strip()
         if kind in {'image','video'}:
             db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=? AND slot=?',(cid,kind,slot))
@@ -1372,7 +1386,27 @@ def create_app(config=None):
                 state(cid,'video_ready')
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'",(cid,))
         touch(cid)
+
+    def attach(cid,kind,path,original,metadata,ext,mime,slot=''):
+        rel_path=f'campanha-{cid:04d}/{kind}-{uuid.uuid4().hex}{ext}'
+        destination=app.config['MEDIA_DIR']/rel_path
+        if cloud_mode:
+            data=Path(path).read_bytes()
+            _storage_put(rel_path,data,mime)
+            Path(path).unlink(missing_ok=True)
+            size=len(data)
+        else:
+            destination.parent.mkdir(exist_ok=True)
+            shutil.move(str(path),destination)
+            size=destination.stat().st_size
+        _attach_record(cid,kind,rel_path,original,metadata,mime,size,slot)
         return destination
+
+    def attach_uploaded(cid,kind,rel_path,original,metadata,mime,size,slot=''):
+        """Como attach(), mas para um arquivo que o navegador ja mandou
+        direto pro Supabase Storage (upload em duas etapas usado na nuvem
+        pra contornar o limite de 4,5 MB do Vercel)."""
+        _attach_record(cid,kind,rel_path,original,metadata,mime,size,slot)
 
     @app.post('/api/campaigns/<int:cid>/assets')
     def upload(cid):
@@ -1420,6 +1454,85 @@ def create_app(config=None):
             db().rollback()
             if destination:
                 destination.unlink(missing_ok=True)
+            raise
+        finally:
+            temp.unlink(missing_ok=True)
+        return jsonify(detail(cid)),201
+
+    @app.post('/api/campaigns/<int:cid>/assets/upload-url')
+    def request_asset_upload_url(cid):
+        """Passo 1 do upload direto ao Supabase (nuvem): gera o link assinado
+        de envio, pro navegador mandar o arquivo sem passar pelo servidor."""
+        if not cloud_mode:
+            raise Invalid('Disponível apenas na versão online.',409)
+        data=body()
+        kind=data.get('kind')
+        if kind not in {'reference','image','video'}:
+            raise Invalid('Escolha o tipo de mídia.')
+        c=start(cid,data)
+        editable(c)
+        filename=(data.get('filename') or '').strip()
+        ext=Path(filename).suffix.lower()
+        if not re.match(r'^\.[a-z0-9]{1,9}$',ext):
+            ext='.mp4' if kind=='video' else '.jpg'
+        rel_path=f'campanha-{cid:04d}/{kind}-{uuid.uuid4().hex}{ext}'
+        upload_url=_storage_create_upload_url(rel_path)
+        return jsonify({'upload_url':upload_url,'path':rel_path})
+
+    @app.post('/api/campaigns/<int:cid>/assets/confirm')
+    def confirm_asset_upload(cid):
+        """Passo 2 (nuvem): o arquivo ja esta no Storage. Baixamos de volta
+        so pra validar e extrair metadados (dimensoes/duracao) - a mesma
+        checagem em Python puro que o modo local faz, sem precisar de
+        FFmpeg - e ai gravamos igual ao upload direto."""
+        if not cloud_mode:
+            raise Invalid('Disponível apenas na versão online.',409)
+        data=body()
+        kind=data.get('kind')
+        rel_path=(data.get('path') or '').strip()
+        original=(data.get('original_name') or '').strip()
+        if kind not in {'reference','image','video'} or not rel_path or not original:
+            raise Invalid('Dados de upload incompletos.')
+        if not rel_path.startswith(f'campanha-{cid:04d}/'):
+            raise Invalid('Upload inválido para esta campanha.',403)
+        fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
+        os.close(fd)
+        temp=Path(temp)
+        try:
+            file_bytes=_storage_get(rel_path)
+            temp.write_bytes(file_bytes)
+            try:
+                metadata,_ext,mime=inspect_media(temp,kind)
+            except (ValueError,EOFError) as exc:
+                raise Invalid(str(exc)) from exc
+            c=start(cid,data)
+            editable(c)
+            slot=''
+            if kind=='image':
+                need_asset(cid,'reference')
+                current=detail(cid)
+                if not current['prompts'].get('image') and not current.get('variants'):
+                    raise Invalid('Gere o prompt de imagem antes de anexar o resultado.',409)
+                slots=image_slots_for(c)
+                slot=(data.get('color') or data.get('slot') or '').strip()
+                if len(slots)==1 and not slot:
+                    slot=slots[0]
+                if slot not in slots:
+                    raise Invalid('Informe a cor desta imagem (' + ', '.join(s for s in slots if s) + ').',409)
+            if kind=='video':
+                need_asset(cid,'image',True)
+                if STATES.index(c['status'])<3:
+                    raise Invalid('Revise o roteiro antes de anexar o vídeo.',409)
+                slots=image_slots_for(c)
+                slot=(data.get('color') or data.get('slot') or '').strip()
+                if len(slots)==1 and not slot:
+                    slot=slots[0]
+                if slot not in slots:
+                    raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
+            attach_uploaded(cid,kind,rel_path,original[:240],metadata,mime,len(file_bytes),slot)
+            db().commit()
+        except Exception:
+            db().rollback()
             raise
         finally:
             temp.unlink(missing_ok=True)
@@ -2903,5 +3016,8 @@ def create_app(config=None):
 
     return app
 
+if os.environ.get('VERCEL') or os.environ.get('FABRICA_CLOUD','0')=='1':
+    app = create_app()
+
 if __name__=='__main__':
-    create_app().run(host=('0.0.0.0' if os.environ.get('FABRICA_LAN','1')!='0' else '127.0.0.1'),port=int(os.environ.get('FABRICA_PORT','5050')),debug=False)
+    (app if 'app' in globals() else create_app()).run(host=('0.0.0.0' if os.environ.get('FABRICA_LAN','1')!='0' else '127.0.0.1'),port=int(os.environ.get('FABRICA_PORT','5050')),debug=False)
