@@ -1849,6 +1849,27 @@ textarea:focus {
     padding: 8px 10px;
     font-size: 12px;
   }
+  /* Causa real do TikTok Studio/TikTok saindo do grid 2x2 no celular: a
+     logo do TikTok Studio e recortada de uma imagem maior com um box de
+     126px de largura (ver .tiktok-studio-wordmark mais abaixo), que so
+     cabe numa coluna de largura total (~278px de conteudo da linha de
+     atalhos). Em 50% da largura (~135px) ela nao cabe, entao o navegador
+     quebra o botao pra propria linha e ele cresce pra 100%. Encolhendo o
+     recorte e o padding proporcionalmente (mesma razao entre os numeros
+     originais) ele passa a caber nos ~135px da coluna, sem distorcer a
+     logo. */
+  .home-launch-btn.tiktok-brand-button {
+    padding: 8px 8px;
+  }
+  .home-launch-btn .tiktok-studio-wordmark {
+    width: 96px;
+    height: 17.5px;
+  }
+  .home-launch-btn .tiktok-studio-wordmark img {
+    width: 192px;
+    left: -48px;
+    top: -30px;
+  }
 
   .header {
     height: auto;
