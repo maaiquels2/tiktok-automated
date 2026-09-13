@@ -372,6 +372,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('MÃOS:',video)
         self.assertIn('como quem vai contar um segredo',video)
 
+    def test_first_image_prompt_keeps_the_environment_from_the_reference_photo(self):
+        campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',
+                      audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',tone='natural',
+                      style='natural',details='',movements='',generator='flow',niche='casual')
+        image=generate(campaign)['image']
+        self.assertIn('mantenha exatamente esse mesmo ambiente na nova foto',image)
+
     def test_academia_keeps_dynamic_camera_inside_the_same_scene(self):
         # Enquadramento consistente significa preservar cena e continuidade.
         # A câmera ainda pode aproximar, afastar e acompanhar a modelo para

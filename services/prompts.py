@@ -1284,7 +1284,11 @@ def generate(c, script=None, variant_index=0, base_image=False):
     angle_context_words = angle_context.split()
     if len(angle_context_words) > 16:
         angle_context = ' '.join(angle_context_words[:16]) + '…'
-    scene_lock = _scene_lock(c)
+    scene_lock = _scene_lock(
+        c,
+        fallback=('a mesma locação da imagem aprovada' if base_image
+                  else 'o mesmo ambiente mostrado na foto de referência da modelo, se houver um cenário visível nela'),
+    )
     forms = _piece_forms(c)
     piece_ref = f"{forms['art']} {forms['piece']}"
     # Dois modos incompativeis nao podem conviver no mesmo prompt. Na primeira
@@ -1300,7 +1304,8 @@ def generate(c, script=None, variant_index=0, base_image=False):
     else:
         mode_block = (
             "FOTOGRAFIA NOVA A PARTIR DA REFERÊNCIA: esta é a primeira imagem da campanha. "
-            "Gere uma fotografia inédita usando a referência anexada apenas como fonte de identidade da modelo. "
+            "Gere uma fotografia inédita usando a referência anexada como fonte de identidade da modelo. "
+            "Se essa foto de referência mostrar um ambiente ou cenário nítido (quarto, estúdio, rua, praia, academia etc.), mantenha exatamente esse mesmo ambiente na nova foto; só use um cenário diferente se os detalhes do briefing pedirem isso explicitamente. "
             f"Enquadre a pessoa inteira ou até os joelhos, com {piece_ref} claramente visível e bem iluminada. "
             "Pose natural e estável, mãos corretas, olhar na câmera ou levemente para o lado. "
             "Esta imagem será a base fotográfica das outras cores: escolha um enquadramento que possa ser repetido. "

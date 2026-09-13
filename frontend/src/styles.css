@@ -1781,11 +1781,19 @@ textarea:focus {
   }
 
   .home-launchers-row {
-    flex-direction: column;
+    flex-wrap: wrap;
   }
   .home-launch-btn {
-    width: 100%;
+    flex: 1 1 calc(50% - 4px);
     justify-content: center;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  /* Deixa o span do TikTok Studio/TikTok "transparente" pro layout, pra
+     esses dois botoes entrarem na mesma grade 2x2 dos outros no celular
+     (em vez de virarem 2 barras extras esticadas). */
+  .tiktok-launch-buttons {
+    display: contents;
   }
 
   .header {
