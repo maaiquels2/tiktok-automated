@@ -612,6 +612,22 @@ def create_app(config=None):
 
     _STORAGE_UA = 'FabricaTikTok-Backend/1.0'
 
+    def _storage_headers(extra=None):
+        """Monta os cabecalhos de autenticacao pro Storage do Supabase.
+
+        A chave nova (sb_secret_...) NAO e um JWT: so pode ir no cabecalho
+        apikey. Mandar ela tambem em Authorization: Bearer quebra tudo
+        ('Invalid Compact JWS'), porque o servidor tenta decodificar
+        Authorization como token sempre. A chave antiga (service_role, um
+        JWT de verdade) continua indo nos dois cabecalhos, como sempre foi.
+        """
+        headers = {'apikey': storage_key, 'User-Agent': _STORAGE_UA}
+        if storage_key.count('.') == 2:
+            headers['Authorization'] = f'Bearer {storage_key}'
+        if extra:
+            headers.update(extra)
+        return headers
+
     def _storage_error_detail(exc):
         """Le o corpo do erro que o Supabase devolveu, pra mensagem ficar clara
         sem precisar abrir o painel do Supabase."""
@@ -626,9 +642,7 @@ def create_app(config=None):
         """Envia bytes para o Storage do Supabase, sobrescrevendo se ja existir."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,
-                 'Content-Type':mime or 'application/octet-stream','x-upsert':'true',
-                 'User-Agent':_STORAGE_UA}
+        headers=_storage_headers({'Content-Type':mime or 'application/octet-stream','x-upsert':'true'})
         req=urllib.request.Request(url,data=data,headers=headers,method='PUT')
         try:
             with urllib.request.urlopen(req,timeout=60) as resp:
@@ -640,7 +654,7 @@ def create_app(config=None):
         """Baixa os bytes de um arquivo do Storage do Supabase."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'User-Agent':_STORAGE_UA}
+        headers=_storage_headers()
         req=urllib.request.Request(url,headers=headers,method='GET')
         try:
             with urllib.request.urlopen(req,timeout=60) as resp:
@@ -657,8 +671,7 @@ def create_app(config=None):
         body={'expiresIn':expires_in}
         if download_name:
             body['download']=download_name
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json',
-                 'User-Agent':_STORAGE_UA}
+        headers=_storage_headers({'Content-Type':'application/json'})
         req=urllib.request.Request(url,data=json.dumps(body).encode('utf-8'),headers=headers,method='POST')
         try:
             with urllib.request.urlopen(req,timeout=30) as resp:
@@ -686,8 +699,7 @@ def create_app(config=None):
         principalmente videos passam disso facil."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/upload/sign/{storage_bucket}/{key}"
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json',
-                 'User-Agent':_STORAGE_UA}
+        headers=_storage_headers({'Content-Type':'application/json'})
         req=urllib.request.Request(url,data=b'{}',headers=headers,method='POST')
         try:
             with urllib.request.urlopen(req,timeout=30) as resp:
