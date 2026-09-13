@@ -125,6 +125,24 @@ export async function uploadModelLibraryPhotoDirect(model_name, niche, file) {
   return confirmModelLibraryUpload({model_name, niche, path, original_name:file.name});
 }
 
+// Analise automatica da foto de descricao do produto (IA le a foto e sugere
+// beneficio/angulo/movimentos/detalhes do briefing). No computador, sobe
+// direto pro servidor; na nuvem, vai direto pro Storage (mesmo motivo dos
+// outros uploads: contornar o limite de 4,5 MB do Vercel) e o servidor
+// descarta a foto depois de analisar - ela nao precisa ficar guardada.
+export async function analyzeProductPhotoLocal(cid, file) {
+  const form = new FormData();
+  form.set('description_photo', file);
+  return api(`/campaigns/${cid}/analyze-product`, {method:'POST', body: form});
+}
+
+export async function analyzeProductPhotoDirect(cid, file) {
+  const {upload_url, path} = await requestAssetUploadUrl(cid, {kind:'description', filename:file.name});
+  const put = await fetch(upload_url, {method:'PUT', headers:{'Content-Type': file.type || 'application/octet-stream'}, body:file});
+  if (!put.ok) throw new Error('Não foi possível enviar a foto da descrição para o armazenamento.');
+  return api(`/campaigns/${cid}/analyze-product/confirm`, {method:'POST', body:{path}});
+}
+
 export const referenceFromLibrary = (cid, body) => api(`/campaigns/${cid}/reference-from-library`,{method:'POST',body});
 
 

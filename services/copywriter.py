@@ -368,10 +368,22 @@ def _post_json(url: str, payload: dict, headers: dict) -> dict:
 _OPTIONAL_OPENAI = ('temperature', 'response_format', 'top_p')
 
 
-def _call_openai(settings: dict, system: str, user: str) -> str:
+def _image_data_url(image_bytes: bytes, mime: str) -> str:
+    import base64
+    return f"data:{mime or 'image/jpeg'};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+
+def _call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+    if images:
+        content = [{'type': 'text', 'text': user}]
+        for image_bytes, mime in images:
+            content.append({'type': 'image_url', 'image_url': {'url': _image_data_url(image_bytes, mime)}})
+        user_message = {'role': 'user', 'content': content}
+    else:
+        user_message = {'role': 'user', 'content': user}
     body = {
         'model': settings['model'] or DEFAULT_MODELS['openai'],
-        'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
+        'messages': [{'role': 'system', 'content': system}, user_message],
         'temperature': 0.9,
         'response_format': {'type': 'json_object'},
     }
@@ -391,13 +403,17 @@ def _call_openai(settings: dict, system: str, user: str) -> str:
     raise ProviderError('o modelo recusou todos os parametros enviados', status=400)
 
 
-def _call_gemini(settings: dict, system: str, user: str) -> str:
+def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+    import base64
     model = settings['model'] or DEFAULT_MODELS['gemini']
     url = (f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
            f"?key={settings['api_key']}")
+    parts = [{'text': user}]
+    for image_bytes, mime in (images or []):
+        parts.append({'inlineData': {'mimeType': mime or 'image/jpeg', 'data': base64.b64encode(image_bytes).decode('ascii')}})
     body = {
         'systemInstruction': {'parts': [{'text': system}]},
-        'contents': [{'role': 'user', 'parts': [{'text': user}]}],
+        'contents': [{'role': 'user', 'parts': parts}],
         'generationConfig': {'temperature': 0.9, 'responseMimeType': 'application/json'},
     }
     for tentativa in range(3):
@@ -511,3 +527,78 @@ def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | Non
         user = (build_brief(c) + '\n\nA tentativa anterior foi recusada pela auditoria:\n- '
                 + '\n- '.join(unique[:8]) + '\nReescreva as três opções corrigindo exatamente esses pontos.')
     return None, ultimo or 'o texto nao passou na auditoria'
+
+
+# --------------------------------------------------------------------------- visao (analise de produto)
+VISION_SYSTEM_PROMPT = """Você é um analista de produtos de moda para vídeos UGC de TikTok Shop.
+
+Você recebe até duas fotos:
+1. Foto do produto/roupa (como ele é, cor, tecido, corte).
+2. Foto da página de descrição do produto no TikTok Shop/loja (specs, tecido, características escritas).
+
+Sua tarefa: olhar SOMENTE o que está visível ou escrito nas fotos e devolver um JSON com estes campos,
+todos em português do Brasil, para preencher automaticamente o briefing de um vídeo:
+
+- "benefit": o principal benefício real do produto (curto, uma frase). Baseie-se no que é visível
+  (caimento, tecido, corte) ou no que está escrito na foto da descrição. Nunca invente uma
+  característica (elasticidade, compressão, proteção UV etc.) que não esteja visível ou escrita.
+- "angle": o ângulo de venda mais forte para este produto especificamente (uma frase curta).
+- "movements": de 4 a 7 movimentos corporais, separados por ponto e vírgula, que funcionam bem
+  pra MOSTRAR esse produto específico em vídeo (ex.: para uma peça de manga longa, "esticar o
+  braço mostrando o punho"; para uma legging, "agachar mostrando o caimento"). Pense no tipo de
+  peça e no que a foto de descrição destaca.
+- "details": detalhes técnicos visíveis ou escritos (tecido, cor, especificações, o que priorizar
+  no enquadramento). Seja específico e curto.
+
+Se não conseguir identificar um campo com confiança nas fotos, devolva ele como string vazia "" -
+nunca invente. Responda SOMENTE com o JSON, sem texto antes ou depois."""
+
+VISION_FIELDS = ('benefit', 'angle', 'movements', 'details')
+
+
+def _parse_vision_result(raw: str) -> dict:
+    texto = (raw or '').strip()
+    texto = re.sub(r'^```(?:json)?|```$', '', texto, flags=re.M).strip()
+    inicio, fim = texto.find('{'), texto.rfind('}')
+    if inicio >= 0 and fim > inicio:
+        texto = texto[inicio:fim + 1]
+    dados = json.loads(texto)
+    if not isinstance(dados, dict):
+        raise ValueError('resposta não é um objeto')
+    limits = {'benefit': 500, 'angle': 500, 'movements': 1500, 'details': 5000}
+    out = {}
+    for campo in VISION_FIELDS:
+        valor = dados.get(campo)
+        if isinstance(valor, str):
+            out[campo] = valor.strip()[:limits[campo]]
+    return out
+
+
+def analyze_product(images: list[tuple[bytes, str]], settings: dict, context: str = '') -> tuple[dict | None, str]:
+    """Analisa fotos do produto (e/ou da descrição) e devolve sugestoes pros
+    campos do briefing. Usa a mesma configuracao (provedor/chave/modelo) das
+    Configuracoes de Escrita com IA - se o modelo suportar visao (gpt-4o-mini
+    e gemini-2.0-flash suportam, e sao os padroes do app), funciona sem
+    nenhuma chave nova. Devolve (campos_sugeridos, motivo_da_falha)."""
+    caller = CALLERS.get(settings.get('provider'))
+    if not caller or not settings.get('api_key'):
+        return None, 'Configure a IA em "Configurações de Escrita com IA" antes de analisar fotos.'
+    if not images:
+        return None, 'Nenhuma foto para analisar.'
+    user = 'Analise as fotos anexadas e devolva o JSON pedido.'
+    if context:
+        user += f'\n\nContexto adicional (não invente além disso): {context}'
+    try:
+        bruto = caller(settings, VISION_SYSTEM_PROMPT, user, images)
+        campos = _parse_vision_result(bruto)
+    except ProviderError as exc:
+        if exc.status:
+            return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
+        return None, exc.message[:400]
+    except urllib.error.URLError as exc:
+        return None, f'não foi possível falar com o provedor ({exc.reason})'
+    except (ValueError, KeyError, IndexError) as exc:
+        return None, f'resposta ilegível ({exc})'
+    if not any(campos.values()):
+        return None, 'a IA não conseguiu identificar nada de útil nas fotos'
+    return campos, ''

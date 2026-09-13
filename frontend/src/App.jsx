@@ -3,7 +3,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, s
 import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
 
 
@@ -243,18 +243,39 @@ export default function App(){
   }
   function confirm(title,description,action,label='Confirmar'){setError('');setModal({type:'confirm',title,description,action,label})}
   function post(suffix,body={}){return api(`/campaigns/${c.id}${suffix}`,{method:'POST',body:{...body,version:c.version}})}
-  function saveBrief(values,photos=[],removed=[]){
+  const ANALYSIS_FIELD_LABELS={benefit:'Benefício',angle:'Ângulo',movements:'Movimentos',details:'Detalhes'};
+  function saveBrief(values,photos=[],removed=[],descriptionPhoto=null){
     const next=(c.assets.some(a=>a.kind==='reference')&&values.model_name===c.model_name)?'look':'model';
-    const action=()=>run(()=>{
+    let analysisOutcome=null;
+    const action=()=>run(async()=>{
+      let result;
       if(photos.length||removed.length){
         const briefing={...values,version:c.version};
-        if(isCloudMode())return uploadProductPhotosDirect(c.id,briefing,removed,photos);
-        const form=new FormData();form.set('briefing',JSON.stringify(briefing));form.set('removed',JSON.stringify(removed));photos.forEach(file=>form.append('files',file));
-        return api(`/campaigns/${c.id}/look`,{method:'POST',body:form});
+        result=isCloudMode()?await uploadProductPhotosDirect(c.id,briefing,removed,photos):await(async()=>{
+          const form=new FormData();form.set('briefing',JSON.stringify(briefing));form.set('removed',JSON.stringify(removed));photos.forEach(file=>form.append('files',file));
+          return api(`/campaigns/${c.id}/look`,{method:'POST',body:form});
+        })();
+      }else{
+        result=await api(`/campaigns/${c.id}`,{method:'PATCH',body:{...values,version:c.version}});
       }
-      return api(`/campaigns/${c.id}`,{method:'PATCH',body:{...values,version:c.version}});
-    },'Briefing e fotos do produto salvos.',next);
-    const changed=photos.length||removed.length||Object.keys(values).some(k=>k!=='name'&&values[k]!==(c[k]||''));
+      if(descriptionPhoto){
+        try{
+          result=isCloudMode()?await analyzeProductPhotoDirect(result.id,descriptionPhoto):await analyzeProductPhotoLocal(result.id,descriptionPhoto);
+          analysisOutcome={filled:result.analysis?.filled||[]};
+        }catch(e){
+          analysisOutcome={error:e.message};
+        }
+      }
+      return result;
+    },'Briefing e fotos do produto salvos.',next).then(ok=>{
+      if(ok&&analysisOutcome){
+        if(analysisOutcome.error)setError(`Briefing e fotos salvos, mas a análise da IA da foto de descrição falhou: ${analysisOutcome.error}`);
+        else if(analysisOutcome.filled.length)flash(`Briefing salvo. A IA leu a foto da descrição e preencheu: ${analysisOutcome.filled.map(k=>ANALYSIS_FIELD_LABELS[k]||k).join(', ')}.`);
+        else flash('Briefing e fotos salvos. A IA não encontrou nada de novo pra preencher com a foto da descrição.');
+      }
+      return ok;
+    });
+    const changed=photos.length||removed.length||!!descriptionPhoto||Object.keys(values).some(k=>k!=='name'&&values[k]!==(c[k]||''));
     if(changed&&c.prompts.image)confirm('Iniciar uma nova versão?','A alteração do briefing retira as mídias do fluxo atual e solicita novas aprovações. Os arquivos anteriores ficam guardados na pasta da campanha.',action,'Salvar e reiniciar');else action();
   }
   function saveTexts(values){

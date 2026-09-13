@@ -719,6 +719,17 @@ def create_app(config=None):
             raise Invalid('Não foi possível preparar o envio do arquivo.',502)
         return f"{storage_url}/storage/v1{signed}"
 
+    def _storage_delete(key):
+        """Apaga um arquivo do Storage do Supabase (usado pra nao deixar
+        lixo depois de uma analise de foto de descricao, que e descartavel)."""
+        url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
+        req=urllib.request.Request(url,headers=_storage_headers(),method='DELETE')
+        try:
+            with urllib.request.urlopen(req,timeout=30):
+                pass
+        except urllib.error.HTTPError:
+            pass
+
     def read_asset(row):
         """Bytes do arquivo guardado (Storage do Supabase na nuvem, disco local no modo padrão)."""
         if cloud_mode:
@@ -1204,6 +1215,88 @@ def create_app(config=None):
             raise
         return jsonify(detail(cid))
 
+    def _run_product_analysis(cid,c,description_bytes,description_mime):
+        """Chama a IA (mesma config de Escrita com IA) com a foto da
+        descricao do produto + a primeira foto do produto ja salva (se
+        houver) e preenche automaticamente os campos do briefing que
+        ainda estao vazios - nunca sobrescreve o que ja foi escrito."""
+        from services import copywriter
+        settings=copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        images=[(description_bytes,description_mime)]
+        product_row=db().execute(
+            'SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id LIMIT 1',(cid,)).fetchone()
+        if product_row:
+            try:
+                images.append((read_asset(product_row),product_row['mime']))
+            except Invalid:
+                pass
+        context=f"Produto: {c.get('product') or c.get('name') or ''}. Nicho: {c.get('niche') or ''}."
+        campos,motivo=copywriter.analyze_product(images,settings,context=context)
+        if campos is None:
+            raise Invalid(f'Não foi possível analisar as fotos: {motivo}',502)
+        payload={k:v for k,v in campos.items() if v and not (c.get(k) or '').strip()}
+        preenchidos=list(payload.keys())
+        if payload:
+            values=fields(payload,c)
+            apply_brief(cid,c,values,photos_changed=False)
+            db().commit()
+        result=detail(cid)
+        result['analysis']={'filled':preenchidos,'suggested':campos}
+        return jsonify(result)
+
+    @app.post('/api/campaigns/<int:cid>/analyze-product')
+    def analyze_product_photo(cid):
+        """Sobe a foto da descricao do produto (ex.: print da pagina da loja
+        no TikTok Shop) e usa a IA pra sugerir beneficio, angulo, movimentos
+        e detalhes do briefing automaticamente."""
+        c=campaign(cid)
+        editable(c)
+        uploaded=request.files.get('description_photo')
+        if not uploaded or not uploaded.filename:
+            raise Invalid('Escolha a foto da descrição do produto.')
+        fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
+        os.close(fd)
+        temp=Path(temp)
+        try:
+            uploaded.save(temp)
+            try:
+                _metadata,_ext,mime=inspect_media(temp,'product')
+            except (ValueError,EOFError) as exc:
+                raise Invalid(str(exc)) from exc
+            description_bytes=temp.read_bytes()
+        finally:
+            temp.unlink(missing_ok=True)
+        return _run_product_analysis(cid,c,description_bytes,mime)
+
+    @app.post('/api/campaigns/<int:cid>/analyze-product/confirm')
+    def analyze_product_photo_confirm(cid):
+        """Como analyze_product_photo, mas para a foto que o navegador ja
+        mandou direto pro Supabase Storage (upload em duas etapas usado na
+        nuvem). A foto e descartada do Storage depois de analisada - ela so
+        serve pra extrair informacao, nao precisa ficar guardada."""
+        if not cloud_mode:
+            raise Invalid('Disponível apenas na versão online.',409)
+        data=body()
+        rel_path=(data.get('path') or '').strip()
+        if not rel_path.startswith(f'campanha-{cid:04d}/'):
+            raise Invalid('Upload inválido para esta campanha.',403)
+        c=campaign(cid)
+        editable(c)
+        description_bytes=_storage_get(rel_path)
+        fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
+        os.close(fd)
+        temp=Path(temp)
+        try:
+            temp.write_bytes(description_bytes)
+            try:
+                _metadata,_ext,mime=inspect_media(temp,'product')
+            except (ValueError,EOFError) as exc:
+                raise Invalid(str(exc)) from exc
+        finally:
+            temp.unlink(missing_ok=True)
+        _storage_delete(rel_path)
+        return _run_product_analysis(cid,c,description_bytes,mime)
+
     @app.post('/api/campaigns/<int:cid>/duplicate')
     @app.post('/api/campaigns/<int:cid>/copy')
     def duplicate_campaign(cid):
@@ -1570,7 +1663,7 @@ def create_app(config=None):
             raise Invalid('Disponível apenas na versão online.',409)
         data=body()
         kind=data.get('kind')
-        if kind not in {'reference','image','video','product'}:
+        if kind not in {'reference','image','video','product','description'}:
             raise Invalid('Escolha o tipo de mídia.')
         c=start(cid,data)
         editable(c)

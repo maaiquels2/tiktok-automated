@@ -790,6 +790,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [nicheOptions,setNicheOptions]=useState(NICHES);
   useEffect(()=>{let alive=true;(async()=>{try{const mn=draft?.model_name||campaign?.model_name||'Micaela'; const data=await modelLibrary(mn); if(!alive)return; const rows=data.niches||[]; if(rows.length) setNicheOptions(rows.map(n=>({id:n.niche,label:n.label})));}catch(_){}})(); return()=>{alive=false}; },[draft?.model_name, campaign?.model_name]);
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
+  const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
   const published=campaign?.status==='published';
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
@@ -829,7 +830,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
       {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
     </div>
   );
-  return <form className="brief-form" onSubmit={e=>{e.preventDefault();onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed)}}>
+  return <form className="brief-form" onSubmit={e=>{e.preventDefault();onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
     <fieldset disabled={busy||published}>
       <label>Nicho da modelo *
         <select value={draft.niche||''} onChange={e=>applyNiche(e.target.value)} required>
@@ -839,6 +840,14 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
       </label>
       <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>
+      <section className="ai-analysis-field" aria-label="Análise automática do produto">
+        <div className="section-title"><h3>Análise automática do produto</h3><span className="help">Opcional</span></div>
+        <label>Foto da descrição do produto (print da página da loja/TikTok Shop)
+          <input type="file" accept="image/*" onChange={e=>setDescriptionPhoto(e.target.files?.[0]||null)}/>
+          <small className="help">Ao salvar, a IA lê essa foto (e a primeira foto do produto, se houver) e preenche automaticamente benefício, ângulo, movimentos e detalhes — sem sobrescrever o que você já preencheu. Precisa da IA configurada em "Configurações de Escrita com IA".</small>
+        </label>
+        {descriptionPhoto&&<small className="help">Selecionada: {descriptionPhoto.name}</small>}
+      </section>
       <section className="sell-fields" aria-label="Argumento de venda">
         <div className="section-title"><h3>Argumento de venda</h3><span className="help">Opcional, mas muda muito o roteiro</span></div>
         <label>O que mais segura a compra?

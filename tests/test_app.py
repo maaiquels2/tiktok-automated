@@ -437,6 +437,52 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         self.assertTrue(response.json['prompts']['hook'],'a campanha nao pode ficar sem roteiro')
 
+    def test_analyze_product_photo_fills_only_empty_fields(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        # movements e details ficam vazios no briefing padrao de teste; benefit/angle ja vem preenchido.
+        sugestao={'benefit':'Não devia aparecer (já tem valor)','angle':'','movements':'girar; agachar; esticar o braço','details':'Tecido leve, azul'}
+        with patch('services.copywriter.analyze_product',return_value=(sugestao,'')) as mock_analyze:
+            response=self.client.post(
+                f'/api/campaigns/{self.cid}/analyze-product',
+                data={'description_photo':(io.BytesIO(image_bytes()),'descricao.png')},
+                headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertTrue(mock_analyze.called)
+        self.assertEqual(sorted(response.json['analysis']['filled']),['details','movements'])
+        campanha=self.get()
+        self.assertEqual(campanha['movements'],'girar; agachar; esticar o braço')
+        self.assertEqual(campanha['details'],'Tecido leve, azul')
+        self.assertEqual(campanha['benefit'],'Tecido leve')  # nao foi sobrescrito
+
+    def test_analyze_product_photo_uses_saved_product_photo_too(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        form={'briefing':json.dumps({**self.brief,'version':self.get()['version']}),'removed':'[]'}
+        upload=self.client.post(f'/api/campaigns/{self.cid}/look',
+            data={**form,'files':(io.BytesIO(image_bytes()),'produto.png')},headers=self.headers)
+        self.assertEqual(upload.status_code,200,upload.json)
+        with patch('services.copywriter.analyze_product',return_value=({'movements':'girar'},'')) as mock_analyze:
+            response=self.client.post(
+                f'/api/campaigns/{self.cid}/analyze-product',
+                data={'description_photo':(io.BytesIO(image_bytes()),'descricao.png')},
+                headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        images_arg=mock_analyze.call_args[0][0]
+        self.assertEqual(len(images_arg),2,'deveria mandar a foto de descricao + a foto do produto ja salva')
+
+    def test_analyze_product_photo_requires_a_file(self):
+        response=self.client.post(f'/api/campaigns/{self.cid}/analyze-product',data={},headers=self.headers)
+        self.assertEqual(response.status_code,400,response.json)
+
+    def test_analyze_product_photo_surfaces_provider_failure(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        with patch('services.copywriter.analyze_product',return_value=(None,'o provedor respondeu 429')):
+            response=self.client.post(
+                f'/api/campaigns/{self.cid}/analyze-product',
+                data={'description_photo':(io.BytesIO(image_bytes()),'descricao.png')},
+                headers=self.headers)
+        self.assertEqual(response.status_code,502,response.json)
+        self.assertIn('429',response.json['error'])
+
     def test_explicit_ai_refresh_requires_an_enabled_writer(self):
         self.upload('reference')
         self.assertEqual(self.post('/generate').status_code,200)
