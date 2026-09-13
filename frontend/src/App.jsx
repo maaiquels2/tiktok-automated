@@ -27,6 +27,7 @@ export default function App(){
   const bootHash=useRef(true);
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
   const [renaming,setRenaming]=useState(false),[renameDraft,setRenameDraft]=useState('');
+  const [showCampaignList,setShowCampaignList]=useState(false);
   const [identity,setIdentity]=useState(null);
   const [auth,setAuth]=useState(null);
   const [writerRevision,setWriterRevision]=useState(0);
@@ -211,7 +212,7 @@ export default function App(){
 
   async function openResults(){goMode('results','campanha')}
   function openProduce(){goMode('produce')}
-  async function chooseCampaign(id,{openResults=false}={}){if(busy||!discard())return;await run(async()=>{const result=await api('/campaigns/'+id);if(openResults){setMode('results');setResultsTab('campanha');setSelected('performance');syncHash({mode:'results',resultsTab:'campanha',campaignId:result.id})}else{setMode('produce');const st=nextStage(result);setSelected(st==='performance'?'studio':st);syncHash({mode:'produce',campaignId:result.id,stage:st==='performance'?'studio':st})}return result},'Campanha carregada.')}
+  async function chooseCampaign(id,{openResults=false}={}){if(busy||!discard())return;setShowCampaignList(false);await run(async()=>{const result=await api('/campaigns/'+id);if(openResults){setMode('results');setResultsTab('campanha');setSelected('performance');syncHash({mode:'results',resultsTab:'campanha',campaignId:result.id})}else{setMode('produce');const st=nextStage(result);setSelected(st==='performance'?'studio':st);syncHash({mode:'produce',campaignId:result.id,stage:st==='performance'?'studio':st})}return result},'Campanha carregada.')}
   function editCampaign(){
     if(!c||busy)return;
     if(c.status!=='published'){choose('look');return}
@@ -528,7 +529,11 @@ export default function App(){
     )}
 
 {mode==='produce' && (<main className="workspace produce-workspace produce-dense" aria-busy={loading}>
-      <aside className="queue produce-queue"><div className="queue-heading"><div><span className="eyebrow">PRODUÇÃO</span><h2>Campanhas <span className="count">{campaigns.length}</span></h2></div></div><button className="primary" disabled={busy||loading} onClick={()=>{if(discard()){setError('');setModal({type:'create'})}}}><Plus size={17}/> Nova campanha</button>
+      <aside className={'queue produce-queue'+(c&&!showCampaignList?' queue-collapsed':'')}><div className="queue-heading"><div><span className="eyebrow">PRODUÇÃO</span><h2>Campanhas <span className="count">{campaigns.length}</span></h2></div></div><button className="primary" disabled={busy||loading} onClick={()=>{if(discard()){setError('');setModal({type:'create'})}}}><Plus size={17}/> Nova campanha</button>
+        {c&&<button type="button" className="campaign-list-compact" onClick={()=>setShowCampaignList(v=>!v)} aria-expanded={showCampaignList}>
+          <span className="campaign-id">CAMPANHA {String(c.id).padStart(4,'0')}</span><strong>{c.name}</strong>
+          <span className="campaign-list-compact-toggle">{showCampaignList?'Fechar':'Trocar'} <ArrowRight size={13}/></span>
+        </button>}
         <div className="campaign-list">{campaigns.map(item=><div className={'campaign '+(c?.id===item.id?'active':'')} key={item.id}><button className="campaign-select" disabled={busy} onClick={()=>chooseCampaign(item.id)} aria-pressed={c?.id===item.id}><span className="campaign-id">CAMPANHA {String(item.id).padStart(4,'0')}</span><strong>{item.name}</strong><small>{item.product||item.model_name}</small><span className={'status-pill '+(item.status==='published'?'success':'')}>{statusLabels[item.status]}</span></button><div className="campaign-actions"><button type="button" title="Editar campanha" aria-label={`Editar ${item.name}`} disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button><button type="button" title="Copiar campanha" aria-label={`Copiar ${item.name}`} disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button><button type="button" className="danger-action" title="Excluir campanha" aria-label={`Excluir ${item.name}`} disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button></div></div>)}</div>
         <div className="queue-bottom"><FolderHeart size={20}/><strong>Uma modelo, novos looks.</strong><p>Reutilize a referência para preservar a identidade em cada campanha.</p></div>
       </aside>

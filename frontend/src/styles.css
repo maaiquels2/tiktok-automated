@@ -772,6 +772,9 @@ button:hover:not(:disabled),
 .campaign {
   display: block;
 }
+.campaign-list-compact {
+  display: none;
+}
 .campaign-id {
   font-size: 12px;
   color: var(--muted);
@@ -1715,6 +1718,39 @@ textarea:focus {
   }
   .queue-bottom {
     display: none;
+  }
+  /* Uma vez com uma campanha aberta, a lista completa vira um chip
+     compacto ("CAMPANHA 0004 · nome · Trocar") em vez de ficar sempre
+     visivel - reduz bastante o scroll antes de chegar na etapa atual. */
+  .queue-collapsed .campaign-list {
+    display: none;
+  }
+  .queue-collapsed .campaign-list-compact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--line-20);
+    border-radius: 10px;
+    background: var(--surface-9);
+    margin-bottom: 8px;
+    text-align: left;
+  }
+  .campaign-list-compact strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .campaign-list-compact-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--ink-17);
+    flex-shrink: 0;
   }
   .canvas-panel {
     min-height: 650px;
