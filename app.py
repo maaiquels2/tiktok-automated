@@ -3145,8 +3145,5 @@ def create_app(config=None):
 
     return app
 
-if os.environ.get('VERCEL') or os.environ.get('FABRICA_CLOUD','0')=='1':
-    app = create_app()
-
 if __name__=='__main__':
-    (app if 'app' in globals() else create_app()).run(host=('0.0.0.0' if os.environ.get('FABRICA_LAN','1')!='0' else '127.0.0.1'),port=int(os.environ.get('FABRICA_PORT','5050')),debug=False)
+    create_app().run(host=('0.0.0.0' if os.environ.get('FABRICA_LAN','1')!='0' else '127.0.0.1'),port=int(os.environ.get('FABRICA_PORT','5050')),debug=False)

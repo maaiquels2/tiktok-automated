@@ -3,7 +3,7 @@
   "framework": "flask",
   "buildCommand": "cd frontend && npm ci && npm run build",
   "functions": {
-    "app.py": {
+    "wsgi.py": {
       "maxDuration": 60,
       "excludeFiles": "{tests/**,work/**,browser_profiles/**,data/**,media/**,reports/**,outputs/**,_patch/**,*.md}"
     }
