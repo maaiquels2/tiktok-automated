@@ -94,6 +94,15 @@ def create_app(config=None):
             text = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', text, flags=re.IGNORECASE)
             text = text.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
         want_id = bool(re.match(r'insert\s+into\s+(campaigns|users)\b', text, re.IGNORECASE)) and 'RETURNING' not in text.upper()
+        # As colunas de data/hora do schema sao TEXT (formato 'YYYY-MM-DD HH24:MI:SS'),
+        # mas o CURRENT_TIMESTAMP puro do Postgres retorna timestamptz, o que quebra
+        # COALESCE(coluna_text, CURRENT_TIMESTAMP) com erro de tipo incompativel.
+        text = re.sub(
+            r'\bCURRENT_TIMESTAMP\b',
+            "to_char(now() at time zone 'utc','YYYY-MM-DD HH24:MI:SS')",
+            text,
+            flags=re.IGNORECASE,
+        )
         text = text.replace('?', '%s')
         if want_id:
             text = text.rstrip().rstrip(';') + ' RETURNING id'
