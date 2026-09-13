@@ -610,21 +610,37 @@ def create_app(config=None):
                 '(Project URL e service_role key, em Configuracoes > API no painel do Supabase).'
             )
 
+    _STORAGE_UA = 'FabricaTikTok-Backend/1.0'
+
+    def _storage_error_detail(exc):
+        """Le o corpo do erro que o Supabase devolveu, pra mensagem ficar clara
+        sem precisar abrir o painel do Supabase."""
+        try:
+            raw = exc.read()
+            payload = json.loads(raw.decode('utf-8'))
+            return payload.get('message') or payload.get('error') or raw.decode('utf-8')[:200]
+        except Exception:
+            return str(exc)
+
     def _storage_put(key,data,mime):
         """Envia bytes para o Storage do Supabase, sobrescrevendo se ja existir."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
         headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,
-                 'Content-Type':mime or 'application/octet-stream','x-upsert':'true'}
+                 'Content-Type':mime or 'application/octet-stream','x-upsert':'true',
+                 'User-Agent':_STORAGE_UA}
         req=urllib.request.Request(url,data=data,headers=headers,method='PUT')
-        with urllib.request.urlopen(req,timeout=60) as resp:
-            resp.read()
+        try:
+            with urllib.request.urlopen(req,timeout=60) as resp:
+                resp.read()
+        except urllib.error.HTTPError as exc:
+            raise Invalid(f'Não foi possível salvar no armazenamento: {_storage_error_detail(exc)}',502) from exc
 
     def _storage_get(key):
         """Baixa os bytes de um arquivo do Storage do Supabase."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key}
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'User-Agent':_STORAGE_UA}
         req=urllib.request.Request(url,headers=headers,method='GET')
         try:
             with urllib.request.urlopen(req,timeout=60) as resp:
@@ -632,7 +648,7 @@ def create_app(config=None):
         except urllib.error.HTTPError as exc:
             if exc.code==404:
                 raise Invalid('Arquivo não encontrado no armazenamento. Anexe a mídia novamente.',404) from exc
-            raise
+            raise Invalid(f'Falha ao ler do armazenamento: {_storage_error_detail(exc)}',502) from exc
 
     def _storage_sign(key,expires_in=3600,download_name=None):
         """Gera um link temporario e direto para o arquivo, sem passar pelo servidor."""
@@ -641,7 +657,8 @@ def create_app(config=None):
         body={'expiresIn':expires_in}
         if download_name:
             body['download']=download_name
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json'}
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json',
+                 'User-Agent':_STORAGE_UA}
         req=urllib.request.Request(url,data=json.dumps(body).encode('utf-8'),headers=headers,method='POST')
         try:
             with urllib.request.urlopen(req,timeout=30) as resp:
@@ -649,7 +666,7 @@ def create_app(config=None):
         except urllib.error.HTTPError as exc:
             if exc.code==404:
                 raise Invalid('Arquivo não encontrado no armazenamento. Anexe a mídia novamente.',404) from exc
-            raise
+            raise Invalid(f'Falha ao gerar link do armazenamento: {_storage_error_detail(exc)}',502) from exc
         signed=payload.get('signedURL') or ''
         if not signed:
             raise Invalid('Não foi possível gerar o link do arquivo.',502)
@@ -669,10 +686,14 @@ def create_app(config=None):
         principalmente videos passam disso facil."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/upload/sign/{storage_bucket}/{key}"
-        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json'}
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json',
+                 'User-Agent':_STORAGE_UA}
         req=urllib.request.Request(url,data=b'{}',headers=headers,method='POST')
-        with urllib.request.urlopen(req,timeout=30) as resp:
-            payload=json.loads(resp.read().decode('utf-8'))
+        try:
+            with urllib.request.urlopen(req,timeout=30) as resp:
+                payload=json.loads(resp.read().decode('utf-8'))
+        except urllib.error.HTTPError as exc:
+            raise Invalid(f'Não foi possível preparar o envio do arquivo: {_storage_error_detail(exc)}',502) from exc
         signed=payload.get('url') or ''
         if not signed:
             raise Invalid('Não foi possível preparar o envio do arquivo.',502)
