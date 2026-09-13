@@ -62,6 +62,7 @@ def create_app(config=None):
     cloud_mode=bool(app.config.get('CLOUD_MODE',os.environ.get('FABRICA_CLOUD','0')=='1'))
     storage_url=os.environ.get('FABRICA_SUPABASE_URL','').strip().rstrip('/')
     storage_key=os.environ.get('FABRICA_SUPABASE_SERVICE_KEY','').strip()
+    storage_anon_key=os.environ.get('FABRICA_SUPABASE_ANON_KEY','').strip()
     storage_bucket=(os.environ.get('FABRICA_STORAGE_BUCKET','').strip() or 'fabrica-media')
     auth_required=bool(app.config.get('AUTH_REQUIRED',cloud_mode or os.environ.get('FABRICA_AUTH_REQUIRED','0')=='1'))
     secret_path=app.config['DATA_DIR']/'session_secret.txt'
@@ -623,7 +624,14 @@ def create_app(config=None):
         """
         headers = {'apikey': storage_key, 'User-Agent': _STORAGE_UA}
         if storage_key.count('.') == 2:
+            # Chave antiga (service_role): e um JWT de verdade, serve pros dois cabecalhos.
             headers['Authorization'] = f'Bearer {storage_key}'
+        elif storage_anon_key:
+            # Chave nova (sb_secret_...): nao e JWT. O endpoint exige um
+            # Authorization que seja um JWT valido mesmo assim - usamos a
+            # chave anon (publica, segura de expor) so pra isso; quem
+            # realmente concede a permissao de servidor e o apikey acima.
+            headers['Authorization'] = f'Bearer {storage_anon_key}'
         if extra:
             headers.update(extra)
         return headers
