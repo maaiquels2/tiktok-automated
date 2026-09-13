@@ -1768,6 +1768,61 @@ def create_app(config=None):
         finally:
             temp.unlink(missing_ok=True)
 
+    @app.post('/api/model-library/upload-url')
+    def request_model_library_upload_url():
+        """Passo 1 do upload direto ao Supabase (nuvem): link assinado para a
+        foto padrao da biblioteca de modelos, sem passar pelo servidor."""
+        if not cloud_mode:
+            raise Invalid('Disponível apenas na versão online.',409)
+        from services import model_library as ml
+        data=body()
+        model_name=(data.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche=(data.get('niche') or '').strip()
+        if niche not in ml.NICHE_IDS:
+            raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
+        filename=(data.get('filename') or '').strip()
+        ext=Path(filename).suffix.lower()
+        if ext not in {'.jpg','.jpeg','.png','.webp'}:
+            ext='.jpg'
+        rel_path=f"model-library/{ml._safe(model_name)}/{niche}/reference{ext}"
+        upload_url=_storage_create_upload_url(rel_path)
+        return jsonify({'upload_url':upload_url,'path':rel_path})
+
+    @app.post('/api/model-library/confirm')
+    def confirm_model_library_upload():
+        """Passo 2 (nuvem): a foto ja esta no Storage. Baixamos de volta so
+        pra validar (tamanho/formato) e ai registramos na biblioteca."""
+        if not cloud_mode:
+            raise Invalid('Disponível apenas na versão online.',409)
+        from services import model_library as ml
+        data=body()
+        model_name=(data.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche=(data.get('niche') or '').strip()
+        rel_path=(data.get('path') or '').strip()
+        original=(data.get('original_name') or '').strip()
+        if niche not in ml.NICHE_IDS:
+            raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
+        expected_prefix=f"model-library/{ml._safe(model_name)}/{niche}/"
+        if not rel_path.startswith(expected_prefix) or not original:
+            raise Invalid('Dados de upload incompletos.')
+        fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
+        os.close(fd)
+        temp=Path(temp)
+        try:
+            file_bytes=_storage_get(rel_path)
+            temp.write_bytes(file_bytes)
+            try:
+                _metadata,_ext,mime=inspect_media(temp,'image')
+            except (ValueError,EOFError) as exc:
+                raise Invalid(str(exc)) from exc
+            entry=ml.confirm_photo(
+                app.config['DATA_DIR'], model_name, niche, rel_path, original[:240], mime,
+                storage_get=_storage_get, storage_put=_storage_put,
+            )
+            return jsonify(entry)
+        finally:
+            temp.unlink(missing_ok=True)
+
     @app.get('/api/model-library/character-sheet')
     def get_character_sheet():
         """Build master consistency-sheet prompt for a model (+ optional niche photo)."""

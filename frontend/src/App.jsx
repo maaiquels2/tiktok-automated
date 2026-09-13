@@ -3,7 +3,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, s
 import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
 
 
@@ -370,7 +370,9 @@ export default function App(){
   }
   function saveNichePhoto(niche,file){
     if(!file)return;
-    const form=new FormData();form.set('model_name',c.model_name||identity?.model_name||'Micaela');form.set('niche',niche);form.set('file',file);
+    const modelName=c.model_name||identity?.model_name||'Micaela';
+    if(isCloudMode())return run(()=>uploadModelLibraryPhotoDirect(modelName,niche,file),'Foto padrao do nicho salva.');
+    const form=new FormData();form.set('model_name',modelName);form.set('niche',niche);form.set('file',file);
     return run(()=>api('/model-library',{method:'POST',body:form}),'Foto padrao do nicho salva.');
   }
     function savePublishedLink(payload){

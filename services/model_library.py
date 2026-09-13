@@ -202,6 +202,45 @@ def get_file(data_dir: Path, media_dir: Path, model_name: str, niche: str) -> Pa
     return path if path.is_file() else None
 
 
+def _register_photo(data_dir: Path, model_key: str, niche: str, rel: str, original_name: str, mime: str, storage_get=None, storage_put=None) -> dict:
+    """Parte de save_photo() que so mexe no registro (model_library.json) -
+    igual pra uma foto gravada pelo servidor ou uma que o navegador ja
+    mandou direto pro Storage (confirm_photo)."""
+    lib = load_library(data_dir, storage_get=storage_get)
+    bucket = lib.get(model_key) if isinstance(lib.get(model_key), dict) else {}
+    # migrate case variants into canonical key
+    for k in list(lib.keys()):
+        if isinstance(k, str) and k.casefold() == model_key.casefold() and k != model_key:
+            old = lib.pop(k)
+            if isinstance(old, dict):
+                bucket = {**old, **bucket}
+    prev = bucket.get(niche) if isinstance(bucket.get(niche), dict) else {}
+    bucket[niche] = {
+        "path": rel,
+        "original_name": original_name or rel.rsplit("/", 1)[-1],
+        "mime": mime or "image/jpeg",
+        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    if (prev.get("label") or "").strip():
+        bucket[niche]["label"] = prev["label"].strip()
+    lib[model_key] = bucket
+    save_library(data_dir, lib, storage_put=storage_put)
+    return {
+        "niche": niche,
+        "label": (bucket[niche].get("label") or NICHE_LABELS[niche]),
+        "model_name": model_key,
+        "has_photo": True,
+        "original_name": bucket[niche]["original_name"],
+        "updated_at": bucket[niche]["updated_at"],
+        "url": (
+            f"/api/model-library/file?model_name={model_key}&niche={niche}"
+            f"&v={bucket[niche]['updated_at'].replace(':','')}"
+        ),
+        "path": rel,
+        "defaults": NICHE_DEFAULTS.get(niche) or {},
+    }
+
+
 def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src: Path, original_name: str, mime: str, storage_get=None, storage_put=None) -> dict:
     if niche not in NICHE_IDS:
         raise ValueError("Nicho invalido.")
@@ -224,39 +263,17 @@ def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src
         dest = dest_dir / f"reference{ext}"
         shutil.copyfile(src, dest)
         rel = str(dest.relative_to(Path(media_dir))).replace("\\", "/")
-    lib = load_library(data_dir, storage_get=storage_get)
-    bucket = lib.get(model_key) if isinstance(lib.get(model_key), dict) else {}
-    # migrate case variants into canonical key
-    for k in list(lib.keys()):
-        if isinstance(k, str) and k.casefold() == model_key.casefold() and k != model_key:
-            old = lib.pop(k)
-            if isinstance(old, dict):
-                bucket = {**old, **bucket}
-    prev = bucket.get(niche) if isinstance(bucket.get(niche), dict) else {}
-    bucket[niche] = {
-        "path": rel,
-        "original_name": original_name or dest.name,
-        "mime": mime or "image/jpeg",
-        "updated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    if (prev.get("label") or "").strip():
-        bucket[niche]["label"] = prev["label"].strip()
-    lib[model_key] = bucket
-    save_library(data_dir, lib, storage_put=storage_put)
-    return {
-        "niche": niche,
-        "label": (bucket[niche].get("label") or NICHE_LABELS[niche]),
-        "model_name": model_key,
-        "has_photo": True,
-        "original_name": bucket[niche]["original_name"],
-        "updated_at": bucket[niche]["updated_at"],
-        "url": (
-            f"/api/model-library/file?model_name={model_key}&niche={niche}"
-            f"&v={bucket[niche]['updated_at'].replace(':','')}"
-        ),
-        "path": rel,
-        "defaults": NICHE_DEFAULTS.get(niche) or {},
-    }
+    return _register_photo(data_dir, model_key, niche, rel, original_name, mime, storage_get=storage_get, storage_put=storage_put)
+
+
+def confirm_photo(data_dir: Path, model_name: str, niche: str, rel_path: str, original_name: str, mime: str, storage_get=None, storage_put=None) -> dict:
+    """Como save_photo(), mas para uma foto que o navegador ja mandou direto
+    pro Supabase Storage (upload em duas etapas usado na nuvem pra contornar
+    o limite de 4,5 MB do Vercel) - o arquivo ja esta na chave final."""
+    if niche not in NICHE_IDS:
+        raise ValueError("Nicho invalido.")
+    model_key = (model_name or "Micaela").strip() or "Micaela"
+    return _register_photo(data_dir, model_key, niche, rel_path, original_name, mime, storage_get=storage_get, storage_put=storage_put)
 
 
 def rename_label(data_dir: Path, model_name: str, niche: str, label: str, storage_get=None, storage_put=None) -> dict:

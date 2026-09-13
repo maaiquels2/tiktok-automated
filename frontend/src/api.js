@@ -115,6 +115,16 @@ export const modelLibrary = (model_name='Micaela') => api('/model-library?model_
 export const uploadModelLibrary = (form) => api('/model-library',{method:'POST',body:form});
 export const renameModelLibraryLabel = (body) => api('/model-library/label',{method:'PATCH',body});
 
+export const requestModelLibraryUploadUrl = (body) => api('/model-library/upload-url',{method:'POST',body});
+export const confirmModelLibraryUpload = (body) => api('/model-library/confirm',{method:'POST',body});
+
+export async function uploadModelLibraryPhotoDirect(model_name, niche, file) {
+  const {upload_url, path} = await requestModelLibraryUploadUrl({model_name, niche, filename:file.name});
+  const put = await fetch(upload_url, {method:'PUT', headers:{'Content-Type': file.type || 'application/octet-stream'}, body:file});
+  if (!put.ok) throw new Error('Não foi possível enviar a foto para o armazenamento.');
+  return confirmModelLibraryUpload({model_name, niche, path, original_name:file.name});
+}
+
 export const referenceFromLibrary = (cid, body) => api(`/campaigns/${cid}/reference-from-library`,{method:'POST',body});
 
 

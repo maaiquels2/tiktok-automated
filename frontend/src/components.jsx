@@ -1,7 +1,7 @@
-import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice } from './serviceLinks';
+import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -1105,12 +1105,16 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
   },[lightbox]);
   async function onPick(niche,file,inputEl){
     if(!file)return;
-    const form=new FormData();
-    form.set('model_name',modelName);
-    form.set('niche',niche);
-    form.set('file',file);
     try{
-      await uploadModelLibrary(form);
+      if(isCloudMode()){
+        await uploadModelLibraryPhotoDirect(modelName,niche,file);
+      }else{
+        const form=new FormData();
+        form.set('model_name',modelName);
+        form.set('niche',niche);
+        form.set('file',file);
+        await uploadModelLibrary(form);
+      }
       onFlash?.('Foto padrão salva: '+niche);
       await load();
       setSelectedNiche(niche);
