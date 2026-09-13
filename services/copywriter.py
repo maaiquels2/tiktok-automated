@@ -121,12 +121,26 @@ Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 
 
 # --------------------------------------------------------------------------- config
-def load_settings(data_dir) -> dict:
-    path = Path(data_dir)/SETTINGS_FILE
-    try:
-        raw = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        raw = {}
+STORAGE_KEY = 'app-settings/llm.json'
+
+
+def load_settings(data_dir, storage_get=None) -> dict:
+    """Le as configuracoes de escrita por IA (Supabase Storage na nuvem,
+    arquivo local no modo padrao - mesma convencao usada em
+    services/model_library.py). Sem chave configurada, ou sem internet, o
+    app continua funcionando exatamente como antes (gerador deterministico)."""
+    raw = {}
+    if storage_get is not None:
+        try:
+            raw = json.loads(storage_get(STORAGE_KEY).decode('utf-8'))
+        except Exception:
+            raw = {}
+    else:
+        path = Path(data_dir)/SETTINGS_FILE
+        try:
+            raw = json.loads(path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            raw = {}
     if not isinstance(raw, dict):
         raw = {}
     provider = raw.get('provider') if raw.get('provider') in PROVIDERS else ''
@@ -138,8 +152,8 @@ def load_settings(data_dir) -> dict:
     }
 
 
-def save_settings(data_dir, values: dict) -> dict:
-    current = load_settings(data_dir)
+def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) -> dict:
+    current = load_settings(data_dir, storage_get=storage_get)
     provider = values.get('provider')
     if provider in PROVIDERS:
         current['provider'] = provider
@@ -159,14 +173,17 @@ def save_settings(data_dir, values: dict) -> dict:
     if 'enabled' in values:
         current['enabled'] = bool(values['enabled'])
     current['enabled'] = bool(current['enabled'] and current['provider'] and current['api_key'])
-    path = Path(data_dir)/SETTINGS_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding='utf-8')
+    if storage_put is not None:
+        storage_put(STORAGE_KEY, json.dumps(current, ensure_ascii=False, indent=2).encode('utf-8'), 'application/json')
+    else:
+        path = Path(data_dir)/SETTINGS_FILE
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding='utf-8')
     return current
 
 
-def public_settings(data_dir) -> dict:
-    s = load_settings(data_dir)
+def public_settings(data_dir, storage_get=None) -> dict:
+    s = load_settings(data_dir, storage_get=storage_get)
     key = s['api_key']
     return {
         'provider': s['provider'],

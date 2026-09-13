@@ -24,18 +24,30 @@ def _path(data_dir: Path | str | None = None) -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "studio_identity.json"
 
 
-def load_identity(data_dir: Path | str | None = None) -> dict:
-    path = _path(data_dir)
+STORAGE_KEY = "app-settings/studio_identity.json"
+
+
+def load_identity(data_dir: Path | str | None = None, storage_get=None) -> dict:
+    """Le a identidade do estudio (Supabase Storage na nuvem, arquivo local
+    no modo padrao - mesma convencao usada em services/model_library.py)."""
     out = dict(DEFAULTS)
-    if path.is_file():
+    raw = None
+    if storage_get is not None:
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                for k in DEFAULTS:
-                    if k in raw and raw[k] is not None:
-                        out[k] = str(raw[k]).strip()
+            raw = json.loads(storage_get(STORAGE_KEY).decode("utf-8"))
         except Exception:
-            pass
+            raw = None
+    else:
+        path = _path(data_dir)
+        if path.is_file():
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                raw = None
+    if isinstance(raw, dict):
+        for k in DEFAULTS:
+            if k in raw and raw[k] is not None:
+                out[k] = str(raw[k]).strip()
     handle = out.get("tiktok_handle") or ""
     handle = handle.lstrip("@").strip()
     out["tiktok_handle"] = handle
@@ -45,20 +57,23 @@ def load_identity(data_dir: Path | str | None = None) -> dict:
     return out
 
 
-def save_identity(data: dict, data_dir: Path | str | None = None) -> dict:
-    path = _path(data_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    current = load_identity(data_dir)
+def save_identity(data: dict, data_dir: Path | str | None = None, storage_get=None, storage_put=None) -> dict:
+    current = load_identity(data_dir, storage_get=storage_get)
     for k in DEFAULTS:
         if k in data and data[k] is not None:
             current[k] = str(data[k]).strip()
     current["tiktok_handle"] = (current.get("tiktok_handle") or "").lstrip("@").strip()
     to_store = {k: current[k] for k in DEFAULTS}
-    path.write_text(json.dumps(to_store, ensure_ascii=False, indent=2), encoding="utf-8")
-    return load_identity(data_dir)
+    if storage_put is not None:
+        storage_put(STORAGE_KEY, json.dumps(to_store, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+    else:
+        path = _path(data_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(to_store, ensure_ascii=False, indent=2), encoding="utf-8")
+    return load_identity(data_dir, storage_get=storage_get)
 
 
-def video_url(video_id: str, data_dir: Path | str | None = None) -> str:
-    ident = load_identity(data_dir)
+def video_url(video_id: str, data_dir: Path | str | None = None, storage_get=None) -> str:
+    ident = load_identity(data_dir, storage_get=storage_get)
     handle = ident.get("tiktok_handle") or "conta"
     return f"https://www.tiktok.com/@{handle}/video/{video_id}"

@@ -1269,7 +1269,7 @@ def create_app(config=None):
             if cid:
                 patch_checklist(cid, {'writer': {'by': origem, 'reason': motivo}})
 
-        settings = copywriter.load_settings(app.config['DATA_DIR'])
+        settings = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
         if not settings.get('enabled'):
             registrar('local')
             if required:
@@ -1290,7 +1290,7 @@ def create_app(config=None):
 
     @app.get('/api/writer')
     def writer_settings():
-        return jsonify(copywriter.public_settings(app.config['DATA_DIR']))
+        return jsonify(copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
 
     @app.patch('/api/writer')
     def save_writer_settings():
@@ -1302,12 +1302,16 @@ def create_app(config=None):
             valor = data.get(campo)
             if valor is not None and (not isinstance(valor, str) or len(valor) > 400):
                 raise Invalid(f'Campo {campo} invalido.')
-        copywriter.save_settings(app.config['DATA_DIR'], data)
-        return jsonify(copywriter.public_settings(app.config['DATA_DIR']))
+        copywriter.save_settings(
+            app.config['DATA_DIR'], data,
+            storage_get=(_storage_get if cloud_mode else None),
+            storage_put=(_storage_put if cloud_mode else None),
+        )
+        return jsonify(copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
 
     @app.post('/api/writer/test')
     def test_writer():
-        settings = copywriter.load_settings(app.config['DATA_DIR'])
+        settings = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
         if not settings.get('provider') or not settings.get('api_key'):
             raise Invalid('Configure o provedor e a chave antes de testar.')
         exemplo = dict(product='Legging cintura alta com bolso lateral', outfit='legging',
@@ -2420,6 +2424,10 @@ def create_app(config=None):
     @app.post('/api/campaigns/<int:cid>/autocut')
     def autocut_job(cid):
         """Salva brief Auto-cut + entra na fila pending para o Maiskinho avisar o Critico."""
+        if cloud_mode:
+            raise Invalid(
+                'Auto-cut não está disponível na versão online: ele avisa o robô '
+                'que roda no seu computador. Use essa função no aplicativo local.', 409)
         data = body()
         c = detail(cid)
         work = Path(app.root_path) / 'work' / 'autocut'
@@ -2483,6 +2491,8 @@ def create_app(config=None):
 
     @app.get('/api/autocut/pending')
     def autocut_pending():
+        if cloud_mode:
+            raise Invalid('Auto-cut não está disponível na versão online.', 409)
         queue_path = app.config['DATA_DIR'] / 'autocut_queue.json'
         try:
             queue = json.loads(queue_path.read_text(encoding='utf-8')) if queue_path.exists() else []
@@ -2493,6 +2503,8 @@ def create_app(config=None):
 
     @app.post('/api/autocut/<job_id>/dispatched')
     def autocut_dispatched(job_id):
+        if cloud_mode:
+            raise Invalid('Auto-cut não está disponível na versão online.', 409)
         queue_path = app.config['DATA_DIR'] / 'autocut_queue.json'
         try:
             queue = json.loads(queue_path.read_text(encoding='utf-8')) if queue_path.exists() else []
@@ -2909,7 +2921,7 @@ def create_app(config=None):
                 continue
             entry = {
                 'id': f'{vid}-{int(__import__("time").time())}',
-                'url': r.get('published_url') or (__import__('services.studio_identity', fromlist=['video_url']).video_url(vid, app.config['DATA_DIR'])),
+                'url': r.get('published_url') or (__import__('services.studio_identity', fromlist=['video_url']).video_url(vid, app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))),
                 'tiktok_video_id': vid,
                 'note': (r.get('caption') or '')[:500],
                 'collected_at': now,
@@ -2982,13 +2994,17 @@ def create_app(config=None):
     @app.get('/api/studio/identity')
     def studio_identity_get():
         from services.studio_identity import load_identity
-        return jsonify(load_identity(app.config['DATA_DIR']))
+        return jsonify(load_identity(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
 
     @app.patch('/api/studio/identity')
     def studio_identity_patch():
         from services.studio_identity import save_identity
         data = body()
-        ident = save_identity(data, app.config['DATA_DIR'])
+        ident = save_identity(
+            data, app.config['DATA_DIR'],
+            storage_get=(_storage_get if cloud_mode else None),
+            storage_put=(_storage_put if cloud_mode else None),
+        )
         return jsonify({'ok': True, 'identity': ident})
 
 
