@@ -12,11 +12,13 @@ import tempfile
 import subprocess
 import uuid
 import zipfile
-from contextlib import closing
+from contextlib import closing, contextmanager, ExitStack
 from pathlib import Path
 import ipaddress
+import urllib.request
+import urllib.error
 from urllib.parse import urlsplit
-from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
+from flask import Flask, g, jsonify, redirect, request, send_file, send_from_directory, session
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
@@ -52,6 +54,9 @@ def create_app(config=None):
     app.config['DATA_DIR'].mkdir(parents=True,exist_ok=True)
     app.config['MEDIA_DIR'].mkdir(parents=True,exist_ok=True)
     cloud_mode=bool(app.config.get('CLOUD_MODE',os.environ.get('FABRICA_CLOUD','0')=='1'))
+    storage_url=os.environ.get('FABRICA_SUPABASE_URL','').strip().rstrip('/')
+    storage_key=os.environ.get('FABRICA_SUPABASE_SERVICE_KEY','').strip()
+    storage_bucket=(os.environ.get('FABRICA_STORAGE_BUCKET','').strip() or 'fabrica-media')
     auth_required=bool(app.config.get('AUTH_REQUIRED',cloud_mode or os.environ.get('FABRICA_AUTH_REQUIRED','0')=='1'))
     secret_path=app.config['DATA_DIR']/'session_secret.txt'
     secret=os.environ.get('FABRICA_SECRET_KEY','').strip()
@@ -558,10 +563,99 @@ def create_app(config=None):
         colors=color_variants(c.get('color'))
         return colors if colors else ['']
 
+    def _storage_check():
+        if not storage_url or not storage_key:
+            raise RuntimeError(
+                'FABRICA_CLOUD=1 exige FABRICA_SUPABASE_URL e FABRICA_SUPABASE_SERVICE_KEY '
+                '(Project URL e service_role key, em Configuracoes > API no painel do Supabase).'
+            )
+
+    def _storage_put(key,data,mime):
+        """Envia bytes para o Storage do Supabase, sobrescrevendo se ja existir."""
+        _storage_check()
+        url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,
+                 'Content-Type':mime or 'application/octet-stream','x-upsert':'true'}
+        req=urllib.request.Request(url,data=data,headers=headers,method='PUT')
+        with urllib.request.urlopen(req,timeout=60) as resp:
+            resp.read()
+
+    def _storage_get(key):
+        """Baixa os bytes de um arquivo do Storage do Supabase."""
+        _storage_check()
+        url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key}
+        req=urllib.request.Request(url,headers=headers,method='GET')
+        try:
+            with urllib.request.urlopen(req,timeout=60) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code==404:
+                raise Invalid('Arquivo não encontrado no armazenamento. Anexe a mídia novamente.',404) from exc
+            raise
+
+    def _storage_sign(key,expires_in=3600,download_name=None):
+        """Gera um link temporario e direto para o arquivo, sem passar pelo servidor."""
+        _storage_check()
+        url=f"{storage_url}/storage/v1/object/sign/{storage_bucket}/{key}"
+        body={'expiresIn':expires_in}
+        if download_name:
+            body['download']=download_name
+        headers={'Authorization':f'Bearer {storage_key}','apikey':storage_key,'Content-Type':'application/json'}
+        req=urllib.request.Request(url,data=json.dumps(body).encode('utf-8'),headers=headers,method='POST')
+        try:
+            with urllib.request.urlopen(req,timeout=30) as resp:
+                payload=json.loads(resp.read().decode('utf-8'))
+        except urllib.error.HTTPError as exc:
+            if exc.code==404:
+                raise Invalid('Arquivo não encontrado no armazenamento. Anexe a mídia novamente.',404) from exc
+            raise
+        signed=payload.get('signedURL') or ''
+        if not signed:
+            raise Invalid('Não foi possível gerar o link do arquivo.',502)
+        return f"{storage_url}/storage/v1{signed}"
+
+    def _storage_exists(key):
+        try:
+            _storage_sign(key,expires_in=60)
+            return True
+        except Invalid:
+            return False
+
+    def read_asset(row):
+        """Bytes do arquivo guardado (Storage do Supabase na nuvem, disco local no modo padrão)."""
+        if cloud_mode:
+            return _storage_get(row['path'])
+        return path_for(row).read_bytes()
+
+    @contextmanager
+    def local_copy_of(row):
+        """Garante um caminho local de verdade (baixando do Storage se precisar),
+        para ferramentas que só sabem ler arquivo de disco, como o FFmpeg."""
+        if not cloud_mode:
+            yield path_for(row)
+            return
+        data=read_asset(row)
+        suffix=Path(row['path']).suffix
+        fd,tmp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix=suffix)
+        os.close(fd)
+        tmp=Path(tmp)
+        tmp.write_bytes(data)
+        try:
+            yield tmp
+        finally:
+            tmp.unlink(missing_ok=True)
+
     def path_for(row):
         base=app.config['MEDIA_DIR'].resolve()
         path=(base/row['path']).resolve()
-        if not path.is_relative_to(base) or not path.is_file():
+        if not path.is_relative_to(base):
+            raise Invalid('Arquivo local não encontrado. Anexe a mídia novamente.',404)
+        if cloud_mode:
+            if not _storage_exists(row['path']):
+                raise Invalid('Arquivo não encontrado no armazenamento. Anexe a mídia novamente.',404)
+            return path
+        if not path.is_file():
             raise Invalid('Arquivo local não encontrado. Anexe a mídia novamente.',404)
         return path
 
@@ -926,14 +1020,22 @@ def create_app(config=None):
             for aid in set(removed):
                 db().execute('UPDATE product_assets SET active=0 WHERE id=? AND campaign_id=?',(aid,cid))
             folder=app.config['MEDIA_DIR']/f'campanha-{cid:04d}'
-            if staged:
+            if staged and not cloud_mode:
                 folder.mkdir(exist_ok=True)
             for item in staged:
-                destination=folder/f"product-{uuid.uuid4().hex}{item['ext']}"
-                destinations.append(destination)
-                shutil.move(str(item['temp']),destination)
+                rel_path=f"campanha-{cid:04d}/product-{uuid.uuid4().hex}{item['ext']}"
+                if cloud_mode:
+                    data=item['temp'].read_bytes()
+                    _storage_put(rel_path,data,item['mime'])
+                    item['temp'].unlink(missing_ok=True)
+                    size=len(data)
+                else:
+                    destination=app.config['MEDIA_DIR']/rel_path
+                    destinations.append(destination)
+                    shutil.move(str(item['temp']),destination)
+                    size=destination.stat().st_size
                 db().execute('INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
-                    (cid,str(destination.relative_to(app.config['MEDIA_DIR'])),item['original'],item['mime'],destination.stat().st_size,json.dumps(item['metadata'])))
+                    (cid,rel_path,item['original'],item['mime'],size,json.dumps(item['metadata'])))
             apply_brief(cid,c,values,photos_changed=bool(staged or removed))
             db().commit()
         except Exception:
@@ -972,26 +1074,42 @@ def create_app(config=None):
             for name in STATES:
                 db().execute('INSERT INTO steps(campaign_id,name) VALUES(?,?)',(new_id,name))
             folder=app.config['MEDIA_DIR']/f'campanha-{new_id:04d}'
-            if source_assets or source_products:
+            if not cloud_mode and (source_assets or source_products):
                 folder.mkdir(parents=True,exist_ok=True)
             for row in source_assets:
-                source_path=path_for(row)
-                destination=folder/f"reference-{uuid.uuid4().hex}{source_path.suffix.lower()}"
-                shutil.copy2(source_path,destination)
-                copied.append(destination)
+                suffix=Path(row['path']).suffix.lower()
+                rel_path=f'campanha-{new_id:04d}/reference-{uuid.uuid4().hex}{suffix}'
+                if cloud_mode:
+                    data=read_asset(row)
+                    _storage_put(rel_path,data,row['mime'])
+                    size=len(data)
+                else:
+                    source_path=path_for(row)
+                    destination=folder/Path(rel_path).name
+                    shutil.copy2(source_path,destination)
+                    copied.append(destination)
+                    size=destination.stat().st_size
                 db().execute(
                     'INSERT INTO assets(campaign_id,kind,path,original_name,mime,size,metadata,approved_at) VALUES(?,?,?,?,?,?,?,?)',
-                    (new_id,'reference',str(destination.relative_to(app.config['MEDIA_DIR'])),row['original_name'],row['mime'],
-                     destination.stat().st_size,row['metadata'],row['approved_at']))
+                    (new_id,'reference',rel_path,row['original_name'],row['mime'],
+                     size,row['metadata'],row['approved_at']))
             for row in source_products:
-                source_path=path_for(row)
-                destination=folder/f"product-{uuid.uuid4().hex}{source_path.suffix.lower()}"
-                shutil.copy2(source_path,destination)
-                copied.append(destination)
+                suffix=Path(row['path']).suffix.lower()
+                rel_path=f'campanha-{new_id:04d}/product-{uuid.uuid4().hex}{suffix}'
+                if cloud_mode:
+                    data=read_asset(row)
+                    _storage_put(rel_path,data,row['mime'])
+                    size=len(data)
+                else:
+                    source_path=path_for(row)
+                    destination=folder/Path(rel_path).name
+                    shutil.copy2(source_path,destination)
+                    copied.append(destination)
+                    size=destination.stat().st_size
                 db().execute(
                     'INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
-                    (new_id,str(destination.relative_to(app.config['MEDIA_DIR'])),row['original_name'],row['mime'],
-                     destination.stat().st_size,row['metadata']))
+                    (new_id,rel_path,row['original_name'],row['mime'],
+                     size,row['metadata']))
             db().commit()
         except Exception:
             db().rollback()
@@ -1005,6 +1123,9 @@ def create_app(config=None):
         row=db().execute('SELECT * FROM product_assets WHERE id=?',(aid,)).fetchone()
         if not row:
             raise Invalid('Foto do produto não encontrada.',404)
+        if cloud_mode:
+            download_name=row['original_name'] if request.args.get('download')=='1' else None
+            return redirect(_storage_sign(row['path'],download_name=download_name))
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
     @app.patch('/api/campaigns/<int:cid>/layout')
@@ -1171,10 +1292,17 @@ def create_app(config=None):
         return jsonify(detail(cid))
 
     def attach(cid,kind,path,original,metadata,ext,mime,slot=''):
-        folder=app.config['MEDIA_DIR']/f'campanha-{cid:04d}'
-        folder.mkdir(exist_ok=True)
-        destination=folder/f'{kind}-{uuid.uuid4().hex}{ext}'
-        shutil.move(str(path),destination)
+        rel_path=f'campanha-{cid:04d}/{kind}-{uuid.uuid4().hex}{ext}'
+        destination=app.config['MEDIA_DIR']/rel_path
+        if cloud_mode:
+            data=Path(path).read_bytes()
+            _storage_put(rel_path,data,mime)
+            Path(path).unlink(missing_ok=True)
+            size=len(data)
+        else:
+            destination.parent.mkdir(exist_ok=True)
+            shutil.move(str(path),destination)
+            size=destination.stat().st_size
         slot=(slot or '').strip()
         if kind in {'image','video'}:
             db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=? AND slot=?',(cid,kind,slot))
@@ -1185,7 +1313,7 @@ def create_app(config=None):
         if kind in {'image','video'} and slot:
             metadata['color']=slot
         db().execute('INSERT INTO assets(campaign_id,kind,path,original_name,mime,size,metadata,slot) VALUES(?,?,?,?,?,?,?,?)',
-                     (cid,kind,str(destination.relative_to(app.config['MEDIA_DIR'])),original,mime,destination.stat().st_size,json.dumps(metadata),slot))
+                     (cid,kind,rel_path,original,mime,size,json.dumps(metadata),slot))
         if kind=='reference':
             state(cid,'briefing')
             clear_after(cid,['image','video'])
@@ -1578,9 +1706,12 @@ def create_app(config=None):
         temp=Path(temp)
         destination=None
         try:
-            source=path_for(row)
-            shutil.copyfile(source,temp)
-            destination=attach(cid,'reference',temp,row['original_name'],json.loads(row['metadata']),source.suffix,row['mime'])
+            suffix=Path(row['path']).suffix
+            if cloud_mode:
+                temp.write_bytes(read_asset(row))
+            else:
+                shutil.copyfile(path_for(row),temp)
+            destination=attach(cid,'reference',temp,row['original_name'],json.loads(row['metadata']),suffix,row['mime'])
             db().commit()
         except Exception:
             db().rollback()
@@ -1596,6 +1727,9 @@ def create_app(config=None):
         row=db().execute('SELECT * FROM assets WHERE id=?',(aid,)).fetchone()
         if not row:
             raise Invalid('Mídia não encontrada.',404)
+        if cloud_mode:
+            download_name=row['original_name'] if request.args.get('download')=='1' else None
+            return redirect(_storage_sign(row['path'],download_name=download_name))
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
 
@@ -2178,8 +2312,9 @@ def create_app(config=None):
         temp_path = Path(temp)
         destination = None
         try:
-            sources = [(path_for(row), sec) for row, sec in resolved]
-            mix_clips(sources, temp_path, width=width, height=height)
+            with ExitStack() as stack:
+                sources = [(stack.enter_context(local_copy_of(row)), sec) for row, sec in resolved]
+                mix_clips(sources, temp_path, width=width, height=height)
             try:
                 metadata, ext, mime = inspect_media(temp_path, 'video')
             except (ValueError, EOFError) as exc:
@@ -2318,16 +2453,16 @@ def create_app(config=None):
                 if a['kind']!='reference' and not a['approved_at']:
                     continue
                 prefix={'reference':'referencia-modelo','image':'imagem-aprovada','video':'video-aprovado'}[a['kind']]
-                path=path_for(a)
-                archive.write(path,prefix+path.suffix)
+                suffix=Path(a['path']).suffix
+                archive.writestr(prefix+suffix,read_asset(a))
             if c.get('device_videos'):
                 lines=['Os vídeos abaixo permanecem no dispositivo e não estão incluídos neste ZIP:']
                 for item in c['device_videos']:
                     lines.append(f"- {item.get('slot') or 'Vídeo'}: {item['original_name']}")
                 archive.writestr('videos-no-dispositivo.txt','\n'.join(lines).encode('utf-8-sig'))
             for number,a in enumerate(c['product_assets'],1):
-                path=path_for(a)
-                archive.write(path,f'produto/referencia-produto-{number:02d}{path.suffix}')
+                suffix=Path(a['path']).suffix
+                archive.writestr(f'produto/referencia-produto-{number:02d}{suffix}',read_asset(a))
         bundle.seek(0)
         response=send_file(bundle,mimetype='application/zip',as_attachment=True,download_name=f'campanha-{cid:04d}.zip')
         response.call_on_close(bundle.close)
