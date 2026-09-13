@@ -5,6 +5,7 @@ import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, C
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools} from './components';
+import { NICHE_DEFAULTS } from './nicheDefaults';
 
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
@@ -245,26 +246,47 @@ export default function App(){
   function confirm(title,description,action,label='Confirmar'){setError('');setModal({type:'confirm',title,description,action,label})}
   function post(suffix,body={}){return api(`/campaigns/${c.id}${suffix}`,{method:'POST',body:{...body,version:c.version}})}
   const ANALYSIS_FIELD_LABELS={benefit:'Benefício',angle:'Ângulo',movements:'Movimentos',details:'Detalhes'};
+  const ENRICHABLE_FIELDS=['benefit','angle','movements','details'];
   function saveBrief(values,photos=[],removed=[],descriptionPhoto=null){
     const next=(c.assets.some(a=>a.kind==='reference')&&values.model_name===c.model_name)?'look':'model';
     let analysisOutcome=null;
+    // Mesma regra da criacao: com foto de descricao anexada, deixa ela
+    // ganhar de beneficio/angulo/movimentos/detalhes quando esses campos
+    // ainda estao com o texto generico do nicho; o nicho so volta como
+    // reserva depois, pro que a IA nao conseguir preencher.
+    const nicheDefaults=NICHE_DEFAULTS[values.niche]||{};
+    const submitValues={...values};
+    if(descriptionPhoto){
+      ENRICHABLE_FIELDS.forEach(k=>{
+        if(nicheDefaults[k]&&(submitValues[k]||'')===nicheDefaults[k])submitValues[k]='';
+      });
+    }
     const action=()=>run(async()=>{
       let result;
       if(photos.length||removed.length){
-        const briefing={...values,version:c.version};
+        const briefing={...submitValues,version:c.version};
         result=isCloudMode()?await uploadProductPhotosDirect(c.id,briefing,removed,photos):await(async()=>{
           const form=new FormData();form.set('briefing',JSON.stringify(briefing));form.set('removed',JSON.stringify(removed));photos.forEach(file=>form.append('files',file));
           return api(`/campaigns/${c.id}/look`,{method:'POST',body:form});
         })();
       }else{
-        result=await api(`/campaigns/${c.id}`,{method:'PATCH',body:{...values,version:c.version}});
+        result=await api(`/campaigns/${c.id}`,{method:'PATCH',body:{...submitValues,version:c.version}});
       }
       if(descriptionPhoto){
+        const fillFromNiche=async()=>{
+          const fallback={};
+          ENRICHABLE_FIELDS.forEach(k=>{ if(nicheDefaults[k]&&!(result[k]||'').trim())fallback[k]=nicheDefaults[k]; });
+          if(Object.keys(fallback).length){
+            result=await api(`/campaigns/${result.id}`,{method:'PATCH',body:{...fallback,version:result.version}});
+          }
+        };
         try{
           result=isCloudMode()?await analyzeProductPhotoDirect(result.id,descriptionPhoto):await analyzeProductPhotoLocal(result.id,descriptionPhoto);
           analysisOutcome={filled:result.analysis?.filled||[]};
+          await fillFromNiche();
         }catch(e){
           analysisOutcome={error:e.message};
+          await fillFromNiche();
         }
       }
       return result;
@@ -276,7 +298,7 @@ export default function App(){
       }
       return ok;
     });
-    const changed=photos.length||removed.length||!!descriptionPhoto||Object.keys(values).some(k=>k!=='name'&&values[k]!==(c[k]||''));
+    const changed=photos.length||removed.length||!!descriptionPhoto||Object.keys(submitValues).some(k=>k!=='name'&&submitValues[k]!==(c[k]||''));
     if(changed&&c.prompts.image)confirm('Iniciar uma nova versão?','A alteração do briefing retira as mídias do fluxo atual e solicita novas aprovações. Os arquivos anteriores ficam guardados na pasta da campanha.',action,'Salvar e reiniciar');else action();
   }
   function saveTexts(values){
@@ -645,10 +667,24 @@ export default function App(){
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
       {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[],descriptionPhoto=null)=>{
         let analysisOutcome=null;
+        // Se uma foto de descricao foi anexada, deixa ela "ganhar" de
+        // beneficio/angulo/movimentos/detalhes: esses 4 campos, se ainda
+        // estiverem com o texto generico do nicho (ninguem editou a mao),
+        // vao vazios pro backend, pra IA poder preencher a partir da foto.
+        // O texto do nicho so volta como reserva depois, pros campos que
+        // a IA nao conseguir preencher (ou se a analise falhar).
+        const nicheDefaults=NICHE_DEFAULTS[values.niche]||{};
+        const enrichableFields=['benefit','angle','movements','details'];
+        const submitValues={...values};
+        if(descriptionPhoto){
+          enrichableFields.forEach(k=>{
+            if(nicheDefaults[k]&&(submitValues[k]||'')===nicheDefaults[k])submitValues[k]='';
+          });
+        }
         const created=await run(async()=>{
-          let result=await api('/campaigns',{method:'POST',body:values});
+          let result=await api('/campaigns',{method:'POST',body:submitValues});
           if(photos?.length){
-            const briefing={...values,version:result.version};
+            const briefing={...submitValues,version:result.version};
             if(isCloudMode()){
               result=await uploadProductPhotosDirect(result.id,briefing,removed||[],photos);
             }else{
@@ -660,11 +696,20 @@ export default function App(){
             }
           }
           if(descriptionPhoto){
+            const fillFromNiche=async()=>{
+              const fallback={};
+              enrichableFields.forEach(k=>{ if(nicheDefaults[k]&&!(result[k]||'').trim())fallback[k]=nicheDefaults[k]; });
+              if(Object.keys(fallback).length){
+                result=await api(`/campaigns/${result.id}`,{method:'PATCH',body:{...fallback,version:result.version}});
+              }
+            };
             try{
               result=isCloudMode()?await analyzeProductPhotoDirect(result.id,descriptionPhoto):await analyzeProductPhotoLocal(result.id,descriptionPhoto);
               analysisOutcome={filled:result.analysis?.filled||[]};
+              await fillFromNiche();
             }catch(e){
               analysisOutcome={error:e.message};
+              await fillFromNiche();
             }
           }
           setMode('produce');
