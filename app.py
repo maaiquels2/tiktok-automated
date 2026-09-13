@@ -1105,6 +1105,64 @@ def create_app(config=None):
                 item['temp'].unlink(missing_ok=True)
         return jsonify(detail(cid))
 
+    @app.post('/api/campaigns/<int:cid>/look/confirm')
+    def confirm_look_upload(cid):
+        """Como /look, mas para fotos de produto que o navegador ja mandou
+        direto pro Supabase Storage (upload em duas etapas usado na nuvem
+        pra contornar o limite de 4,5 MB do Vercel)."""
+        if not cloud_mode:
+            raise Invalid('Disponível apenas na versão online.',409)
+        data=body()
+        briefing=data.get('briefing')
+        removed=data.get('removed') or []
+        photos=data.get('photos') or []
+        if not isinstance(briefing,dict) or not isinstance(removed,list) or any(type(aid) is not int for aid in removed):
+            raise Invalid('Briefing ou lista de fotos inválidos.')
+        if not isinstance(photos,list) or len(photos)>8:
+            raise Invalid('Use até 8 fotos do produto por campanha.')
+        staged=[]
+        try:
+            for item in photos:
+                if not isinstance(item,dict):
+                    raise Invalid('Dados de upload incompletos.')
+                rel_path=(item.get('path') or '').strip()
+                original=(item.get('original_name') or '').strip()
+                if not rel_path.startswith(f'campanha-{cid:04d}/') or not original:
+                    raise Invalid('Dados de upload incompletos.')
+                fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
+                os.close(fd)
+                temp=Path(temp)
+                try:
+                    file_bytes=_storage_get(rel_path)
+                    temp.write_bytes(file_bytes)
+                    try:
+                        metadata,ext,mime=inspect_media(temp,'product')
+                    except (ValueError,EOFError) as exc:
+                        raise Invalid(str(exc)) from exc
+                finally:
+                    temp.unlink(missing_ok=True)
+                staged.append({'rel_path':rel_path,'metadata':metadata,'mime':mime,
+                    'original':original[:240],'size':len(file_bytes)})
+            c=start(cid,briefing)
+            editable(c)
+            values=fields(briefing,c)
+            current={r['id'] for r in db().execute('SELECT id FROM product_assets WHERE campaign_id=? AND active=1',(cid,))}
+            if set(removed)-current:
+                raise Invalid('Uma das fotos não pertence a esta campanha ou já foi removida.',409)
+            if len(current-set(removed))+len(staged)>8:
+                raise Invalid('Use até 8 fotos do produto por campanha.')
+            for aid in set(removed):
+                db().execute('UPDATE product_assets SET active=0 WHERE id=? AND campaign_id=?',(aid,cid))
+            for item in staged:
+                db().execute('INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
+                    (cid,item['rel_path'],item['original'],item['mime'],item['size'],json.dumps(item['metadata'])))
+            apply_brief(cid,c,values,photos_changed=bool(staged or removed))
+            db().commit()
+        except Exception:
+            db().rollback()
+            raise
+        return jsonify(detail(cid))
+
     @app.post('/api/campaigns/<int:cid>/duplicate')
     @app.post('/api/campaigns/<int:cid>/copy')
     def duplicate_campaign(cid):
@@ -1467,7 +1525,7 @@ def create_app(config=None):
             raise Invalid('Disponível apenas na versão online.',409)
         data=body()
         kind=data.get('kind')
-        if kind not in {'reference','image','video'}:
+        if kind not in {'reference','image','video','product'}:
             raise Invalid('Escolha o tipo de mídia.')
         c=start(cid,data)
         editable(c)

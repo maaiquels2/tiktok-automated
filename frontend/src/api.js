@@ -36,6 +36,17 @@ export async function uploadAssetDirect(cid, kind, file, extra = {}) {
   return confirmAssetUpload(cid, {kind, path, original_name: file.name, ...extra});
 }
 
+export async function uploadProductPhotosDirect(cid, briefing, removed, files) {
+  const photos = [];
+  for (const file of files) {
+    const {upload_url, path} = await requestAssetUploadUrl(cid, {kind:'product', filename:file.name});
+    const put = await fetch(upload_url, {method:'PUT', headers:{'Content-Type': file.type || 'application/octet-stream'}, body:file});
+    if (!put.ok) throw new Error('Não foi possível enviar uma das fotos para o armazenamento.');
+    photos.push({path, original_name:file.name});
+  }
+  return api(`/campaigns/${cid}/look/confirm`, {method:'POST', body:{briefing, removed, photos}});
+}
+
 export const states = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published'];
 
 export const statusLabels = {briefing:'Em preparação',image_ready:'Imagem para revisar',image_approved:'Imagem aprovada',script_ready:'Roteiro pronto',video_ready:'Vídeo para revisar',video_approved:'Vídeo aprovado',ready_to_publish:'Pronta para publicar',published:'Publicada'};

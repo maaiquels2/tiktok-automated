@@ -3,7 +3,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, s
 import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, SetupChecklist, DailyQueueCard, NICHES, ResultsQuickTools} from './components';
 
 
@@ -247,7 +247,9 @@ export default function App(){
     const next=(c.assets.some(a=>a.kind==='reference')&&values.model_name===c.model_name)?'look':'model';
     const action=()=>run(()=>{
       if(photos.length||removed.length){
-        const form=new FormData();form.set('briefing',JSON.stringify({...values,version:c.version}));form.set('removed',JSON.stringify(removed));photos.forEach(file=>form.append('files',file));
+        const briefing={...values,version:c.version};
+        if(isCloudMode())return uploadProductPhotosDirect(c.id,briefing,removed,photos);
+        const form=new FormData();form.set('briefing',JSON.stringify(briefing));form.set('removed',JSON.stringify(removed));photos.forEach(file=>form.append('files',file));
         return api(`/campaigns/${c.id}/look`,{method:'POST',body:form});
       }
       return api(`/campaigns/${c.id}`,{method:'PATCH',body:{...values,version:c.version}});
@@ -619,11 +621,16 @@ export default function App(){
         const created=await run(async()=>{
           let result=await api('/campaigns',{method:'POST',body:values});
           if(photos?.length){
-            const form=new FormData();
-            form.set('briefing',JSON.stringify({...values,version:result.version}));
-            form.set('removed',JSON.stringify(removed||[]));
-            photos.forEach(file=>form.append('files',file));
-            result=await api(`/campaigns/${result.id}/look`,{method:'POST',body:form});
+            const briefing={...values,version:result.version};
+            if(isCloudMode()){
+              result=await uploadProductPhotosDirect(result.id,briefing,removed||[],photos);
+            }else{
+              const form=new FormData();
+              form.set('briefing',JSON.stringify(briefing));
+              form.set('removed',JSON.stringify(removed||[]));
+              photos.forEach(file=>form.append('files',file));
+              result=await api(`/campaigns/${result.id}/look`,{method:'POST',body:form});
+            }
           }
           setMode('produce');
           const st=nextStage(result)||'model';
