@@ -814,9 +814,16 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
     });
     onDirty?.(true);
   }
-  // on first mount for create (no campaign), apply current niche defaults once
+  // on first mount for create (no campaign salva ainda, ou seja sem id),
+  // aplica os padroes do nicho atual uma vez. Antes a checagem era
+  // "!campaign", mas o modal de criacao sempre passa um objeto
+  // ({model_name:...}) mesmo antes de existir uma campanha - isso fazia
+  // esse efeito nunca rodar, e como o <select> de nicho ja nasce com
+  // "Moda casual" selecionado, o onChange (que so preenche ao trocar de
+  // opcao) tambem nunca disparava: a campanha era criada com roupa/publico
+  // vazios sem o usuario perceber, ate a etapa de gerar prompts falhar.
   useEffect(()=>{
-    if(!campaign && draft.niche && !(draft.audience||draft.benefit||draft.movements)){
+    if(!campaign?.id && draft.niche && !(draft.audience||draft.benefit||draft.movements)){
       applyNiche(draft.niche);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
