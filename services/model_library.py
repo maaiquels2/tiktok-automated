@@ -94,7 +94,18 @@ def library_path(data_dir: Path) -> Path:
     return Path(data_dir) / "model_library.json"
 
 
-def load_library(data_dir: Path) -> dict:
+def load_library(data_dir: Path, storage_get=None) -> dict:
+    """Le a biblioteca (Storage do Supabase na nuvem, arquivo local no modo padrao)."""
+    if storage_get is not None:
+        try:
+            raw = storage_get("model-library/model_library.json")
+        except Exception:
+            return {}
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+        return data if isinstance(data, dict) else {}
     path = library_path(data_dir)
     if not path.exists():
         return {}
@@ -105,7 +116,15 @@ def load_library(data_dir: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def save_library(data_dir: Path, data: dict) -> None:
+def save_library(data_dir: Path, data: dict, storage_put=None) -> None:
+    """Grava a biblioteca (Storage do Supabase na nuvem, arquivo local no modo padrao)."""
+    if storage_put is not None:
+        storage_put(
+            "model-library/model_library.json",
+            json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"),
+            "application/json",
+        )
+        return
     path = library_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -113,12 +132,22 @@ def save_library(data_dir: Path, data: dict) -> None:
     tmp.replace(path)
 
 
+def get_entry(data_dir: Path, model_name: str, niche: str, storage_get=None):
+    """Devolve o registro (path/mime/original_name/...) de um nicho, se existir."""
+    lib = load_library(data_dir, storage_get=storage_get)
+    for k, v in lib.items():
+        if isinstance(k, str) and k.casefold() == (model_name or "").casefold() and isinstance(v, dict):
+            entry = v.get(niche)
+            return entry if isinstance(entry, dict) else None
+    return None
+
+
 def niche_dir(media_dir: Path, model_name: str, niche: str) -> Path:
     return Path(media_dir) / "model-library" / _safe(model_name) / niche
 
 
-def list_for_model(data_dir: Path, media_dir: Path, model_name: str) -> list[dict]:
-    lib = load_library(data_dir)
+def list_for_model(data_dir: Path, media_dir: Path, model_name: str, storage_get=None) -> list[dict]:
+    lib = load_library(data_dir, storage_get=storage_get)
     model_key = (model_name or "Micaela").strip() or "Micaela"
     bucket = lib.get(model_key) if isinstance(lib.get(model_key), dict) else {}
     # also try case-insensitive
@@ -132,8 +161,12 @@ def list_for_model(data_dir: Path, media_dir: Path, model_name: str) -> list[dic
     for niche_id, label in NICHES:
         entry = bucket.get(niche_id) if isinstance(bucket.get(niche_id), dict) else {}
         rel = entry.get("path") or ""
-        abs_path = (Path(media_dir) / rel) if rel else None
-        exists = bool(abs_path and abs_path.is_file())
+        if storage_get is not None:
+            # Na nuvem confiamos no metadado (evita 6 chamadas de rede por carregamento).
+            exists = bool(rel)
+        else:
+            abs_path = (Path(media_dir) / rel) if rel else None
+            exists = bool(abs_path and abs_path.is_file())
         custom_label = (entry.get("label") or "").strip()
         out.append({
             "niche": niche_id,
@@ -169,25 +202,29 @@ def get_file(data_dir: Path, media_dir: Path, model_name: str, niche: str) -> Pa
     return path if path.is_file() else None
 
 
-def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src: Path, original_name: str, mime: str) -> dict:
+def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src: Path, original_name: str, mime: str, storage_get=None, storage_put=None) -> dict:
     if niche not in NICHE_IDS:
         raise ValueError("Nicho invalido.")
     model_key = (model_name or "Micaela").strip() or "Micaela"
     ext = Path(original_name or src.name).suffix.lower() or ".jpg"
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         ext = ".jpg"
-    dest_dir = niche_dir(media_dir, model_key, niche)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    # Drop previous reference.* so jpg→png (etc.) never leaves a stale file.
-    for old in dest_dir.glob("reference.*"):
-        try:
-            old.unlink()
-        except OSError:
-            pass
-    dest = dest_dir / f"reference{ext}"
-    shutil.copyfile(src, dest)
-    rel = str(dest.relative_to(Path(media_dir))).replace("\\", "/")
-    lib = load_library(data_dir)
+    if storage_put is not None:
+        rel = f"model-library/{_safe(model_key)}/{niche}/reference{ext}"
+        storage_put(rel, src.read_bytes(), mime or "image/jpeg")
+    else:
+        dest_dir = niche_dir(media_dir, model_key, niche)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        # Drop previous reference.* so jpg→png (etc.) never leaves a stale file.
+        for old in dest_dir.glob("reference.*"):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+        dest = dest_dir / f"reference{ext}"
+        shutil.copyfile(src, dest)
+        rel = str(dest.relative_to(Path(media_dir))).replace("\\", "/")
+    lib = load_library(data_dir, storage_get=storage_get)
     bucket = lib.get(model_key) if isinstance(lib.get(model_key), dict) else {}
     # migrate case variants into canonical key
     for k in list(lib.keys()):
@@ -205,7 +242,7 @@ def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src
     if (prev.get("label") or "").strip():
         bucket[niche]["label"] = prev["label"].strip()
     lib[model_key] = bucket
-    save_library(data_dir, lib)
+    save_library(data_dir, lib, storage_put=storage_put)
     return {
         "niche": niche,
         "label": (bucket[niche].get("label") or NICHE_LABELS[niche]),
@@ -222,7 +259,7 @@ def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src
     }
 
 
-def rename_label(data_dir: Path, model_name: str, niche: str, label: str) -> dict:
+def rename_label(data_dir: Path, model_name: str, niche: str, label: str, storage_get=None, storage_put=None) -> dict:
     """Override the display name of a niche for this model. Keeps niche id stable."""
     if niche not in NICHE_IDS:
         raise ValueError("Nicho invalido.")
@@ -232,7 +269,7 @@ def rename_label(data_dir: Path, model_name: str, niche: str, label: str) -> dic
     if len(clean) > 60:
         raise ValueError("Nome da moda muito longo (max. 60).")
     model_key = (model_name or "Micaela").strip() or "Micaela"
-    lib = load_library(data_dir)
+    lib = load_library(data_dir, storage_get=storage_get)
     bucket = lib.get(model_key) if isinstance(lib.get(model_key), dict) else {}
     for k in list(lib.keys()):
         if isinstance(k, str) and k.casefold() == model_key.casefold() and k != model_key:
@@ -245,7 +282,7 @@ def rename_label(data_dir: Path, model_name: str, niche: str, label: str) -> dic
     entry["label_updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     bucket[niche] = entry
     lib[model_key] = bucket
-    save_library(data_dir, lib)
+    save_library(data_dir, lib, storage_put=storage_put)
     return {
         "niche": niche,
         "label": clean,

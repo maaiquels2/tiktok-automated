@@ -1480,25 +1480,26 @@ def create_app(config=None):
         if not niche:
             return False
         from services import model_library as ml
-        src = ml.get_file(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche)
-        if not src:
+        entry = ml.get_entry(app.config['DATA_DIR'], model_name, niche, storage_get=(_storage_get if cloud_mode else None))
+        if not entry or not entry.get('path'):
             return False
-        fd, temp = tempfile.mkstemp(dir=app.config['MEDIA_DIR'], suffix=src.suffix or '.jpg')
+        ext = Path(entry['path']).suffix.lower() or '.jpg'
+        mime = entry.get('mime') or 'image/jpeg'
+        original = entry.get('original_name') or f'reference{ext}'
+        fd, temp = tempfile.mkstemp(dir=app.config['MEDIA_DIR'], suffix=ext)
         os.close(fd)
         temp = Path(temp)
         destination = None
         try:
-            shutil.copyfile(src, temp)
-            lib = ml.load_library(app.config['DATA_DIR'])
-            entry = {}
-            for k, v in lib.items():
-                if isinstance(k, str) and k.casefold() == (model_name or '').casefold() and isinstance(v, dict):
-                    entry = v.get(niche) or {}
-                    break
-            mime = entry.get('mime') or 'image/jpeg'
-            original = entry.get('original_name') or src.name
+            if cloud_mode:
+                temp.write_bytes(_storage_get(entry['path']))
+            else:
+                src = app.config['MEDIA_DIR'] / entry['path']
+                if not src.is_file():
+                    return False
+                shutil.copyfile(src, temp)
             meta = {'niche': niche, 'source': 'model_library'}
-            destination = attach(cid, 'reference', temp, original, meta, src.suffix.lower() or '.jpg', mime)
+            destination = attach(cid, 'reference', temp, original, meta, ext, mime)
             return True
         except Exception:
             if destination:
@@ -1514,7 +1515,7 @@ def create_app(config=None):
         model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
         return jsonify({
             'model_name': model_name,
-            'niches': ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name),
+            'niches': ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, storage_get=(_storage_get if cloud_mode else None)),
         })
 
     @app.get('/api/model-library/file')
@@ -1522,6 +1523,14 @@ def create_app(config=None):
         from services import model_library as ml
         model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
         niche = (request.args.get('niche') or '').strip()
+        if cloud_mode:
+            entry = ml.get_entry(app.config['DATA_DIR'], model_name, niche, storage_get=_storage_get)
+            if not entry or not entry.get('path'):
+                raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
+            resp = redirect(_storage_sign(entry['path']))
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            return resp
         path = ml.get_file(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche)
         if not path:
             raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
@@ -1546,7 +1555,11 @@ def create_app(config=None):
         if niche not in ml.NICHE_IDS:
             raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
         try:
-            row = ml.rename_label(app.config['DATA_DIR'], model_name, niche, label)
+            row = ml.rename_label(
+                app.config['DATA_DIR'], model_name, niche, label,
+                storage_get=(_storage_get if cloud_mode else None),
+                storage_put=(_storage_put if cloud_mode else None),
+            )
         except ValueError as exc:
             raise Invalid(str(exc)) from exc
         return jsonify({'ok': True, 'niche': row})
@@ -1577,6 +1590,8 @@ def create_app(config=None):
                 model_name, niche, temp,
                 Path(uploaded.filename.replace('\\', '/')).name[:240],
                 mime,
+                storage_get=(_storage_get if cloud_mode else None),
+                storage_put=(_storage_put if cloud_mode else None),
             )
             return jsonify(entry)
         finally:
@@ -1589,7 +1604,7 @@ def create_app(config=None):
         from services import character_sheet as cs
         model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
         niche_arg = (request.args.get('niche') or '').strip() or None
-        niches = ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name)
+        niches = ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, storage_get=(_storage_get if cloud_mode else None))
         chosen = None
         if niche_arg:
             for item in niches:
@@ -1626,7 +1641,7 @@ def create_app(config=None):
             raise Invalid('Confirme a abertura do Grok para a ficha de consistência.', 409)
         model_name = (data.get('model_name') or 'Micaela').strip() or 'Micaela'
         niche_arg = (data.get('niche') or '').strip() or None
-        niches = ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name)
+        niches = ml.list_for_model(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, storage_get=(_storage_get if cloud_mode else None))
         chosen = None
         if niche_arg:
             for item in niches:
@@ -2272,6 +2287,10 @@ def create_app(config=None):
     @app.post('/api/campaigns/<int:cid>/videos/mix')
     def mix_videos(cid):
         """Junta 2+ MP4s da campanha num so (~15s 9:16) e anexa no slot escolhido."""
+        if cloud_mode:
+            raise Invalid(
+                'Misturar vídeos não está disponível na versão online. '
+                'Use essa função no aplicativo local, no seu computador.', 409)
         data = body()
         c = start(cid, data)
         editable(c)
