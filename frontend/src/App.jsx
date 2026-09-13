@@ -1,5 +1,5 @@
 import { getDeviceInfo } from './device';
-import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl } from './serviceLinks';
+import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus } from 'lucide-react';
 import Canvas from './Canvas';
@@ -42,6 +42,7 @@ export default function App(){
       const [list,refs,ident,h]=await Promise.all([api('/campaigns'),api('/references'),studioIdentity().catch(()=>null),health().catch(()=>null)]);
       if(ident) setIdentity(ident);
       if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
+      setCloudMode(h?.cloud===true);
       api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
       const first=list[0]?await api('/campaigns/'+list[0].id):null;
       if(active){

@@ -3,6 +3,13 @@ import { tiktokLogo, tiktokStudioLogo } from './serviceLogos';
 import { isMobileDevice } from './device';
 export { isMobileDevice } from './device';
 
+// A versao online (Vercel) nao roda Chrome/Playwright no servidor - so a
+// versao local (no computador da pessoa) tem esse "atalho automatico".
+// Na nuvem os botoes de Grok/Flow/TikTok Studio sempre viram links diretos,
+// do mesmo jeito que ja acontece no celular.
+let cloudMode = false;
+export function setCloudMode(value) { cloudMode = !!value; }
+
 function TikTokBrand({studio = false}) {
   // Crop only the presentation viewport; keep the supplied PNGs intact.
   return studio ? <span className="tiktok-studio-wordmark" aria-hidden="true"><img src={tiktokStudioLogo} alt=""/></span> :
@@ -12,12 +19,12 @@ function TikTokBrand({studio = false}) {
 // Grok and TikTok associate these HTTPS links with their iOS apps.
 // Keep the native link click synchronous so iOS can hand it to the app.
 export function mobileServiceUrl(service, nav = globalThis.navigator) {
-  if (!isMobileDevice(nav)) return null;
+  if (!isMobileDevice(nav) && !cloudMode) return null;
   return {grok: 'https://grok.com/imagine', flow: 'https://labs.google/fx/tools/flow'}[service] || null;
 }
 
 export function TikTokLaunchButtons({onOpenStudio, disabled, className = 'button', opening = false}) {
-  const mobile = isMobileDevice();
+  const mobile = isMobileDevice() || cloudMode;
   // On mobile, use a native link without invoking the PC-launch callback.
   // On desktop, keep the configured Chrome profile for manual publication.
   return <span className="tiktok-launch-buttons">

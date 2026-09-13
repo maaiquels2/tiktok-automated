@@ -302,6 +302,23 @@ def create_app(config=None):
     daily_backup()   # primeira execucao: o banco so passa a existir aqui
     browser_init_lock = threading.Lock()
 
+    def _get_browser_assistant():
+        """Automacao de Chrome/Playwright (perfil dedicado) so existe na versao
+        local, rodando no computador da pessoa. Na nuvem nao ha navegador nem
+        perfil disponivel, entao os botoes viram links diretos (ver
+        frontend/src/serviceLinks.jsx) e essa funcao nunca deveria ser chamada
+        - mas se algo ainda chamar, falha com uma mensagem clara em vez de
+        travar tentando abrir um Chrome que nao existe no servidor."""
+        if cloud_mode:
+            raise Invalid(
+                'Automação de navegador não está disponível na versão online. '
+                'Abra o link diretamente no seu dispositivo.', 409)
+        with browser_init_lock:
+            if 'browser_assistant' not in app.extensions:
+                from services.browser_assistant import BrowserAssistant
+                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
+        return app.extensions['browser_assistant']
+
     def db():
         if 'db' not in g:
             g.db=connect()
@@ -918,6 +935,7 @@ def create_app(config=None):
             app='fabrica-tiktok',
             version=6,
             local=True,
+            cloud=cloud_mode,
             lan_enabled=os.environ.get('FABRICA_LAN', '1') != '0',
             lan_urls=lan,
             open_on_this_device=f"{request.scheme}://{request.host}",
@@ -1649,11 +1667,7 @@ def create_app(config=None):
                 clipboard_error = (completed.stderr or completed.stdout or 'Set-Clipboard falhou').strip()[:240]
         except Exception as exc:
             clipboard_error = str(exc)[:240]
-        with browser_init_lock:
-            if 'browser_assistant' not in app.extensions:
-                from services.browser_assistant import BrowserAssistant
-                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
-            assistant = app.extensions['browser_assistant']
+        assistant = _get_browser_assistant()
         try:
             result = assistant.open_grok_character_sheet()
         except RuntimeError as exc:
@@ -1957,11 +1971,7 @@ def create_app(config=None):
                 break
         if not caption_hint:
             caption_hint = (detail(cid).get('prompts') or {}).get('caption') or c.get('product') or ''
-        with browser_init_lock:
-            if 'browser_assistant' not in app.extensions:
-                from services.browser_assistant import BrowserAssistant
-                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
-            assistant = app.extensions['browser_assistant']
+        assistant = _get_browser_assistant()
         try:
             result = assistant.fetch_studio_metrics(cid, video_url=video_url or None, caption_hint=caption_hint or None)
         except RuntimeError as exc:
@@ -2497,11 +2507,7 @@ def create_app(config=None):
         service = (data.get('service') or '').strip().lower()
         if service not in {'grok', 'flow', 'studio'}:
             raise Invalid('Escolha grok, flow ou studio.')
-        with browser_init_lock:
-            if 'browser_assistant' not in app.extensions:
-                from services.browser_assistant import BrowserAssistant
-                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
-            assistant = app.extensions['browser_assistant']
+        assistant = _get_browser_assistant()
         try:
             if service == 'studio':
                 result = assistant.open_tiktok_studio(0)
@@ -2527,11 +2533,7 @@ def create_app(config=None):
         data = body()
         if data.get('confirmed') is not True:
             raise Invalid('Confirme a abertura do TikTok Studio no perfil da Micaela.', 409)
-        with browser_init_lock:
-            if 'browser_assistant' not in app.extensions:
-                from services.browser_assistant import BrowserAssistant
-                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
-            assistant = app.extensions['browser_assistant']
+        assistant = _get_browser_assistant()
         try:
             result = assistant.open_tiktok_studio(0)
         except RuntimeError as exc:
@@ -2569,11 +2571,7 @@ def create_app(config=None):
         if '/video/' not in parsed.path and not is_short:
             raise Invalid('Use o link do video (deve conter /video/...) ou um link curto vm.tiktok.com.')
         note = (data.get('note') or '').strip()[:500]
-        with browser_init_lock:
-            if 'browser_assistant' not in app.extensions:
-                from services.browser_assistant import BrowserAssistant
-                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
-            assistant = app.extensions['browser_assistant']
+        assistant = _get_browser_assistant()
         try:
             result = assistant.fetch_studio_metrics(0, video_url=url, caption_hint=note or None)
         except RuntimeError as exc:
@@ -2641,11 +2639,7 @@ def create_app(config=None):
             viewers_top = max(0, min(int(data.get('viewers_top', min(5, limit))), limit))
         except (TypeError, ValueError):
             viewers_top = min(5, limit)
-        with browser_init_lock:
-            if 'browser_assistant' not in app.extensions:
-                from services.browser_assistant import BrowserAssistant
-                app.extensions['browser_assistant'] = BrowserAssistant(app.config['PROFILE_DIR'], app.config['MEDIA_DIR'])
-            assistant = app.extensions['browser_assistant']
+        assistant = _get_browser_assistant()
         try:
             result = assistant.audit_studio_posts(
                 limit=limit, viewers_top=viewers_top, days=days, min_views=min_views
@@ -2879,11 +2873,7 @@ def create_app(config=None):
                 raise Invalid('Revise o roteiro antes de criar o vídeo.',409)
         method='open_tiktok_studio' if service=='studio' else f'open_{service}_for_{stage}'
         try:
-            with browser_init_lock:
-                if 'browser_assistant' not in app.extensions:
-                    from services.browser_assistant import BrowserAssistant
-                    app.extensions['browser_assistant']=BrowserAssistant(app.config['PROFILE_DIR'],app.config['MEDIA_DIR'])
-            assistant=app.extensions['browser_assistant']
+            assistant=_get_browser_assistant()
             result=getattr(assistant,method)(cid)
         except RuntimeError as exc:
             raise Invalid(str(exc),409) from exc
