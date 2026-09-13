@@ -698,6 +698,9 @@ function AuthScreen({setup,onDone}){
 function UserAccessPanel({auth,onError,onFlash}){
   const [users,setUsers]=useState([]),[saving,setSaving]=useState(false);
   const [form,setForm]=useState({display_name:'',username:'',password:''});
+  const [resetTarget,setResetTarget]=useState(null);
+  const [resetDraft,setResetDraft]=useState('');
+  const [resetSaving,setResetSaving]=useState(false);
   const load=()=>api('/users').then(setUsers).catch(e=>onError(e.message));
   useEffect(()=>{load()},[]);
   async function add(event){
@@ -705,9 +708,34 @@ function UserAccessPanel({auth,onError,onFlash}){
     try{await api('/users',{method:'POST',body:form});setForm({display_name:'',username:'',password:''});await load();onFlash('Segundo acesso criado.')}
     catch(e){onError(e.message)}finally{setSaving(false)}
   }
+  function beginReset(user){
+    setResetTarget(user);
+    setResetDraft('');
+  }
+  async function resetPassword(event){
+    event.preventDefault();
+    if(!resetTarget)return;
+    setResetSaving(true);
+    try{
+      await api(`/users/${resetTarget.id}/reset-password`,{method:'POST',body:{password:resetDraft}});
+      onFlash('Senha de '+resetTarget.display_name+' redefinida.');
+      setResetTarget(null);setResetDraft('');
+    }catch(e){onError(e.message)}
+    finally{setResetSaving(false)}
+  }
   return <div className="user-access-panel">
     <p>Os dois usuários trabalham nas mesmas campanhas. As senhas ficam protegidas e não aparecem nesta tela.</p>
-    <div className="user-list">{users.map(user=><div key={user.id}><UserCog size={17}/><span><strong>{user.display_name}</strong><small>{user.username} · {user.role==='owner'?'responsável':'editora'}</small></span></div>)}</div>
+    <div className="user-list">{users.map(user=><div key={user.id}><UserCog size={17}/><span><strong>{user.display_name}</strong><small>{user.username} · {user.role==='owner'?'responsável':'editora'}</small></span>
+      {auth?.user?.role==='owner'&&<button type="button" className="button" disabled={saving||resetSaving} onClick={()=>beginReset(user)}>Redefinir senha</button>}
+    </div>)}</div>
+    {resetTarget&&<form className="auth-form" onSubmit={resetPassword}>
+      <h3>Redefinir senha de {resetTarget.display_name}</h3>
+      <label>Nova senha<input autoFocus required minLength={8} type="password" value={resetDraft} onChange={e=>setResetDraft(e.target.value)}/></label>
+      <div style={{display:'flex',gap:8}}>
+        <button className="primary" disabled={resetSaving}>{resetSaving?'Salvando…':'Salvar nova senha'}</button>
+        <button type="button" disabled={resetSaving} onClick={()=>{setResetTarget(null);setResetDraft('')}}>Cancelar</button>
+      </div>
+    </form>}
     {auth?.user?.role==='owner'&&users.length<2&&<form className="auth-form" onSubmit={add}>
       <h3><UserPlus size={18}/> Criar segundo acesso</h3>
       <label>Nome exibido<input required maxLength={80} value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>

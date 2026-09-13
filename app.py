@@ -555,6 +555,23 @@ def create_app(config=None):
         row=db().execute('SELECT id,username,display_name,role FROM users WHERE id=?',(uid,)).fetchone()
         return jsonify(public_user(row)),201
 
+    @app.post('/api/users/<int:uid>/reset-password')
+    def reset_user_password(uid):
+        """O responsavel pelo estudio redefine a senha de qualquer acesso
+        (o proprio ou o do segundo usuario), caso ela tenha sido esquecida."""
+        if g.current_user.get('role')!='owner':
+            raise Invalid('Somente o responsável pelo estúdio pode redefinir senhas.',403)
+        data=body()
+        password=data.get('password') or ''
+        if not isinstance(password,str) or len(password)<8:
+            raise Invalid('A senha precisa ter pelo menos 8 caracteres.')
+        row=db().execute('SELECT id FROM users WHERE id=? AND active=1',(uid,)).fetchone()
+        if not row:
+            raise Invalid('Usuário não encontrado.',404)
+        db().execute('UPDATE users SET password_hash=? WHERE id=?',(generate_password_hash(password),uid))
+        db().commit()
+        return jsonify({'ok':True})
+
     def campaign(cid):
         row=db().execute('SELECT * FROM campaigns WHERE id=?',(cid,)).fetchone()
         if not row:

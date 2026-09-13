@@ -1148,6 +1148,45 @@ class AuthenticationPrototypeTests(unittest.TestCase):
         self.assertEqual(login.json['user']['role'],'editor')
         self.assertEqual(self.client.get('/api/campaigns').status_code,200)
 
+    def test_owner_resets_the_editors_password(self):
+        self.client.post('/api/auth/setup',json={
+            'display_name':'Maiquel','username':'maiquel','password':'senha-segura-1',
+        },headers=self.headers)
+        partner=self.client.post('/api/users',json={
+            'display_name':'Micaela','username':'micaela','password':'senha-segura-2',
+        },headers=self.headers)
+        editor_id=partner.json['id']
+        reset=self.client.post(f'/api/users/{editor_id}/reset-password',json={'password':'nova-senha-123'},headers=self.headers)
+        self.assertEqual(reset.status_code,200,reset.json)
+        self.assertEqual(self.client.post('/api/auth/login',json={'username':'micaela','password':'senha-segura-2'},headers=self.headers).status_code,401,
+            'a senha antiga nao deveria funcionar mais')
+        relogin=self.client.post('/api/auth/login',json={'username':'micaela','password':'nova-senha-123'},headers=self.headers)
+        self.assertEqual(relogin.status_code,200,relogin.json)
+
+    def test_editor_cannot_reset_anyones_password(self):
+        self.client.post('/api/auth/setup',json={
+            'display_name':'Maiquel','username':'maiquel','password':'senha-segura-1',
+        },headers=self.headers)
+        owner_id=self.client.get('/api/auth/session',headers=self.headers).json['user']['id']
+        partner=self.client.post('/api/users',json={
+            'display_name':'Micaela','username':'micaela','password':'senha-segura-2',
+        },headers=self.headers)
+        self.client.post('/api/auth/logout',json={},headers=self.headers)
+        self.client.post('/api/auth/login',json={'username':'micaela','password':'senha-segura-2'},headers=self.headers)
+        response=self.client.post(f'/api/users/{owner_id}/reset-password',json={'password':'tentando-mudar-1'},headers=self.headers)
+        self.assertEqual(response.status_code,403,response.json)
+
+    def test_reset_password_requires_minimum_length(self):
+        self.client.post('/api/auth/setup',json={
+            'display_name':'Maiquel','username':'maiquel','password':'senha-segura-1',
+        },headers=self.headers)
+        partner=self.client.post('/api/users',json={
+            'display_name':'Micaela','username':'micaela','password':'senha-segura-2',
+        },headers=self.headers)
+        editor_id=partner.json['id']
+        response=self.client.post(f'/api/users/{editor_id}/reset-password',json={'password':'curta'},headers=self.headers)
+        self.assertEqual(response.status_code,400,response.json)
+
 
 class MigrationTests(unittest.TestCase):
     def test_legacy_database_backed_up_and_preserved(self):
