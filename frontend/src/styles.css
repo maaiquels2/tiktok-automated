@@ -1743,6 +1743,33 @@ textarea:focus {
   .produce-toolbar-next {
     display: none;
   }
+  /* Biblioteca da modelo: duas fotos lado a lado em vez de uma coluna so,
+     que obrigava a rolar bastante pra ver os 6 nichos. */
+  .model-library-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .model-niche-card {
+    padding: 9px;
+    gap: 6px;
+  }
+  .niche-title-row strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-niche-card .help {
+    font-size: 11px;
+  }
+  .niche-card-actions {
+    flex-wrap: wrap;
+  }
+  .model-niche-card .button {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
   /* Uma vez com uma campanha aberta, a lista completa vira um chip
      compacto ("CAMPANHA 0004 · nome · Trocar") em vez de ficar sempre
      visivel - reduz bastante o scroll antes de chegar na etapa atual. */

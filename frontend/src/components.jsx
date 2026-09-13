@@ -1303,7 +1303,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
             </div>
             <small className="help">{item.original_name||'Envie a foto padrão deste look'}{item.updated_at?` · atualizada`:''}</small>
             <input ref={el=>{fileRefs.current[item.niche]=el}} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={e=>onPick(item.niche,e.target.files?.[0],e.target)}/>
-            <div style={{display:'flex',gap:6}}>
+            <div className="niche-card-actions" style={{display:'flex',gap:6}}>
               <button type="button" className="button" disabled={busy||loading} onClick={e=>{e.stopPropagation();fileRefs.current[item.niche]?.click()}}>{item.has_photo?'Trocar foto':'Enviar foto padrão'}</button>
               {item.has_photo && <button type="button" className="button danger-action" title="Excluir foto padrão" aria-label={`Excluir foto padrão de ${item.label}`} disabled={busy||loading} onClick={e=>onDelete(item.niche,e)}><Trash2 size={14}/></button>}
             </div>
