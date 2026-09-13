@@ -24,18 +24,24 @@ export function mobileServiceUrl(service, nav = globalThis.navigator) {
 }
 
 export function TikTokLaunchButtons({onOpenStudio, disabled, className = 'button', opening = false}) {
-  const mobile = isMobileDevice() || cloudMode;
+  const realMobile = isMobileDevice();
+  const mobile = realMobile || cloudMode;
+  // On a real phone/tablet, keep the same-tab handoff (so iOS/Android can
+  // switch to the native app). On a desktop browser - even in cloud mode,
+  // where we still skip the server automation - open in a new tab instead,
+  // so people do not lose the Fabrica TikTok page they were on.
+  const target = realMobile ? undefined : '_blank';
   // On mobile, use a native link without invoking the PC-launch callback.
   // On desktop, keep the configured Chrome profile for manual publication.
   return <span className="tiktok-launch-buttons">
     {mobile && !disabled ? <a className={`service-launch-link ${className} tiktok-brand-button is-tiktok-studio`}
-      href="https://www.tiktok.com/" rel="noopener noreferrer" aria-label="TikTok Studio" title="Abrir TikTok neste aparelho"><TikTokBrand studio/></a> :
+      href="https://www.tiktok.com/" target={target} rel="noopener noreferrer" aria-label="TikTok Studio" title="Abrir TikTok neste aparelho"><TikTokBrand studio/></a> :
     <button type="button" className={`${className} tiktok-brand-button is-tiktok-studio`} disabled={disabled} onClick={onOpenStudio} aria-label={opening?'Abrindo TikTok Studio':'TikTok Studio'} title="TikTok Studio">
       {opening?'Abrindo…':<TikTokBrand studio/>}
     </button>}
     {disabled?<button type="button" className={`${className} tiktok-brand-button is-tiktok`} disabled aria-label="TikTok"><TikTokBrand/></button>:
       <a className={`service-launch-link ${className} tiktok-brand-button is-tiktok`} href="https://www.tiktok.com/"
-        target={mobile?undefined:'_blank'} rel="noopener noreferrer" aria-label="TikTok" title="TikTok"><TikTokBrand/></a>}
+        target={target} rel="noopener noreferrer" aria-label="TikTok" title="TikTok"><TikTokBrand/></a>}
   </span>;
 }
 
@@ -44,7 +50,12 @@ export function ServiceLaunch({service, onClick, disabled, children, className =
   if (!href || disabled) {
     return <button {...props} type="button" className={className} disabled={disabled} onClick={onClick}>{children}</button>;
   }
+  // On a real phone, Grok keeps a same-tab handoff (so iOS can switch to the
+  // app) while Flow already opened a new tab; on desktop (cloud mode included)
+  // every service opens in a new tab, so the person does not lose this page.
+  const realMobile = isMobileDevice();
+  const target = realMobile ? (service === 'flow' ? '_blank' : undefined) : '_blank';
   return <a {...props} className={`service-launch-link ${className}`} href={href}
-    target={service === 'flow' ? '_blank' : undefined} rel="noopener noreferrer"
+    target={target} rel="noopener noreferrer"
     onClick={onClick}>{children}</a>;
 }
