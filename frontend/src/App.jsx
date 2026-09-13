@@ -126,13 +126,23 @@ export default function App(){
     if(loading||bootHash.current)return;
     syncHash({});
   },[mode,resultsTab,c?.id,selected,loading]);
+  // Rede de seguranca: se por algum motivo "selected" ficar com um valor que
+  // nao existe em stageInfo (ex: link direto com etapa invalida, ou estado
+  // que sobrou de outra campanha), a tela de Produzir travava em branco ao
+  // tentar ler stage.title. Em vez de travar, volta pra uma etapa valida.
+  useEffect(()=>{
+    if(loading||mode!=='produce'||!c)return;
+    if(!stageInfo.some(s=>s.id===selected)){
+      setSelected(nextStage(c)==='performance'?'studio':(nextStage(c)||'model'));
+    }
+  },[loading,mode,c,selected]);
   useEffect(()=>{
     function onHash(){
       if(busy||!discard()) { syncHash({}); return; }
       const route=parseRoute();
       setMode(route.mode);
       setResultsTab(route.resultsTab||'studio');
-      if(route.mode==='produce'&&route.stage) setSelected(route.stage);
+      if(route.mode==='produce'&&route.stage&&produceStages.some(s=>s.id===route.stage)) setSelected(route.stage);
       if(route.campaignId&&c?.id!==route.campaignId){
         const hit=campaigns.find(x=>x.id===route.campaignId);
         if(hit){ api('/campaigns/'+hit.id).then(result=>{setC(result); if(route.mode==='produce'){const st=route.stage||nextStage(result); setSelected(st==='performance'?'studio':st)}}).catch(()=>{}); }
@@ -593,7 +603,7 @@ export default function App(){
         </div>
         <Canvas key={c.id} campaign={c} selected={selected} onSelect={choose} busy={busy} stages={produceStages}/>
         </>:<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><span className="eyebrow">SEU CANVAS DE PRODUÇÃO</span><h1>Crie sua primeira campanha</h1><p>Defina o produto e o look, anexe a modelo e acompanhe cada aprovação até o TikTok.</p><button className="primary" onClick={()=>setModal({type:'create'})}><Plus size={17}/> Nova campanha</button></div>}</section>
-      <aside className="inspector"><div className="inspector-heading produce-inspector-head"><div><span className="eyebrow">{c?'ETAPA':'INÍCIO'}</span><h2>{c?stage.title:'Produção'}</h2></div>{c&&<span className="status-pill">{statusLabels[c.status]}</span>}</div>
+      <aside className="inspector"><div className="inspector-heading produce-inspector-head"><div><span className="eyebrow">{c?'ETAPA':'INÍCIO'}</span><h2>{c?(stage?.title||'Etapa'):'Produção'}</h2></div>{c&&<span className="status-pill">{statusLabels[c.status]}</span>}</div>
         {c?<Panel key={`${c.id}-${c.version}-${selected}-${writerRevision}`} c={c} identity={identity} selected={selected} busy={busy} references={references} deviceFiles={deviceFiles[c.id]||{}} onDirty={setDirty} onError={setError} onSaveBrief={saveBrief} onSaveTexts={saveTexts} onUpload={upload} onDeviceVideo={registerDeviceVideo} onTransition={transition} onOpen={openService}
           onGenerate={()=>{if(dirty){setError('Salve o briefing antes de gerar os textos.');return}run(()=>post('/generate'),'Prompts, roteiro e legenda gerados localmente.','image')}}
           onGenerateVariants={generateVariants}

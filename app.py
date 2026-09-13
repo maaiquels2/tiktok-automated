@@ -446,9 +446,16 @@ def create_app(config=None):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='no-referrer'
         response.headers['X-Frame-Options']='DENY'
-        if request.path.startswith('/api/') or request.path == '/' or request.path.startswith('/assets/'):
-            # The local bundle is rebuilt in place during development. Avoid
-            # showing a cached interface after a restart.
+        if request.path.startswith('/assets/'):
+            # Os arquivos em /assets/ saem do Vite com hash no nome
+            # (index-XXXXXXXX.js) - o nome so muda quando o conteudo muda.
+            # Podem (e devem) ficar em cache pelo maximo de tempo: assim o
+            # celular nao baixa de novo o bundle inteiro (~480KB) a cada
+            # visita/recarregada, so quando sai um deploy novo (nome novo).
+            response.headers['Cache-Control']='public, max-age=31536000, immutable'
+        elif request.path.startswith('/api/') or request.path == '/':
+            # A pagina (index.html) e as respostas da API mudam com
+            # frequencia - continuam sempre revalidando, sem cache.
             response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
         return response
 
@@ -1878,13 +1885,22 @@ def create_app(config=None):
         from services import model_library as ml
         model_name = (request.args.get('model_name') or 'Micaela').strip() or 'Micaela'
         niche = (request.args.get('niche') or '').strip()
+        # A URL desta rota carrega "&v=<data da ultima atualizacao>" (ver
+        # services/model_library.list_for_model) - ou seja, ela so muda
+        # quando a foto e trocada. Isso permite cache longo com seguranca:
+        # o celular deixa de baixar de novo (e, na nuvem, deixa de pedir
+        # link assinado de novo) as mesmas 6 fotos da modelo fixa a cada
+        # abertura do Inicio, so refaz quando a foto realmente muda.
         if cloud_mode:
             entry = ml.get_entry(app.config['DATA_DIR'], model_name, niche, storage_get=_storage_get)
             if not entry or not entry.get('path'):
                 raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
-            resp = redirect(_storage_sign(entry['path']))
-            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-            resp.headers['Pragma'] = 'no-cache'
+            sign_ttl = 3600
+            resp = redirect(_storage_sign(entry['path'], expires_in=sign_ttl))
+            # max-age um pouco menor que a validade do link assinado, pra
+            # nunca servir do cache um redirecionamento pra um link ja
+            # expirado no Storage.
+            resp.headers['Cache-Control'] = f'private, max-age={sign_ttl-300}'
             return resp
         path = ml.get_file(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche)
         if not path:
@@ -1894,9 +1910,8 @@ def create_app(config=None):
             mime = 'image/png'
         elif path.suffix.lower() == '.webp':
             mime = 'image/webp'
-        resp = send_file(path, mimetype=mime, conditional=False, max_age=0)
-        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        resp.headers['Pragma'] = 'no-cache'
+        resp = send_file(path, mimetype=mime, conditional=False, max_age=31536000)
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
         return resp
 
     @app.patch('/api/model-library/label')

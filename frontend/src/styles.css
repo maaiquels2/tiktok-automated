@@ -517,6 +517,11 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  /* O cabecalho e sempre branco (nao muda com o tema escuro do resto do
+     app), mas o texto do logo herdava a cor clara (--ink-69) pensada pra
+     fundo escuro - ficava cinza claro em cima de branco, baixo contraste.
+     Fixando uma cor escura aqui, so pro cabecalho. */
+  color: #17171c;
 }
 .brand {
   font-weight: 750;
@@ -640,64 +645,6 @@ p {
   line-height: 1.6;
   color: var(--ink-43);
 }
-@media (max-width: 1100px) {
-  .workspace {
-    grid-template-columns: 200px minmax(250px, 1fr) 300px;
-  }
-  .queue,
-  .inspector {
-    padding: 20px 14px;
-  }
-
-  .publish-grid {
-    grid-template-columns: 1fr;
-  }
-  .publish-media .asset-view.compact img,
-  .publish-media .asset-view.compact video {
-    height: 160px;
-    max-height: 160px;
-  }
-  .publish-checks {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 850px) {
-  .workspace {
-    height: auto;
-    grid-template-columns: 1fr;
-  }
-  .queue {
-    max-height: 260px;
-  }
-  .inspector {
-    border-top: 1px solid var(--border);
-  }
-  .canvas {
-    height: 480px;
-    flex: none;
-  }
-  .header {
-    padding: 0 16px;
-  }
-  .local-badge {
-    display: none;
-  }
-
-  .results-workspace,
-  .home-workspace {
-    grid-template-columns: 1fr !important;
-  }
-  .mode-nav {
-    order: 3;
-  }
-
-  .identity-icon-label {
-    display: none;
-  }
-  .home-hero-sub {
-    display: none;
-  }
-}
 :root {
   --green: var(--ink-63);
   --purple-soft: var(--ink-2);
@@ -740,7 +687,7 @@ button:hover:not(:disabled),
 .workspace-name {
   font-size: 14px;
   font-weight: 500;
-  color: var(--muted);
+  color: #6b6b78;
 }
 .local-badge {
   display: flex;
@@ -1566,356 +1513,6 @@ textarea:focus {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-@media (min-width: 1650px) {
-  .workspace {
-    grid-template-columns: 275px minmax(400px, 1fr) 390px;
-  }
-  .inspector {
-    padding: 25px;
-  }
-}
-@media (max-width: 1200px) {
-  .workspace-name,
-  .brand-divider {
-    display: none;
-  }
-  .canvas-header {
-    flex-direction: column;
-    padding: 20px;
-  }
-  .export-actions {
-    padding: 0;
-  }
-  .next-action {
-    padding: 12px 18px;
-  }
-  .next-action strong {
-    display: block;
-    margin-left: 0;
-    margin-top: 5px;
-  }
-  .canvas-legend {
-    bottom: 12px;
-    gap: 9px;
-    font-size: 11px;
-  }
-  .stage-navigation {
-    gap: 2px;
-    padding: 8px;
-  }
-  .stage-navigation button {
-    padding: 4px;
-  }
-  .workspace {
-    grid-template-columns: 210px minmax(280px, 1fr) 320px;
-  }
-  .queue {
-    padding: 22px 15px;
-  }
-  .inspector {
-    padding: 22px 16px;
-  }
-}
-@media (max-width: 950px) {
-  .workspace {
-    grid-template-columns: 190px minmax(250px, 1fr);
-    height: auto;
-  }
-  .inspector {
-    grid-column: 1/-1;
-    display: block;
-    padding: 24px;
-    max-width: none;
-  }
-  .inspector .brief-form .form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0 18px;
-  }
-  .queue {
-    height: 680px;
-  }
-  .canvas-panel {
-    min-height: 680px;
-  }
-  .asset-view img,
-  .asset-view video {
-    max-height: 420px;
-  }
-  .inspector .comparison {
-    max-width: 620px;
-  }
-  .canvas {
-    min-height: 350px;
-  }
-  .local-badge {
-    font-size: 12px;
-  }
-
-  .produce-workspace {
-    grid-template-columns: 1fr !important;
-    grid-template-rows: auto auto auto;
-    height: auto;
-  }
-  .produce-workspace > .queue,
-  .produce-workspace > .canvas-panel,
-  .produce-workspace > .inspector {
-    grid-column: 1;
-    grid-row: auto;
-  }
-  .produce-workspace > .canvas-panel {
-    min-height: 320px;
-  }
-
-  .produce-workspace > .canvas-panel {
-    min-height: 0;
-  }
-  .stage-step {
-    min-width: 136px;
-  }
-
-  .produce-dense.produce-workspace {
-    height: auto;
-  }
-  .produce-dense .stage-step {
-    min-width: 100px !important;
-  }
-}
-@media (max-width: 650px) {
-  .workspace {
-    display: block;
-  }
-  .header {
-    height: 64px;
-  }
-  .brand {
-    font-size: 18px;
-  }
-  .local-badge {
-    display: none;
-  }
-  .queue {
-    height: auto;
-    max-height: none;
-    padding: 18px;
-  }
-  .queue-heading h2 {
-    margin: 4px 0 12px;
-  }
-  .queue > .primary {
-    margin-bottom: 10px;
-  }
-  .campaign-list {
-    display: flex;
-    gap: 8px;
-    overflow-x: auto;
-    min-height: 0;
-  }
-  .campaign {
-    min-width: 190px;
-    margin: 0;
-    max-width: 210px;
-    flex-shrink: 0;
-  }
-  .queue-bottom {
-    display: none;
-  }
-  /* Baixar .txt/.zip nao faz muito sentido no fluxo do celular (o
-     arquivo cai numa pasta de downloads que a pessoa raramente usa por
-     la); some so esses dois links, mantendo Editar e o botao do
-     Grok/Flow. */
-  .export-download {
-    display: none;
-  }
-  /* Repete id + nome da modelo que ja aparecem no chip compacto da
-     campanha logo acima; some so essa linha, mantendo o titulo com o
-     lapis de renomear. */
-  .produce-chrome-eyebrow {
-    display: none;
-  }
-  /* A barra "AGORA · Continuar" duplica a etapa atual, que ja aparece
-     destacada (e e clicavel) no stepper logo abaixo - esconde so a
-     variante de navegacao no celular. Quando a campanha ja foi
-     publicada, a barra vira a unica forma de abrir "Ver publicacao" e
-     continua visivel. */
-  .produce-toolbar-next {
-    display: none;
-  }
-  /* Biblioteca da modelo: duas fotos lado a lado em vez de uma coluna so,
-     que obrigava a rolar bastante pra ver os 6 nichos. */
-  .model-library-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-  .model-niche-card {
-    padding: 9px;
-    gap: 6px;
-  }
-  .niche-title-row strong {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .model-niche-card .help {
-    font-size: 11px;
-  }
-  .niche-card-actions {
-    flex-wrap: wrap;
-  }
-  .model-niche-card .button {
-    padding: 6px 8px;
-    font-size: 11px;
-  }
-  /* Uma vez com uma campanha aberta, a lista completa vira um chip
-     compacto ("CAMPANHA 0004 · nome · Trocar") em vez de ficar sempre
-     visivel - reduz bastante o scroll antes de chegar na etapa atual. */
-  .queue-collapsed .campaign-list {
-    display: none;
-  }
-  .queue-collapsed .campaign-list-compact {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid var(--line-20);
-    border-radius: 10px;
-    background: var(--surface-9);
-    margin-bottom: 8px;
-    text-align: left;
-  }
-  .campaign-list-compact strong {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .campaign-list-compact-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--ink-17);
-    flex-shrink: 0;
-  }
-  .canvas-panel {
-    min-height: 650px;
-  }
-  .canvas-header {
-    padding: 18px;
-  }
-  .canvas {
-    height: 420px;
-  }
-  .inspector {
-    padding: 20px 18px;
-  }
-  .inspector .brief-form .form-grid,
-  .dialog .form-grid {
-    grid-template-columns: 1fr;
-  }
-  .toast {
-    bottom: 12px;
-    flex-wrap: wrap;
-  }
-  .toast span {
-    flex: 1;
-  }
-  .stage-navigation button {
-    font-size: 12px;
-    padding: 6px;
-  }
-  .dialog {
-    padding: 20px;
-  }
-  .canvas-legend {
-    left: auto;
-    right: 12px;
-    transform: none;
-  }
-  .comparison .asset-view img {
-    height: 210px;
-  }
-
-  .generator-options {
-    grid-template-columns: 1fr;
-  }
-  .generator-option {
-    min-height: 56px;
-  }
-
-  .lan-chip {
-    display: inline-flex;
-  }
-  .local-badge {
-    display: none;
-  }
-  .header-right {
-    gap: 6px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
-  .home-hero h1 {
-    font-size: 22px;
-  }
-  .produce-workspace > .inspector {
-    padding-bottom: 80px;
-  }
-
-  .home-launchers-row {
-    flex-wrap: wrap;
-  }
-  .home-launch-btn {
-    flex: 1 1 calc(50% - 4px);
-    justify-content: center;
-    padding: 8px 10px;
-    font-size: 12px;
-  }
-  /* Causa real do TikTok Studio/TikTok saindo do grid 2x2 no celular: a
-     logo do TikTok Studio e recortada de uma imagem maior com um box de
-     126px de largura (ver .tiktok-studio-wordmark mais abaixo), que so
-     cabe numa coluna de largura total (~278px de conteudo da linha de
-     atalhos). Em 50% da largura (~135px) ela nao cabe, entao o navegador
-     quebra o botao pra propria linha e ele cresce pra 100%. Encolhendo o
-     recorte e o padding proporcionalmente (mesma razao entre os numeros
-     originais) ele passa a caber nos ~135px da coluna, sem distorcer a
-     logo. */
-  .home-launch-btn.tiktok-brand-button {
-    padding: 8px 8px;
-  }
-  .home-launch-btn .tiktok-studio-wordmark {
-    width: 96px;
-    height: 17.5px;
-  }
-  .home-launch-btn .tiktok-studio-wordmark img {
-    width: 192px;
-    left: -48px;
-    top: -30px;
-  }
-
-  .header {
-    height: auto;
-    min-height: 64px;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 10px 14px;
-  }
-  .header-right {
-    margin-left: auto;
-  }
-  .device-badge {
-    font-size: 11px;
-    padding: 5px 7px;
-  }
-  .mode-nav {
-    order: 3;
-    width: 100%;
-    justify-content: center;
   }
 }
 .product-field {
@@ -3493,15 +3090,6 @@ button.linkish {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
-@media (max-width: 720px) {
-  .playbook-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .identity-grid {
-    grid-template-columns: 1fr;
-  }
-}
 .playbook-panel {
   padding: 12px;
   border-radius: 12px;
@@ -4999,5 +4587,452 @@ button.linkish {
   }
   .script-ai-action .primary {
     width: 100%;
+  }
+}
+
+/* Blocos de media query mobile/desktop movidos para o final do arquivo.
+   Motivo: quando ficavam no meio do arquivo, varias regras "gerais" (sem @media)
+   definidas mais abaixo tinham a mesma especificidade e, por vir depois no
+   arquivo, venciam a cascata mesmo com a condicao de tela batendo - anulando
+   silenciosamente ajustes feitos para celular (grid de fotos da modelo,
+   escolha de gerador, tamanho do titulo do Inicio, etc). Mantendo os blocos
+   aqui no final garante que essas regras sempre vençam quando a media query
+   for verdadeira. */
+@media (min-width: 1650px) {
+  .workspace {
+    grid-template-columns: 275px minmax(400px, 1fr) 390px;
+  }
+  .inspector {
+    padding: 25px;
+  }
+}
+@media (max-width: 1200px) {
+  .workspace-name,
+  .brand-divider {
+    display: none;
+  }
+  .canvas-header {
+    flex-direction: column;
+    padding: 20px;
+  }
+  .export-actions {
+    padding: 0;
+  }
+  .next-action {
+    padding: 12px 18px;
+  }
+  .next-action strong {
+    display: block;
+    margin-left: 0;
+    margin-top: 5px;
+  }
+  .canvas-legend {
+    bottom: 12px;
+    gap: 9px;
+    font-size: 11px;
+  }
+  .stage-navigation {
+    gap: 2px;
+    padding: 8px;
+  }
+  .stage-navigation button {
+    padding: 4px;
+  }
+  .workspace {
+    grid-template-columns: 210px minmax(280px, 1fr) 320px;
+  }
+  .queue {
+    padding: 22px 15px;
+  }
+  .inspector {
+    padding: 22px 16px;
+  }
+}
+@media (max-width: 950px) {
+  .workspace {
+    grid-template-columns: 190px minmax(250px, 1fr);
+    height: auto;
+  }
+  .inspector {
+    grid-column: 1/-1;
+    display: block;
+    padding: 24px;
+    max-width: none;
+  }
+  .inspector .brief-form .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 18px;
+  }
+  .queue {
+    height: 680px;
+  }
+  .canvas-panel {
+    min-height: 680px;
+  }
+  .asset-view img,
+  .asset-view video {
+    max-height: 420px;
+  }
+  .inspector .comparison {
+    max-width: 620px;
+  }
+  .canvas {
+    min-height: 350px;
+  }
+  .local-badge {
+    font-size: 12px;
+  }
+
+  .produce-workspace {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto;
+    height: auto;
+  }
+  .produce-workspace > .queue,
+  .produce-workspace > .canvas-panel,
+  .produce-workspace > .inspector {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .produce-workspace > .canvas-panel {
+    min-height: 320px;
+  }
+
+  .produce-workspace > .canvas-panel {
+    min-height: 0;
+  }
+  .stage-step {
+    min-width: 136px;
+  }
+
+  .produce-dense.produce-workspace {
+    height: auto;
+  }
+  .produce-dense .stage-step {
+    min-width: 100px !important;
+  }
+}
+@media (max-width: 650px) {
+  .workspace {
+    display: block;
+  }
+  .header {
+    height: 64px;
+  }
+  .brand {
+    font-size: 18px;
+  }
+  .local-badge {
+    display: none;
+  }
+  .queue {
+    height: auto;
+    max-height: none;
+    padding: 18px;
+  }
+  .queue-heading h2 {
+    margin: 4px 0 12px;
+  }
+  .queue > .primary {
+    margin-bottom: 10px;
+  }
+  .campaign-list {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    min-height: 0;
+  }
+  .campaign {
+    min-width: 190px;
+    margin: 0;
+    max-width: 210px;
+    flex-shrink: 0;
+  }
+  .queue-bottom {
+    display: none;
+  }
+  /* Baixar .txt/.zip nao faz muito sentido no fluxo do celular (o
+     arquivo cai numa pasta de downloads que a pessoa raramente usa por
+     la); some so esses dois links, mantendo Editar e o botao do
+     Grok/Flow. */
+  .export-download {
+    display: none;
+  }
+  /* Repete id + nome da modelo que ja aparecem no chip compacto da
+     campanha logo acima; some so essa linha, mantendo o titulo com o
+     lapis de renomear. */
+  .produce-chrome-eyebrow {
+    display: none;
+  }
+  /* A barra "AGORA · Continuar" duplica a etapa atual, que ja aparece
+     destacada (e e clicavel) no stepper logo abaixo - esconde so a
+     variante de navegacao no celular. Quando a campanha ja foi
+     publicada, a barra vira a unica forma de abrir "Ver publicacao" e
+     continua visivel. */
+  .produce-toolbar-next {
+    display: none;
+  }
+  /* Biblioteca da modelo: duas fotos lado a lado em vez de uma coluna so,
+     que obrigava a rolar bastante pra ver os 6 nichos. */
+  .model-library-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .model-niche-card {
+    padding: 9px;
+    gap: 6px;
+  }
+  .niche-title-row strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-niche-card .help {
+    font-size: 11px;
+  }
+  .niche-card-actions {
+    flex-wrap: wrap;
+  }
+  .model-niche-card .button {
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  /* Uma vez com uma campanha aberta, a lista completa vira um chip
+     compacto ("CAMPANHA 0004 · nome · Trocar") em vez de ficar sempre
+     visivel - reduz bastante o scroll antes de chegar na etapa atual. */
+  .queue-collapsed .campaign-list {
+    display: none;
+  }
+  .queue-collapsed .campaign-list-compact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--line-20);
+    border-radius: 10px;
+    background: var(--surface-9);
+    margin-bottom: 8px;
+    text-align: left;
+  }
+  .campaign-list-compact strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .campaign-list-compact-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--ink-17);
+    flex-shrink: 0;
+  }
+  .canvas-panel {
+    min-height: 650px;
+  }
+  .canvas-header {
+    padding: 18px;
+  }
+  .canvas {
+    height: 420px;
+  }
+  .inspector {
+    padding: 20px 18px;
+  }
+  .inspector .brief-form .form-grid,
+  .dialog .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .toast {
+    bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .toast span {
+    flex: 1;
+  }
+  .stage-navigation button {
+    font-size: 12px;
+    padding: 6px;
+  }
+  .dialog {
+    padding: 20px;
+  }
+  .canvas-legend {
+    left: auto;
+    right: 12px;
+    transform: none;
+  }
+  .comparison .asset-view img {
+    height: 210px;
+  }
+
+  .generator-options {
+    grid-template-columns: 1fr;
+  }
+  .generator-option {
+    min-height: 56px;
+  }
+
+  .lan-chip {
+    display: inline-flex;
+  }
+  .local-badge {
+    display: none;
+  }
+  .header-right {
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .home-hero h1 {
+    font-size: 22px;
+  }
+  .produce-workspace > .inspector {
+    padding-bottom: 80px;
+  }
+
+  .home-launchers-row {
+    flex-wrap: wrap;
+  }
+  .home-launch-btn {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  /* Causa real do TikTok Studio/TikTok saindo do grid 2x2 no celular: a
+     logo do TikTok Studio e recortada de uma imagem maior com um box de
+     126px de largura (ver .tiktok-studio-wordmark mais abaixo), que so
+     cabe numa coluna de largura total (~278px de conteudo da linha de
+     atalhos). Em 50% da largura (~135px) ela nao cabe, entao o navegador
+     quebra o botao pra propria linha e ele cresce pra 100%. Encolhendo o
+     recorte e o padding proporcionalmente (mesma razao entre os numeros
+     originais) ele passa a caber nos ~135px da coluna, sem distorcer a
+     logo. */
+  .home-launch-btn.tiktok-brand-button {
+    padding: 8px 8px;
+  }
+  .home-launch-btn .tiktok-studio-wordmark {
+    width: 96px;
+    height: 17.5px;
+  }
+  .home-launch-btn .tiktok-studio-wordmark img {
+    width: 192px;
+    left: -48px;
+    top: -30px;
+  }
+
+  .header {
+    height: auto;
+    min-height: 64px;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+  .header-right {
+    margin-left: auto;
+  }
+  .device-badge {
+    font-size: 11px;
+    padding: 5px 7px;
+  }
+  .mode-nav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Mais dois blocos de media query movidos para o final pelo mesmo motivo
+   do bloco grande acima (cascata sendo anulada por regra geral mais abaixo
+   no arquivo). Achados: grid de publicacao (.publish-grid/.publish-checks/
+   thumbs), .local-badge escondido entre 651-850px, e o formulario de
+   Identidade do estudio (.identity-grid) que devia virar 1 coluna no
+   celular e continuava em 2. */
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 200px minmax(250px, 1fr) 300px;
+  }
+  .queue,
+  .inspector {
+    padding: 20px 14px;
+  }
+
+  .publish-grid {
+    grid-template-columns: 1fr;
+  }
+  .publish-media .asset-view.compact img,
+  .publish-media .asset-view.compact video {
+    height: 160px;
+    max-height: 160px;
+  }
+  .publish-checks {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 850px) {
+  .workspace {
+    height: auto;
+    grid-template-columns: 1fr;
+  }
+  .queue {
+    max-height: 260px;
+  }
+  .inspector {
+    border-top: 1px solid var(--border);
+  }
+  .canvas {
+    height: 480px;
+    flex: none;
+  }
+  .header {
+    padding: 0 16px;
+  }
+  .local-badge {
+    display: none;
+  }
+
+  .results-workspace,
+  .home-workspace {
+    grid-template-columns: 1fr !important;
+  }
+  .mode-nav {
+    order: 3;
+  }
+
+  .identity-icon-label {
+    display: none;
+  }
+  .home-hero-sub {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .playbook-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .identity-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Cabecalho dos acordeoes de Resultados (Continuar producao, Criar do
+   playbook, Espaco pra melhorar): no celular o titulo (com contador) e o
+   botao Comprimir/Expandir disputavam a mesma linha e o titulo quebrava
+   em ate 3 linhas, deixando cada cartao alto demais. Deixa o botao cair
+   pra proxima linha em vez de espremer o titulo. */
+@media (max-width: 650px) {
+  .collapse-head {
+    flex-wrap: wrap;
+  }
+  .collapse-toggle {
+    flex: 1 1 100%;
   }
 }
