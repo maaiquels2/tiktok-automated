@@ -496,7 +496,7 @@ export default function App(){
               <BrandMark kind="labs" size={20}/>
               <span>Flow Labs</span>
             </ServiceLaunch>
-            <TikTokLaunchButtons className="home-launch-btn is-studio" disabled={busy||loading} onOpenStudio={event=>openFreeService('studio',event)}/>
+            <TikTokLaunchButtons className="home-launch-btn is-studio" bare disabled={busy||loading} onOpenStudio={event=>openFreeService('studio',event)}/>
           </div>
           <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.'}</small>
         </div>
@@ -540,7 +540,7 @@ export default function App(){
       <section className="canvas-panel">{loading?<div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando seu estúdio…</h1></div>:c?<>
         <div className="canvas-header produce-chrome">
           <div className="produce-chrome-main">
-            <span className="eyebrow">#{String(c.id).padStart(4,'0')} · {c.model_name} · {c.generator==='flow'?'Flow':'Grok'} · 15s</span>
+            <span className="eyebrow produce-chrome-eyebrow">#{String(c.id).padStart(4,'0')} · {c.model_name} · {c.generator==='flow'?'Flow':'Grok'} · 15s</span>
             {renaming?(
               <div className="campaign-rename">
                 <input autoFocus value={renameDraft} disabled={busy} onChange={e=>setRenameDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')saveRename();if(e.key==='Escape')setRenaming(false)}} aria-label="Novo nome da campanha"/>
@@ -553,8 +553,8 @@ export default function App(){
           </div>
           <div className="export-actions produce-chrome-actions">
             <button className="button" onClick={editCampaign} disabled={busy} title={c.status==='published'?'Criar versão editável':'Editar briefing'}><RefreshCw size={14}/> Editar</button>
-            <a className="button" href={`/api/campaigns/${c.id}/package.txt`} title="Baixar textos">TXT</a>
-            <a className="button" href={`/api/campaigns/${c.id}/package.zip`} title="Baixar pacote"><Download size={14}/> ZIP</a>
+            <a className="button export-download" href={`/api/campaigns/${c.id}/package.txt`} title="Baixar textos">TXT</a>
+            <a className="button export-download" href={`/api/campaigns/${c.id}/package.zip`} title="Baixar pacote"><Download size={14}/> ZIP</a>
             <ServiceLaunch service={c.generator} className={'generator-open-btn compact '+(c.generator==='flow'?'is-flow':'is-grok')} disabled={busy||c.status==='published'} onClick={event=>openService(c.generator, selected==='video'||selected==='video_approval'?'video':'image',event)} title={c.generator==='flow'?'Abrir Flow':'Abrir Grok'}>
               <BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/>
               <span className="generator-open-text"><strong>{c.generator==='flow'?'Flow':'Grok'}</strong></span>
@@ -562,7 +562,7 @@ export default function App(){
           </div>
         </div>
         {c.migration_note&&<div className="migration-note"><AlertCircle size={15}/>{c.migration_note}</div>}
-        <div className="produce-toolbar">
+        <div className={'produce-toolbar'+(c.status==='published'?' produce-toolbar-done':' produce-toolbar-next')}>
           <div className="produce-toolbar-next">
             <span className="eyebrow">{c.status==='published'?'CONCLUÍDA':'AGORA'}</span>
             <strong>{c.status==='published'?'Publicada':(current?.title||stage?.title||'Continuar')}</strong>

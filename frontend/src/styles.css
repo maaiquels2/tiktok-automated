@@ -1722,6 +1722,27 @@ textarea:focus {
   .queue-bottom {
     display: none;
   }
+  /* Baixar .txt/.zip nao faz muito sentido no fluxo do celular (o
+     arquivo cai numa pasta de downloads que a pessoa raramente usa por
+     la); some so esses dois links, mantendo Editar e o botao do
+     Grok/Flow. */
+  .export-download {
+    display: none;
+  }
+  /* Repete id + nome da modelo que ja aparecem no chip compacto da
+     campanha logo acima; some so essa linha, mantendo o titulo com o
+     lapis de renomear. */
+  .produce-chrome-eyebrow {
+    display: none;
+  }
+  /* A barra "AGORA · Continuar" duplica a etapa atual, que ja aparece
+     destacada (e e clicavel) no stepper logo abaixo - esconde so a
+     variante de navegacao no celular. Quando a campanha ja foi
+     publicada, a barra vira a unica forma de abrir "Ver publicacao" e
+     continua visivel. */
+  .produce-toolbar-next {
+    display: none;
+  }
   /* Uma vez com uma campanha aberta, a lista completa vira um chip
      compacto ("CAMPANHA 0004 · nome · Trocar") em vez de ficar sempre
      visivel - reduz bastante o scroll antes de chegar na etapa atual. */
@@ -1827,12 +1848,6 @@ textarea:focus {
     justify-content: center;
     padding: 8px 10px;
     font-size: 12px;
-  }
-  /* Deixa o span do TikTok Studio/TikTok "transparente" pro layout, pra
-     esses dois botoes entrarem na mesma grade 2x2 dos outros no celular
-     (em vez de virarem 2 barras extras esticadas). */
-  .tiktok-launch-buttons {
-    display: contents;
   }
 
   .header {
@@ -4622,8 +4637,10 @@ button.linkish {
   }
 }
 
-/* Supplied logos: show the mark without the reference image's outer border. */
-.tiktok-launch-buttons .tiktok-brand-button {
+/* Supplied logos: show the mark without the reference image's outer border.
+   Sem o seletor ancestral .tiktok-launch-buttons: esses botoes tambem
+   aparecem "soltos" (sem wrapper) no grid 2x2 da tela Inicio (bare mode). */
+.tiktok-brand-button {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
@@ -4633,23 +4650,23 @@ button.linkish {
   border-radius: 11px;
   line-height: 1.4;
 }
-.tiktok-launch-buttons .is-tiktok-studio {
+.is-tiktok-studio {
   background: var(--surface-1);
   border: 1px solid var(--line-33);
   color: var(--ink-70);
 }
-.tiktok-launch-buttons .is-tiktok-studio:hover:not(:disabled) {
+.is-tiktok-studio:hover:not(:disabled) {
   background: var(--surface-1);
   border-color: var(--line-59);
   box-shadow: 0 2px 8px var(--shadow-15);
 }
-.tiktok-launch-buttons .is-tiktok {
+.is-tiktok {
   background: var(--surface-73);
   border: 1px solid var(--line-66);
   color: var(--ink-1);
   font-weight: 650;
 }
-.tiktok-launch-buttons .is-tiktok:hover:not(:disabled) {
+.is-tiktok:hover:not(:disabled) {
   background: var(--surface-73);
   border-color: var(--line-63);
   box-shadow: 0 2px 8px var(--shadow-16);

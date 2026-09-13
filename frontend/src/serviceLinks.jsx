@@ -24,7 +24,7 @@ export function mobileServiceUrl(service, nav = globalThis.navigator) {
   return {grok: 'https://grok.com/imagine', flow: 'https://labs.google/fx/tools/flow'}[service] || null;
 }
 
-export function TikTokLaunchButtons({onOpenStudio, disabled, className = 'button', opening = false}) {
+export function TikTokLaunchButtons({onOpenStudio, disabled, className = 'button', opening = false, bare = false}) {
   const realMobile = isMobileDevice();
   const mobile = realMobile || cloudMode;
   // On a real phone/tablet, keep the same-tab handoff (so iOS/Android can
@@ -34,16 +34,21 @@ export function TikTokLaunchButtons({onOpenStudio, disabled, className = 'button
   const target = realMobile ? undefined : '_blank';
   // On mobile, use a native link without invoking the PC-launch callback.
   // On desktop, keep the configured Chrome profile for manual publication.
-  return <span className="tiktok-launch-buttons">
-    {mobile && !disabled ? <a className={`service-launch-link ${className} tiktok-brand-button is-tiktok-studio`}
+  const studioBtn = mobile && !disabled ? <a className={`service-launch-link ${className} tiktok-brand-button is-tiktok-studio`}
       href="https://www.tiktok.com/" target={target} rel="noopener noreferrer" aria-label="TikTok Studio" title="Abrir TikTok neste aparelho"><TikTokBrand studio/></a> :
     <button type="button" className={`${className} tiktok-brand-button is-tiktok-studio`} disabled={disabled} onClick={onOpenStudio} aria-label={opening?'Abrindo TikTok Studio':'TikTok Studio'} title="TikTok Studio">
       {opening?'Abrindo…':<TikTokBrand studio/>}
-    </button>}
-    {disabled?<button type="button" className={`${className} tiktok-brand-button is-tiktok`} disabled aria-label="TikTok"><TikTokBrand/></button>:
+    </button>;
+  const tiktokBtn = disabled?<button type="button" className={`${className} tiktok-brand-button is-tiktok`} disabled aria-label="TikTok"><TikTokBrand/></button>:
       <a className={`service-launch-link ${className} tiktok-brand-button is-tiktok`} href="https://www.tiktok.com/"
-        target={target} rel="noopener noreferrer" aria-label="TikTok" title="TikTok"><TikTokBrand/></a>}
-  </span>;
+        target={target} rel="noopener noreferrer" aria-label="TikTok" title="TikTok"><TikTokBrand/></a>;
+  // No grid 2x2 de atalhos da tela Inicio, os dois botoes precisam ser
+  // filhos diretos do container flex (bare=true) para receber a largura de
+  // 50% corretamente: o Safari/iOS tem um bug conhecido onde o flex-basis
+  // dos filhos de um elemento com display:contents e ignorado, fazendo
+  // cada botao virar uma barra esticada em vez de ocupar metade da grade.
+  if (bare) return <>{studioBtn}{tiktokBtn}</>;
+  return <span className="tiktok-launch-buttons">{studioBtn}{tiktokBtn}</span>;
 }
 
 export function ServiceLaunch({service, onClick, disabled, children, className = '', ...props}) {
