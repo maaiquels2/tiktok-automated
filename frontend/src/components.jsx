@@ -91,7 +91,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow'};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow',motor:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -882,6 +882,27 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <label>Oferta real (se existir)
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
+        </label>
+        <label>Motor de persuasão
+          <div className="generator-options motor-options" role="radiogroup" aria-label="Motor de persuasão do roteiro">
+            <label className={'generator-option '+((!draft.motor)?'selected':'')}>
+              <input type="radio" name="motor" value="" checked={!draft.motor} onChange={()=>change('motor','')}/>
+              <span><strong>Automático</strong><small>Escolhe pelo que você preencheu</small></span>
+            </label>
+            <label className={'generator-option '+(draft.motor==='necessidade'?'selected':'')}>
+              <input type="radio" name="motor" value="necessidade" checked={draft.motor==='necessidade'} onChange={()=>change('motor','necessidade')}/>
+              <span><strong>Necessidade</strong><small>"Isso é um problema meu"</small></span>
+            </label>
+            <label className={'generator-option '+(draft.motor==='escassez'?'selected':'')}>
+              <input type="radio" name="motor" value="escassez" checked={draft.motor==='escassez'} onChange={()=>change('motor','escassez')}/>
+              <span><strong>Escassez</strong><small>"Posso perder isso"</small></span>
+            </label>
+            <label className={'generator-option '+(draft.motor==='desejo_posse'?'selected':'')}>
+              <input type="radio" name="motor" value="desejo_posse" checked={draft.motor==='desejo_posse'} onChange={()=>change('motor','desejo_posse')}/>
+              <span><strong>Desejo de posse</strong><small>"Eu quero ter isso"</small></span>
+            </label>
+          </div>
+          <small className="help">Define o gatilho que comanda o hook e o CTA. Sem oferta real preenchida, "Escassez" usa só descoberta honesta (achei e não esperava) — nunca prazo ou estoque inventado.</small>
         </label>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">

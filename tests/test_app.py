@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from PIL import Image
 from app import create_app
 from services.prompts import build_caption, generate, refresh_script_fields, script_budget, _movement_plan
+from services.copywriter import audit as copywriter_audit
 
 
 def image_bytes():
@@ -352,6 +353,39 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('a sem transparência',falas)
         if 'sem transparência' in falas:
             self.assertIn('tecido sem transparência',falas)
+
+    def test_motor_field_overrides_automatic_motor_detection(self):
+        # Sem objecao preenchida, a deteccao automatica cai em 'desejo'. Escolher
+        # 'escassez' no formulario tem que virar hook de descoberta mesmo assim.
+        campaign=dict(model_name='Micaela',product='Maiô com detalhe dourado',outfit='maiô',
+                      color='marrom',audience='mulheres',benefit='caimento bonito no corpo',
+                      angle='mostrar o caimento',tone='confiante',style='natural',details='',
+                      movements='',generator='grok',niche='casual',objection='',offer='')
+        automatico=generate(campaign)
+        escolhido=generate({**campaign,'motor':'escassez'})
+        self.assertNotEqual(automatico['hook'],escolhido['hook'])
+        self.assertTrue(escolhido['hook'].casefold().startswith(('achei','não sabia')),escolhido['hook'])
+
+    def test_escassez_motor_without_a_real_offer_never_claims_urgency(self):
+        # Escassez de contexto (Passo 3 da skill roteiro-ugc-15s) e sempre
+        # honesta: sem oferta real, nao pode soar como promocao ou prazo.
+        campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',
+                      audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',
+                      tone='natural',style='natural',details='',movements='',generator='flow',
+                      niche='casual',motor='escassez',offer='')
+        prompts=generate(campaign)
+        falas=' '.join(prompts[k] for k in ('hook','development','cta')).casefold()
+        for termo in ('última','últimas','acaba','esgot','só hoje','relâmpago','desconto','promo','oferta','% off','tempo limitado'):
+            self.assertNotIn(termo,falas,f'"{termo}" nao pode aparecer sem oferta real')
+        violacoes=copywriter_audit(prompts,campaign)
+        urgencia=[v for v in violacoes if 'urg' in v or 'oferta real' in v]
+        self.assertEqual(urgencia,[],violacoes)
+
+    def test_motor_field_is_saved_and_read_back_from_the_campaign(self):
+        # 'motor' precisa estar no FIELDS ponta a ponta (create -> DB -> read).
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'motor':'desejo_posse'},headers=self.headers)
+        reopened=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual(reopened.get('motor'),'desejo_posse')
 
     def test_each_confirmed_fact_gets_the_gesture_that_proves_it(self):
         # Movimento generico ("mostrar o caimento") nao demonstra nada. O gesto

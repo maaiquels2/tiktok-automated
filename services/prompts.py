@@ -883,7 +883,23 @@ def _offer_text(c):
     return ' '.join(raw.split()[:10]).rstrip('.,;:')
 
 
+_MOTOR_ALIASES = {
+    'necessidade': 'necessidade',
+    'escassez': 'escassez', 'escassez_contexto': 'escassez', 'escassez-contexto': 'escassez',
+    'escassez de contexto': 'escassez',
+    'desejo': 'desejo', 'desejo_posse': 'desejo', 'desejo-posse': 'desejo', 'desejo de posse': 'desejo',
+}
+
+
+def _chosen_motor(c):
+    """Motor escolhido explicitamente pelo operador no formulario, se houver."""
+    return _MOTOR_ALIASES.get(_phrase(c.get('motor')).casefold(), '')
+
+
 def _dominant_motor(c):
+    escolhido = _chosen_motor(c)
+    if escolhido:
+        return escolhido
     if _objection_parts(c)[0]:
         family = _product_family(c)
         if family != 'moda':
@@ -943,12 +959,19 @@ def _hook_pool(c, detail, forms):
             f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes de acabar.',
             f'Antes de acabar: {offer}. Repara {det_em}.',
         ]
+    # Escassez de contexto (descoberta): sempre honesta, nao depende de
+    # oferta real -- 'achei e nao esperava' em vez de prazo/estoque inventado.
+    escassez_contexto = [
+        f'Achei {dem} {piece} e não esperava {det}.',
+        f'Não sabia que {dem} {piece} tinha {det} até ver de perto.',
+    ]
     motor = _dominant_motor(c)
     order = {
-        'necessidade': [necessidade, desejo, escassez],
-        'desejo': [desejo, necessidade, escassez],
+        'necessidade': [necessidade, desejo, escassez_contexto],
+        'desejo': [desejo, necessidade, escassez_contexto],
+        'escassez': [escassez, escassez_contexto, necessidade, desejo],
     }[motor]
-    if offer:
+    if offer and motor != 'escassez':
         order.insert(1, escassez)
     pool = []
     for group in order:
@@ -1033,8 +1056,17 @@ def _cta_pool(c, forms):
         'Pega a tua no carrinho aqui embaixo.',
         f'Garante {art} tu{"a" if art == "a" else "o"} no carrinho aqui embaixo.',
     ]
+    descoberta = [
+        'Se isso te interessou, dá uma olhada no produto.',
+        'Se isso te chamou atenção, olha no produto.',
+    ]
     motor = _dominant_motor(c)
-    order = ([condicional, direto, posse] if motor == 'necessidade' else [posse, direto, condicional])
+    if motor == 'escassez':
+        order = [descoberta, direto, posse, condicional]
+    elif motor == 'necessidade':
+        order = [condicional, direto, posse]
+    else:
+        order = [posse, direto, condicional]
     if offer:
         order.insert(0, escassez)
     pool = []

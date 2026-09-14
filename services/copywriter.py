@@ -27,7 +27,7 @@ from pathlib import Path
 
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
-    _dominant_motor, color_variants,
+    _dominant_motor, _chosen_motor, color_variants,
 )
 
 SETTINGS_FILE = 'llm.json'
@@ -212,8 +212,12 @@ def build_brief(c: dict) -> str:
         f"PÚBLICO: {c.get('audience') or '(geral)'}",
         f"NICHO: {c.get('niche') or 'casual'}",
         f"TOM: {c.get('tone') or 'conversacional'}",
-        f"MOTOR DOMINANTE: {_dominant_motor(c)}",
+        f"MOTOR DOMINANTE: {_dominant_motor(c)}"
+        + (" (escolhido pelo operador -- use as formulas desse motor, nao troque)" if _chosen_motor(c) else ""),
     ]
+    if _dominant_motor(c) == 'escassez' and not offer:
+        linhas.append("ESCASSEZ DE CONTEXTO (sem oferta real): use só descoberta honesta "
+                      "(\"achei e não esperava\", \"não sabia que tinha\"), nunca prazo, estoque ou desconto inventado.")
     if pain:
         linhas.append(f"OBJEÇÃO Nº 1 DO CLIENTE: {pain}")
     if check:
