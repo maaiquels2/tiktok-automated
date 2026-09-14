@@ -447,7 +447,7 @@ _PROOF_GESTURES = {
     'botão': 'toca o botão com a ponta do dedo',
     'botões': 'passa o dedo pelos botões, de cima para baixo',
     'forro': 'afasta a peça levemente do corpo para o forro aparecer',
-    'elástico': 'estica a peça rapidamente para um lado e solta',
+    'elástico': 'puxa a peça com firmeza e solta, o tecido volta exatamente no lugar',
     'compressão': 'passa a mão na peça já no corpo, sem esticar',
     'secagem rápida': 'passa a mão no tecido, na altura da cintura',
     'gola': 'ajusta a gola com um dedo',
@@ -1264,30 +1264,32 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"Repetir exatamente fundo, objetos e iluminação, sem trocar a locação nem desfocar o fundo; a câmera pode se aproximar ou acompanhar a modelo durante a demonstração (ver COREOGRAFIA e CÂMERA abaixo), retornando à distância e ao enquadramento do quadro inicial no encerramento. "
         f"CÂMERA: {dirn['camera']}. "
         f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
-        f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade.\n"
+        f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade; pose de costas ou olhando por cima do ombro mantida por mais de 1 a 2 segundos.\n"
         f"{proof_block}"
         "MÃOS: uma das mãos mantém contato com a peça o tempo todo (na cintura, no cós ou na barra) e a outra é a que mostra os detalhes; as duas só ficam livres ao mesmo tempo durante um gesto específico que exija isso (por exemplo, abrir a peça ou ajustar um acessório com as duas mãos), por no máximo 1 segundo. "
+        "CABELO: se solto, acompanha o movimento do corpo e da cabeça de forma natural e fluida, sem travar, sem tremular e sem cortes abruptos entre um movimento e outro. "
         f"COREOGRAFIA / AÇÕES (escolha 2 a 3 destas ações, na ordem em que aparecem, executadas entre 0s e 11s; no máximo uma ação por beat, ritmo natural -- não é obrigatório usar a lista inteira): {moves}. "
         f"ENCERRAMENTO (12–15s), posição obrigatória: a modelo está de frente para a lente, {closing_hands}. "
-        "As mãos permanecem ocupadas nessa posição até o último quadro, na altura da cintura ou abaixo dela. "
-        "O corpo fica parado e estável; apenas o rosto e o olhar se movem."
+        "As mãos continuam ocupadas nessa posição, na altura da cintura ou abaixo dela, durante toda a fala do CTA, "
+        "mas fazem UM pequeno ajuste natural e único nesse intervalo (por exemplo, um leve reposicionamento dos dedos na peça, ou uma leve pressão que solta em seguida) -- sem soltar a peça, sem afastar as mãos da cintura e sem repetir o gesto. "
+        "O corpo fica parado e estável; apenas o rosto, o olhar e esse pequeno ajuste das mãos se movem."
         f"{extras}\n"
         f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
         f"0–4s HOOK: a modelo se aproxima um passo da câmera, com a energia direta do gancho a seguir; plano médio frontal, "
         f"olhar na lente, produto já visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
-        f"4–12s DESENVOLVIMENTO — uma única fala, dita de forma contínua e natural neste intervalo; "
+        f"4–12s DESENVOLVIMENTO — uma única fala, dita de forma contínua e natural neste intervalo, emendando sem nenhuma pausa a frase anterior (mesma respiração, mesma cadência); "
         f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
         f"   · 4–6s PROVA 1 (ação silenciosa da modelo, sem nova fala): aproxima OU mostra de perto o detalhe que vende "
         f"(tecido, cós, alça, barra, acessório); mãos tocam o produto de forma natural.\n"
         f"   · 6–11s PROVA 2 (ação silenciosa da modelo, sem nova fala): movimento completo que demonstra o benefício ({benefit_l}) — "
         f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis.\n"
         f"   · 11–12s DESEJO (ação silenciosa da modelo, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
-        f"12–15s CTA: manter a posição de encerramento descrita acima, olhar firme na lente; o produto marcado é indicado apenas com o olhar. Fala (PT-BR): \"{cta}\"\n"
+        f"12–15s CTA: manter a posição de encerramento descrita acima, olhar firme na lente; o produto marcado é indicado apenas com o olhar. Emendar esta fala sem pausa à anterior, como conclusão natural do mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"
         f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
         "ENQUADRAMENTO: não altere o enquadramento entre os beats; use jogo de câmeras apenas se for necessário, mantendo a mesma cena. "
         "Realize movimentos laterais quando precisar mostrar o produto completo no corpo. "
         "Evite movimentos artificiais de IA: as expressões e os gestos acompanham as falas, no ritmo delas. "
-        "As três falas formam um único discurso contínuo, dito pela mesma pessoa sem pausa artificial entre os trechos. "
+        "As três falas formam um único discurso contínuo, dito pela mesma pessoa sem pausa artificial entre os trechos, sem silêncio perceptível entre elas e sem reset de respiração -- é uma frase longa dividida em três marcações de tempo, nunca três falas separadas. "
         f"Estilo visual: {style}. Tom de performance: {tone}. "
         f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
         f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "
