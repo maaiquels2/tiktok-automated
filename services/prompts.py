@@ -320,32 +320,52 @@ def _sentence(value):
     return value if value.endswith(('.', '!', '?')) else value + '.'
 
 
-def _image_details(details: str) -> str:
-    """Keep only visual notes; never leak a shot list or spoken-video brief."""
-    text = _pt_br(details)
+def _image_details(details: str, *, preserve_base=False) -> str:
+    """Keep static notes, with an extra continuity guard for localized edits.
+
+    Match words rather than substrings ("alfaiataria" is not a spoken line).
+    Static camera notes remain valid for extraction, but cannot override the
+    existing camera/scene when editing an established photograph.
+    """
+    text = '\n'.join(_pt_br(line) for line in str(details or '').splitlines())
     if not text:
         return ''
     # Timing beats and action directions belong to the video prompt. Keep the
     # image prompt about the visible subject, product and set only.
-    timing = re.compile(r'^\s*\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*s?\s*:', re.I)
-    video_hints = (
-        'vídeo', 'video', '15 segundos', '15s', 'ugc', 'fala', 'frases',
-        'jogo de câmera', 'jogo de cameras', 'movimentos de ia',
-        'movimento', 'agachar', 'caminhar', 'alongar', 'girar', 'senta', 'sentar',
-        'shot list', 'câmera fixa', 'camera fixa',
-        'quadro', 'take', 'clipe', 'duração', 'duracao', 'roteiro', 'ação:', 'acao:',
-        'prova no corpo', 'produto no frame', 'cta', 'hook', 'fyp', 'query quente',
-        'legenda', 'caption', 'loja', 'chamada para ação', 'chamada para acao',
+    video = re.compile(
+        r'\b(?:video\w*|ugc|fala\w*|dizer|diga|frases?|roteiro\w*|'
+        r'agach\w*|caminh\w*|alongar|alongue|alongando|girar|gire|giro|girando|sentar|sente|sentando|'
+        r'levantar|levante|andando|movimento\w*|mover|mova|acenar|acene|'
+        r'takes?|clipes?|frames?|duracao|ritmo|zoom|tracking|panoramica|'
+        r'cta|hook|fyp|query|legenda\w*|caption(?:_seed)?|checklist|howto)\b|'
+        r'\b(?:shot\s+list|jogo\s+de\s+cameras?|prova\s+no\s+corpo|'
+        r'chamada\s+para\s+acao|produto\s+marcado|primeiro\s+quadro|'
+        r'cortes?\s+(?:de\s+camera|invisiveis|entre|rapidos)|'
+        r'alternar\s+planos|aproxim\w*\s+(?:a\s+)?camera|'
+        r'no\s+(?:inicio|final)|depois\s+de\s+\d+)\b|'
+        r'\b\d+(?:[.,]\d+)?\s*(?:s\b|segundos?\b)|'
+        r'\b\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*s?\s*:'
     )
-    metadata_hints = ('caption_seed', 'checklist:', 'hook falado', 'howto:', '1 cor =')
+    composition = re.compile(
+        r'\b(?:camera\w*|enquadramento\w*|planos?|corpo\s+inteiro|'
+        r'cenario\w*|fundos?|ambiente\w*|locacao|academia|praia|rua|'
+        r'sala|quarto|estudio|cozinha|janela\w*|piscina|luz|luzes|'
+        r'ilumin\w*|sombras?|reflexos?|nitid\w*|desfo\w*|bokeh|'
+        r'perspectiva|pose\w*|expressao|olhar|rosto|cabelo|pele|'
+        r'maos?|bracos?|pernas?|dedos?|sorria|sorriso|'
+        r'contraste|saturacao|exposicao|filtros?|resolucao)\b|'
+        r'\b\d+\s*:\s*\d+\b|\b(?:720|1080|2160)p\b'
+    )
     chunks = [part.strip(' .;') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+|\|', text)]
-    kept = [
-        part for part in chunks
-        if part
-        and not timing.search(part)
-        and not part.casefold().startswith(('detalhes do briefing:', 'detalhes do briefing'))
-        and not any(h in part.casefold() for h in video_hints + metadata_hints)
-    ]
+    kept = []
+    for part in chunks:
+        normalized = ''.join(ch for ch in unicodedata.normalize('NFKD', part.casefold())
+                             if not unicodedata.combining(ch))
+        if not part or normalized.startswith('detalhes do briefing') or video.search(normalized):
+            continue
+        if preserve_base and composition.search(normalized):
+            continue
+        kept.append(part)
     return '. '.join(kept).strip()
 
 
@@ -1278,8 +1298,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
 
 def generate_variants(c):
     colors = color_variants(c.get('color'))
-    # A primeira cor cria a fotografia-base; as seguintes sao edicao localizada
-    # dessa base, o que mantem cenario, pose e enquadramento identicos.
+    # A primeira cor edita a referencia; as seguintes editam a base aprovada,
+    # mantendo cenario, pose e enquadramento identicos.
     return [{'color': color, 'prompts': generate({**c, 'color': color}, variant_index=index, base_image=index > 0)}
             for index, color in enumerate(colors)]
 
@@ -1298,84 +1318,63 @@ def generate(c, script=None, variant_index=0, base_image=False):
         hook = _spoken_line(script.get('hook'), hook)
         development = _spoken_line(script.get('development'), development)
         cta = _spoken_line(script.get('cta'), cta)
-    identity = (
-        f"Use a imagem anexada de {c['model_name']} como referência visual fixa. "
-        'Preserve rigorosamente rosto, cabelo, tom de pele, corpo, idade aparente e proporções. '
-        'Somente a roupa e sua cor podem mudar na aparência da modelo. '
-        'Não substitua a pessoa nem redesenhe sua identidade. '
-    )
-    photos=c.get('product_assets',[])
-    product_reference=''
-    if photos:
-        photo_word = 'foto' if len(photos) == 1 else 'fotos'
-        product_reference=(
-            f"Anexe primeiro a referência fixa de {c['model_name']} e depois {len(photos)} {photo_word} do produto. "
-            f'As fotos do produto representam: {product}. Use-as para reproduzir o corte, '
-            'o caimento, as costuras, os acabamentos e os detalhes visíveis da peça. '
-            'Pessoas presentes nas fotos do produto NÃO são referências de identidade: '
-            'não copie seu rosto, cabelo, corpo, pose ou tom de pele. '
-            f"A cor final solicitada é {c['color']}; ela prevalece sobre fotos com outras cores. "
-            "Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. "
-        )
+    # Localized image edits use the photograph as the only scene/camera source.
+    # Niche style, audience and sales direction belong to the video/copy path;
+    # reinserting them here used to contradict the preserved background.
     details = _pt_br(c.get('details'))
-    confirmed_features = _product_features(c)
-    facts_for_image = ', '.join(confirmed_features) if confirmed_features else 'somente os detalhes visíveis nas fotos do produto'
-    materials_for_image = ', '.join(_material_facts(c)) or 'não especificada'
-    details_for_image = _image_details(details)
-    angle_context = _image_angle(c.get('angle'))
-    angle_context_words = angle_context.split()
-    if len(angle_context_words) > 16:
-        angle_context = ' '.join(angle_context_words[:16]) + '…'
-    scene_lock = _scene_lock(
-        c,
-        fallback=('a mesma locação da imagem aprovada' if base_image
-                  else 'o mesmo ambiente mostrado na foto de referência da modelo, se houver um cenário visível nela'),
-    )
+    photos = c.get('product_assets') or []
     forms = _piece_forms(c)
     piece_ref = f"{forms['art']} {forms['piece']}"
-    # Decisao de produto confirmada em 13/09/2026 (item 41 da auditoria): a
-    # primeira cor tambem preserva pose/cenario da modelo por meio de uma
-    # troca de roupa localizada, em vez de permitir uma composicao nova. A
-    # diferenca entre as duas cores agora e so QUAL foto e a base da edicao:
-    # a primeira cor edita a propria foto de referencia (ainda nao existe
-    # imagem aprovada da campanha); as demais cores editam a imagem aprovada.
-    if base_image:
-        mode_block = (
-            "EDIÇÃO LOCALIZADA: trate a imagem aprovada desta campanha como a fotografia-base final, não como inspiração para uma nova cena. "
-            "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, peças complementares, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica. "
-            f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante da imagem visualmente idêntico. "
-            "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere as peças complementares, não crie outro ângulo e não gere uma nova fotografia. "
-            "Nesta cor, anexe primeiro a imagem aprovada desta campanha (ela é a fotografia-base); a foto de referência da modelo e as fotos do produto servem apenas de apoio para identidade e detalhes, não como base da composição. "
-        )
-    else:
-        mode_block = (
-            "EDIÇÃO LOCALIZADA: esta é a primeira cor da campanha, então a fotografia-base é a própria foto de referência anexada de "
-            f"{c['model_name']} — trate-a como a fotografia-base final, não como inspiração para uma nova cena. "
-            "Preserve exatamente a mesma modelo, pose, expressão, posição das mãos, cabelo, rosto, corpo, peças complementares, calçados, enquadramento, distância da câmera, perspectiva, cenário, objetos, sombras, reflexos, profundidade, iluminação, granulação e qualidade fotográfica já presentes nessa foto. "
-            f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante da imagem visualmente idêntico à referência. "
-            "Não redesenhe a pessoa, não mude a pose, não reposicione membros, não altere as peças complementares, não crie outro ângulo e não gere uma nova fotografia. "
-            "Nesta cor, anexe primeiro a foto de referência da modelo (ela é a fotografia-base); as fotos do produto servem apenas de apoio para reproduzir corte, caimento e detalhes da peça, não como base da composição. "
-            f"Garanta que toda a extensão de {piece_ref} (barra, comprimento e calçados quando fizerem parte do look) fique visível e bem iluminada, ajustando o enquadramento da referência só o mínimo necessário para isso. "
-            "Esta imagem se tornará a fotografia-base das próximas cores: escolha, dentro do que a referência já mostra, um resultado que possa ser repetido. "
-        )
+    base = ('a imagem aprovada desta campanha' if base_image
+            else 'a foto de referência da modelo')
+    attachments = f"ORDEM DOS ANEXOS: anexe primeiro {base} (fotografia-base de {c['model_name']})"
+    if photos:
+        attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+    attachments += '. O primeiro anexo é a única base de identidade, pose, cenário e enquadramento. '
+    product_reference = (
+        "REFERÊNCIA DO PRODUTO: reproduza na peça o corte, o caimento, as costuras, "
+        "os acabamentos e os detalhes visíveis nas fotos do produto. "
+        "Pessoas presentes nas fotos do produto NÃO são referências de identidade: "
+        "não copie seu rosto, cabelo, corpo, pose ou tom de pele. "
+        f"A cor final solicitada é {color}; ela prevalece sobre fotos com outras cores. "
+        "Não reproduza fundos, textos sobrepostos nem marcas d'água das fotos de catálogo. "
+    ) if photos else (
+        "Não há foto de catálogo anexada: use somente os detalhes informados e os já visíveis "
+        "na fotografia-base, sem inventar acabamentos, costuras ou acessórios. "
+    )
+    features = _product_features(c)
+    facts = ', '.join(features) if features else 'somente os detalhes visíveis nas referências do produto'
+    if not features and not photos:
+        facts = 'somente os detalhes já visíveis na fotografia-base'
+    materials = ', '.join(_material_facts(c)) or 'não especificada'
+    notes = _image_details(c.get('details'), preserve_base=True)
+    scene = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
+             else 'o mesmo ambiente mostrado na foto de referência da modelo')
     image = (
-        identity + product_reference + f"Roupa: {_pt_br(c['outfit'])}. Cor: {c['color']}. Produto: {product}. "
-        + mode_block
-        + f"VARIAÇÃO ÚNICA: gere somente esta cor ({c['color']}); não misture cores nem crie outras versões na mesma imagem. "
-        f"FATOS DO PRODUTO A PRESERVAR: {facts_for_image}. "
-        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials_for_image}; preservar textura, brilho e caimento sem substituir por outro material. "
-        f"FOCO VISUAL: {_focus_parts(c)[0]}. "
+        attachments
+        + f"EDIÇÃO LOCALIZADA: trate {base} como a fotografia-base final, não como inspiração para uma nova cena. "
+        + f"Produto: {product}. Cor: {color}. "
+        + f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante da imagem visualmente idêntico. "
+        + f"IDENTIDADE: a modelo é {c['model_name']}. Preserve rosto, cabelo, tom de pele, corpo, idade aparente e proporções. "
+        + "Preserve também pose, expressão, posição das mãos, peças complementares e calçados. "
+        + "Não redesenhe a pessoa, não reposicione membros e não altere outras peças do visual. "
+        + product_reference
+        + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+        + f"FATOS DO PRODUTO A PRESERVAR: {facts}. "
+        + f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}; mantenha a textura e o caimento compatíveis com a referência do produto. "
         + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
-        + f"CENÁRIO FIXO: {scene_lock}. Repetir exatamente o mesmo fundo, objetos, enquadramento, perspectiva e iluminação em todas as cores, mantendo o mesmo nível de nitidez ou desfoque de fundo já presente na referência aprovada, sem trocar o cenário. "
-        + ("Use a imagem aprovada da campanha como referência do cenário, sem copiar a cor da roupa. " if base_image else "")
-        + "INTEGRAÇÃO FOTOGRÁFICA: a peça substituída deve acompanhar exatamente a anatomia e a pose já existentes, com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, colagem ou pintura por cima. "
-        + "Contexto de comunicação (não inserir texto nem inventar atributo): "
-        f"público {_pt_br(c['audience']) or 'geral'}; ângulo {angle_context or 'mostrar detalhes do produto'}. "
-        f"Estilo: {_pt_br(c['style']) or 'natural e realista'}. Tom: {_pt_br(c['tone']) or 'conversacional'}. "
-        'Fotografia vertical 9:16, luz suave, anatomia natural, mãos corretas. '
-        'Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. '
-        + (f'Detalhes do briefing: {details_for_image}.' if details_for_image else
-           'Apenas uma imagem estática; não descreva vídeo, falas nem duração.')
+        + f"CENÁRIO FIXO: {scene}. Preserve exatamente fundo, objetos, iluminação, sombras, reflexos, "
+        + "perspectiva, exposição, balanço de branco, granulação e o nível de nitidez ou desfoque já existente na fotografia-base. "
+        + "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
+        + "ENQUADRAMENTO: mantenha os limites originais da foto, a proporção, a distância e a altura da câmera. "
+        + "Não recorte, não amplie o campo de visão e não invente partes da pessoa ou do ambiente fora do quadro. "
+        + "Se a peça estiver cortada na fotografia-base, preserve esses limites; não reconstrua a área ausente. "
+        + "INTEGRAÇÃO FOTOGRÁFICA: a peça substituída deve acompanhar exatamente a anatomia e a pose já existentes, "
+        + "com caimento, dobras, tensão do tecido, oclusão correta pelas mãos e pelo corpo, sombras de contato, "
+        + "reflexos e luz coerentes com a fotografia-base. A borda da roupa deve estar natural, sem aparência de recorte, "
+        + "colagem ou pintura por cima. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. "
+        + (f"DETALHES ESTÁTICOS DO PRODUTO (sem alterar a composição da fotografia-base): {notes}. " if notes else '')
+        + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
     )
     resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
     video = _build_video_prompt(

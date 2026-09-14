@@ -994,7 +994,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('poliamida', prompts['image'])
         self.assertIn('botões', prompts['image'])
         self.assertIn('modelagem: unissex', prompts['image'].lower())
-        self.assertIn('mesma sala', prompts['image'].lower())
+        # A sala descrita no briefing não substitui o ambiente real da base.
+        self.assertNotIn('mesma sala', prompts['image'].lower())
+        self.assertIn('o mesmo ambiente mostrado na foto de referência', prompts['image'])
         self.assertNotRegex(spoken, r'\b(workout|activewear|beachwear)\b')
 
     def test_custom_script_drops_silent_directions_from_spoken_development(self):
