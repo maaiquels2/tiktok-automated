@@ -736,10 +736,11 @@ export default function App(){
           }
           setMode('produce');
           const st=nextStage(result)||'model';
-          // If product photos already attached, skip asking again on look when possible
-          const hasPhotos=(result.product_assets||[]).length>0;
-          let go=st==='performance'?'look':st;
-          if(go==='look'&&hasPhotos&&(result.assets||[]).some(a=>a.kind==='reference')) go='image';
+          // Sempre respeitar o proximo passo real (nextStage): pular "Definir
+          // look" so porque ja tem fotos do produto anexadas fazia a campanha
+          // cair direto em "Criar imagem" sem prompt gerado, travando o fluxo
+          // com um aviso pedindo pra voltar e gerar o prompt.
+          const go=st==='performance'?'look':st;
           setSelected(go);
           syncHash({mode:'produce',campaignId:result.id,stage:go});
           return result;

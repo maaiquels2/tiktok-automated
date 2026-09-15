@@ -320,6 +320,18 @@ def _sentence(value):
     return value if value.endswith(('.', '!', '?')) else value + '.'
 
 
+_SCENE_COMPOSITION_RE = re.compile(
+    r'\b(?:camera\w*|enquadramento\w*|planos?|corpo\s+inteiro|'
+    r'cenario\w*|fundos?|ambiente\w*|locacao|academia|praia|rua|'
+    r'sala|quarto|estudio|cozinha|janela\w*|piscina|luz|luzes|'
+    r'ilumin\w*|sombras?|reflexos?|nitid\w*|desfo\w*|bokeh|'
+    r'perspectiva|pose\w*|expressao|olhar|rosto|cabelo|pele|'
+    r'maos?|bracos?|pernas?|dedos?|sorria|sorriso|'
+    r'contraste|saturacao|exposicao|filtros?|resolucao)\b|'
+    r'\b\d+\s*:\s*\d+\b|\b(?:720|1080|2160)p\b'
+)
+
+
 def _image_details(details: str, *, preserve_base=False) -> str:
     """Keep static notes, with an extra continuity guard for localized edits.
 
@@ -346,16 +358,7 @@ def _image_details(details: str, *, preserve_base=False) -> str:
         r'\b\d+(?:[.,]\d+)?\s*(?:s\b|segundos?\b)|'
         r'\b\d+(?:[.,]\d+)?\s*[–—-]\s*\d+(?:[.,]\d+)?\s*s?\s*:'
     )
-    composition = re.compile(
-        r'\b(?:camera\w*|enquadramento\w*|planos?|corpo\s+inteiro|'
-        r'cenario\w*|fundos?|ambiente\w*|locacao|academia|praia|rua|'
-        r'sala|quarto|estudio|cozinha|janela\w*|piscina|luz|luzes|'
-        r'ilumin\w*|sombras?|reflexos?|nitid\w*|desfo\w*|bokeh|'
-        r'perspectiva|pose\w*|expressao|olhar|rosto|cabelo|pele|'
-        r'maos?|bracos?|pernas?|dedos?|sorria|sorriso|'
-        r'contraste|saturacao|exposicao|filtros?|resolucao)\b|'
-        r'\b\d+\s*:\s*\d+\b|\b(?:720|1080|2160)p\b'
-    )
+    composition = _SCENE_COMPOSITION_RE
     chunks = [part.strip(' .;') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+|\|', text)]
     kept = []
     for part in chunks:
@@ -384,7 +387,10 @@ def _image_angle(value: str) -> str:
 
 
 def _video_details(details: str) -> str:
-    """Keep useful operator notes, excluding playbook metadata and shot lists."""
+    """Keep useful operator notes, excluding playbook metadata, shot lists and
+    scene/composition boilerplate (the video prompt's CENARIO FIXO already
+    locks the environment to the approved/reference photo; a leftover niche
+    sentence here would just contradict that anchor)."""
     text = _pt_br(details)
     if not text:
         return ''
@@ -392,7 +398,15 @@ def _video_details(details: str) -> str:
     meta = ('howto', 'checklist:', 'shot list:', 'caption_seed:', 'hook falado',
             'legenda sugerida:', 'query quente', '1 cor = 1 mp4')
     timing = re.compile(r'^\s*\d+(?:[.–-]\d+)?s?\s*:', re.I)
-    kept = [part for part in chunks if not any(h in part.casefold() for h in meta) and not timing.search(part)]
+    kept = []
+    for part in chunks:
+        normalized = ''.join(ch for ch in unicodedata.normalize('NFKD', part.casefold())
+                             if not unicodedata.combining(ch))
+        if any(h in part.casefold() for h in meta) or timing.search(part):
+            continue
+        if _SCENE_COMPOSITION_RE.search(normalized):
+            continue
+        kept.append(part)
     return '. '.join(kept).strip()
 
 
@@ -507,28 +521,6 @@ def _movement_plan(value: str, limit: int = 6) -> str:
                 insert_at += 1
             chunks = head
     return '; '.join(chunks)[:900]
-
-
-def _scene_lock(c, fallback='a mesma locação da imagem aprovada'):
-    """Extract one positive scene cue and turn it into a continuity constraint."""
-    text = _pt_br('. '.join(_phrase(c.get(key)) for key in ('details', 'style') if _phrase(c.get(key))))
-    chunks = [part.strip(' .;,:') for part in re.split(r'(?<=[.!?])\s+|\s*;\s*|\n+', text) if part.strip(' .;,:')]
-    scene_words = ('cenário', 'cenario', 'fundo', 'ambiente', 'locação', 'locacao',
-                   'quarto', 'sala', 'cozinha', 'rua', 'café', 'cafe', 'praia',
-                   'piscina', 'academia', 'estúdio', 'estudio', 'varanda', 'deck')
-    blocked = ('evitar', 'não usar', 'nao usar', 'sem fundo', 'não desfocar', 'nao desfocar',
-               'caption_seed', 'checklist:', 'shot list:', 'hook falado', 'howto')
-    for chunk in chunks:
-        low = chunk.casefold()
-        if any(word in low for word in scene_words) and not any(word in low for word in blocked):
-            candidate = ' '.join(chunk.split()[:24])
-            # Niche defaults often list alternatives; lock to the first one so
-            # each generated colour cannot choose a different location.
-            candidate = re.split(r'\s+ou\s+', candidate, maxsplit=1, flags=re.I)[0].strip(' ,;')
-            return candidate
-    candidate = _phrase(fallback)
-    return re.split(r'\s+ou\s+', candidate, maxsplit=1, flags=re.I)[0].strip(' ,;')
-
 
 
 def _slug_tag(value, limit=28):
@@ -1247,7 +1239,7 @@ def _niche_key(c):
     return "casual"
 
 
-def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta):
+def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     niche = _niche_key(c)
     dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
     outfit = _pt_br(c.get("outfit")) or "visual do produto"
@@ -1270,7 +1262,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     facts = ', '.join(features) if features else focus
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
-    scene_lock = _scene_lock(c, fallback=dirn['setting'])
+    scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
+                  else 'o mesmo ambiente mostrado na foto de referência da modelo')
     forms = _piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
     gestures = _proof_gestures(_product_features(c, limit=4))
@@ -1292,7 +1285,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         f"Ângulo de venda (contexto, não criar atributos): {angle_context}. FATOS CONFIRMADOS: {facts}. "
         f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
         f"Benefício a provar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
-        f"CENÁRIO FIXO ({niche}, todos os frames e variações de cor): {scene_lock}. "
+        f"CENÁRIO FIXO (todos os frames e variações de cor): {scene_lock}. "
+        "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
         f"Repetir exatamente fundo, objetos e iluminação, sem trocar a locação nem desfocar o fundo; a câmera pode se aproximar ou acompanhar a modelo durante a demonstração (ver COREOGRAFIA e CÂMERA abaixo), retornando à distância e ao enquadramento do quadro inicial no encerramento. "
         f"CÂMERA: {dirn['camera']}. "
         f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
@@ -1422,6 +1416,7 @@ def generate(c, script=None, variant_index=0, base_image=False):
         hook=hook,
         development=development,
         cta=cta,
+        base_image=base_image,
     )
     caption = build_caption(c, color=color, cta=None, variation_index=variant_index)
     return dict(image=image, video=video, hook=hook, development=development, cta=cta, caption=caption, variation_index=variant_index)

@@ -412,6 +412,25 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('como quem ajusta a peça',video)
         self.assertNotIn('contar um segredo',video)
 
+    def test_video_scene_ignores_generic_niche_boilerplate_in_details_and_locks_to_the_photo(self):
+        # Regressao real: o texto padrao da biblioteca de modelos descreve o cenario
+        # como "Fundo simples (rua, quarto, cafe)" -- uma sugestao de nicho, nao o
+        # fundo de verdade da foto aprovada. O video nao pode trocar de ambiente por
+        # causa desse texto: o cenario tem que ficar preso a foto de referencia/aprovada.
+        campaign=dict(model_name='Micaela',product='Calca jeans wide leg',outfit='calca',color='azul claro',
+                      audience='mulheres',benefit='caimento solto',angle='mostrar o caimento',tone='natural',
+                      style='natural',
+                      details='Rosto/corpo Micaela fixos. Enquadramento dinamico: plano medio + close no caimento. '
+                              'Fundo simples (rua, quarto, cafe). Destacar textura e modelagem.',
+                      movements='',generator='flow',niche='casual')
+        video=generate(campaign)['video']
+        self.assertNotIn('Fundo simples', video)
+        self.assertNotIn('rua, quarto, cafe', video)
+        self.assertIn('o mesmo ambiente mostrado na foto de referência da modelo', video)
+        self.assertIn('descrições genéricas de nicho não autorizam sua substituição', video)
+        video_base=generate(campaign, base_image=True)['video']
+        self.assertIn('o mesmo ambiente mostrado na imagem aprovada desta campanha', video_base)
+
     def test_first_image_prompt_keeps_the_environment_from_the_reference_photo(self):
         campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',
                       audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',tone='natural',
