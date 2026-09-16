@@ -1472,6 +1472,65 @@ def create_app(config=None):
         """Anexa ao briefing as falas recentes, que o gerador usa para variar."""
         return {**campaign, 'recent_lines': recent_spoken_lines()}
 
+    def learning_context(limit=3):
+        """O que os videos ja publicados ensinaram, em forma de direcao.
+
+        Ate aqui o video numero 100 era escrito com a mesma informacao do video
+        numero 1: metrica era coletada, virava texto na aba Resultados e parava
+        ali. Aqui ela vira briefing.
+
+        Ranqueia por R$ por mil visualizacoes quando existe comissao lancada; so
+        cai para retencao quando nenhuma campanha tem venda registrada. As duas
+        escalas nunca se misturam no mesmo ranking.
+        """
+        contexto = {'top_hooks': [], 'weak_hooks': [], 'hot_queries': []}
+        try:
+            ganchos = {r['campaign_id']: (r['content'] or '').strip()
+                       for r in db().execute("SELECT campaign_id,content FROM prompts WHERE kind='hook'")}
+            por_receita, por_retencao = [], []
+            for row in db().execute('SELECT id,checklist FROM campaigns ORDER BY id DESC LIMIT 80'):
+                gancho = ganchos.get(row['id'])
+                if not gancho:
+                    continue
+                try:
+                    checklist = json.loads(row['checklist'] or '{}')
+                except (TypeError, ValueError):
+                    continue
+                perf = checklist.get('performance') if isinstance(checklist.get('performance'), dict) else {}
+                entradas = [e for e in perf.values() if isinstance(e, dict)]
+                receitas = [e['revenue_per_1k'] for e in entradas if e.get('revenue_per_1k') is not None]
+                retencoes = [e['watch_pct'] for e in entradas if e.get('watch_pct') is not None]
+                try:
+                    if receitas:
+                        por_receita.append((max(float(x) for x in receitas), gancho))
+                    elif retencoes:
+                        por_retencao.append((max(float(x) for x in retencoes), gancho))
+                except (TypeError, ValueError):
+                    continue
+            ranking = por_receita or por_retencao
+            ranking.sort(key=lambda item: -item[0])
+            contexto['top_hooks'] = [g for _s, g in ranking[:limit]]
+            # So aponta fracasso quando ha amostra suficiente para a ultima
+            # posicao significar alguma coisa.
+            if len(ranking) >= limit + 2:
+                contexto['weak_hooks'] = [g for _s, g in ranking[-2:]]
+            playbook_file = app.config['DATA_DIR'] / 'playbook_latest.json'
+            if playbook_file.exists():
+                dados = json.loads(playbook_file.read_text(encoding='utf-8'))
+                contexto['hot_queries'] = [q.get('query') for q in (dados.get('hot_queries') or [])[:5]
+                                           if isinstance(q, dict) and q.get('query')]
+        except Exception as exc:
+            app.logger.info('contexto de aprendizado indisponivel: %s', exc)
+        return contexto
+
+    def with_learning(campaign):
+        """Briefing + memoria de falas + o que a conta ja aprendeu."""
+        return {**with_line_memory(campaign), 'learning': learning_context()}
+
+    # Exposto para os testes inspecionarem o ranking sem precisar de um
+    # endpoint novo so para isso.
+    app.extensions['learning_context'] = learning_context
+
     def write_with_llm(campaign, pack, cid=None, required=False):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
 
@@ -1558,7 +1617,7 @@ def create_app(config=None):
         need_asset(cid,'reference')
         if c['status']!='briefing':
             raise Invalid('Edite o briefing para iniciar uma nova versão dos prompts.',409)
-        current=with_line_memory(detail(cid))
+        current=with_learning(detail(cid))
         for photo in current['product_assets']:
             path_for(photo)
         colors=color_variants(current['color'])
@@ -1590,7 +1649,7 @@ def create_app(config=None):
         need_asset(cid,'reference')
         if c['status']!='briefing':
             raise Invalid('Edite o briefing para gerar novas variações.',409)
-        current=with_line_memory(detail(cid))
+        current=with_learning(detail(cid))
         for photo in current['product_assets']:
             path_for(photo)
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
@@ -2295,13 +2354,13 @@ def create_app(config=None):
         writer_mode=data.get('writer_mode','auto')
         if writer_mode not in {'auto','ai','local'}:
             raise Invalid('Modo de escrita inválido.')
-        merged=refresh_script_fields(with_line_memory(c),c['color'],current['prompts'],fields=fields)
+        merged=refresh_script_fields(with_learning(c),c['color'],current['prompts'],fields=fields)
         if writer_mode=='local':
             patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
                                              'local_audit': copywriter.audit(merged, c)}})
             rewritten=merged
         else:
-            writer_campaign={**c,'previous_script':{k:current['prompts'].get(k,'') for k in ('hook','development','cta')}}
+            writer_campaign={**with_learning(c),'previous_script':{k:current['prompts'].get(k,'') for k in ('hook','development','cta')}}
             rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
         # Refresh so da legenda nao precisa reescrever as falas.
         merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
@@ -2338,7 +2397,7 @@ def create_app(config=None):
             raise Invalid('Modo de escrita inválido.')
         current=json.loads(row['prompts'])
         try:
-            merged=refresh_script_fields(with_line_memory(c),row['color'],current,fields=fields,bump=1)
+            merged=refresh_script_fields(with_learning(c),row['color'],current,fields=fields,bump=1)
         except ValueError as exc:
             raise Invalid(str(exc)) from exc
         # keep existing image prompt if present
@@ -2347,7 +2406,7 @@ def create_app(config=None):
         if writer_mode=='local':
             patch_checklist(cid, {'writer': {'by': 'local', 'reason': ''}})
         else:
-            writer_campaign={**c,'color':row['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
+            writer_campaign={**with_learning(c),'color':row['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
             rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
             merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
             if set(fields)&{'hook','development','cta'}:

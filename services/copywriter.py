@@ -241,7 +241,42 @@ def build_brief(c: dict) -> str:
             f"- desenvolvimento atual: {previous.get('development') or ''}",
             f"- CTA atual: {previous.get('cta') or ''}",
         ])
+    linhas.extend(_learning_lines(c.get('learning')))
     return '\n'.join(linhas)
+
+
+def _learning_lines(learning: dict | None) -> list[str]:
+    """Traduz o desempenho real dos videos publicados em direcao de escrita.
+
+    Ate aqui o video numero 100 era escrito com a mesma informacao do video
+    numero 1: nada do que ja tinha ido ao ar chegava a quem escreve. Estas
+    linhas fecham esse ciclo.
+
+    Cuidado deliberado: o que entra e DIRECAO (que tipo de abertura prendeu,
+    que busca trouxe gente), nunca fato de produto. Um gancho que funcionou em
+    outra peca nao autoriza afirmar nada sobre esta -- por isso o bloco termina
+    lembrando que os FATOS CONFIRMADOS continuam sendo a unica fonte.
+    """
+    if not isinstance(learning, dict):
+        return []
+    linhas = []
+    vencedores = [t for t in (learning.get('top_hooks') or []) if str(t or '').strip()][:3]
+    fracos = [t for t in (learning.get('weak_hooks') or []) if str(t or '').strip()][:2]
+    buscas = [t for t in (learning.get('hot_queries') or []) if str(t or '').strip()][:5]
+    if vencedores:
+        linhas.append('ABERTURAS QUE PRENDERAM NESTA CONTA (use o tipo de abordagem, '
+                      'jamais copie a frase nem transfira atributo de uma peça para outra):')
+        linhas.extend(f'- {t}' for t in vencedores)
+    if fracos:
+        linhas.append('ABERTURAS QUE NÃO PRENDERAM (evite esta abordagem):')
+        linhas.extend(f'- {t}' for t in fracos)
+    if buscas:
+        linhas.append('BUSCAS QUE TROUXERAM PÚBLICO DE VERDADE (vale usar o vocabulário '
+                      'delas quando descrever a peça): ' + ', '.join(buscas))
+    if linhas:
+        linhas.append('Esse histórico é direção de escrita. Os FATOS CONFIRMADOS acima '
+                      'continuam sendo a única coisa que você pode afirmar sobre esta peça.')
+    return linhas
 
 
 # --------------------------------------------------------------------------- auditoria

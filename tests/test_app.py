@@ -186,6 +186,47 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.json)
         self.assertNotEqual(result.json['variants'][0]['prompts']['hook'],variant['prompts']['hook'])
 
+    def test_brief_carries_what_the_published_videos_taught(self):
+        # O elo que faltava: metrica era coletada e parava na aba Resultados.
+        # Agora o desempenho vira direcao de escrita dentro do briefing da IA.
+        from services.copywriter import build_brief
+        brief = build_brief({'product': 'Legging', 'color': 'preto', 'benefit': 'tem bolso',
+                             'angle': 'mostrar o bolso', 'audience': 'mulheres', 'niche': 'academia',
+                             'learning': {'top_hooks': ['Achei essa legging e não esperava o bolso'],
+                                          'weak_hooks': ['Olha o bolso com a legging'],
+                                          'hot_queries': ['legging sem transparência']}})
+        self.assertIn('ABERTURAS QUE PRENDERAM', brief)
+        self.assertIn('Achei essa legging e não esperava o bolso', brief)
+        self.assertIn('ABERTURAS QUE NÃO PRENDERAM', brief)
+        self.assertIn('legging sem transparência', brief)
+        # O historico nunca pode virar licenca para afirmar atributo.
+        self.assertIn('FATOS CONFIRMADOS acima continuam sendo a única coisa', brief)
+
+    def test_learning_context_prefers_revenue_over_reach(self):
+        # Alcance nao paga comissao: com venda lancada, o ranking segue o
+        # dinheiro, nao o numero de views.
+        self.upload('reference')
+        self.post('/generate')
+        self.assertEqual(self.post('/performance', {'color': 'Azul', 'metrics': {
+            'views_7d': 9000, 'revenue': 270, 'watch_pct': 2.0}}).status_code, 200)
+        vencedor = self.get()['prompts']['hook']
+
+        outra = self.client.post('/api/campaigns', json={**self.brief, 'name': 'Campanha de alcance'},
+                                 headers=self.headers)
+        cid2 = outra.json['id']
+        self.client.post(f'/api/campaigns/{cid2}/assets',
+                         data={'kind': 'reference', 'file': (io.BytesIO(image_bytes()), 'test.png')},
+                         headers=self.headers)
+        self.client.post(f'/api/campaigns/{cid2}/generate', json={}, headers=self.headers)
+        self.client.post(f'/api/campaigns/{cid2}/performance',
+                         json={'color': 'Azul',
+                               'metrics': {'views_7d': 400000, 'revenue': 4, 'watch_pct': 90.0}},
+                         headers=self.headers)
+
+        with self.app.test_request_context():
+            contexto = self.app.extensions['learning_context']()
+        self.assertEqual(contexto['top_hooks'][0], vencedor)
+
     def test_sales_metrics_are_stored_per_color_and_score_revenue_per_1k(self):
         # Comissao e cliques nao vem do Studio: entram a mao, e sao o unico
         # placar que diz o que repetir. E cada medicao pertence a UMA cor --
