@@ -415,6 +415,9 @@ export default function App(){
   function savePerformance(payload){
     return run(()=>api(`/campaigns/${c.id}/performance`,{method:'POST',body:{...payload,version:c.version}}),'Metricas salvas.','studio');
   }
+  function saveExperiment(experiment){
+    return run(()=>api(`/campaigns/${c.id}/experiment`,{method:'POST',body:{experiment,version:c.version}}),'Teste marcado.','performance');
+  }
   function generateInsights(payload={}){
     return run(()=>api(`/campaigns/${c.id}/insights`,{method:'POST',body:{...payload,version:c.version}}),'Insights gerados.','studio');
   }
@@ -677,7 +680,7 @@ export default function App(){
               </div>
             </div>
             {c.assets.some(a=>a.kind==='video') && <VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}
-            <PerformancePanel c={c} busy={busy} immutable={c.status==='published'} onError={setError} onSavePerformance={savePerformance} onGenerateInsights={generateInsights} onRefreshVariant={refreshVariant} onGotoScript={()=>{goMode('produce');gotoScript()}} onOpenStudio={event=>openService('studio','publish',event)} onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport} onSavePublishedLink={savePublishedLink}/>
+            <PerformancePanel c={c} busy={busy} immutable={c.status==='published'} onError={setError} onSavePerformance={savePerformance} onSaveExperiment={saveExperiment} onGenerateInsights={generateInsights} onRefreshVariant={refreshVariant} onGotoScript={()=>{goMode('produce');gotoScript()}} onOpenStudio={event=>openService('studio','publish',event)} onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport} onSavePublishedLink={savePublishedLink}/>
           </>
         ))}
       </section>

@@ -2484,6 +2484,82 @@ def create_app(config=None):
             return None
         return round(receita*1000.0/views,2)
 
+    @app.post('/api/campaigns/<int:cid>/experiment')
+    def save_experiment(cid):
+        """Marca a campanha como parte de um teste de gancho.
+
+        Fica no checklist (JSON) de proposito: nao exige coluna nova nem
+        migracao manual no Supabase. O valor e so um rotulo livre -- o que da
+        sentido a ele e comparar, dentro do mesmo rotulo, campanhas que mudaram
+        UMA coisa.
+        """
+        data = body()
+        c = start(cid, data)
+        etiqueta = (data.get('experiment') or '').strip()
+        if len(etiqueta) > 80:
+            raise Invalid('Nome do teste muito longo (máximo 80 caracteres).')
+        checklist = json.loads(c['checklist'] or '{}')
+        if not isinstance(checklist, dict):
+            checklist = {}
+        if etiqueta:
+            checklist['experiment'] = etiqueta
+        else:
+            checklist.pop('experiment', None)
+        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',
+                     (json.dumps(checklist, ensure_ascii=False), cid))
+        touch(cid, c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
+    @app.get('/api/experiments')
+    def list_experiments():
+        """Compara, dentro de cada teste, o que cada gancho realmente rendeu.
+
+        Sem isto, quando um video vai bem mudaram ao mesmo tempo a peca, a cor,
+        o gancho e o horario -- e todo aprendizado vira palpite. Aqui a unidade
+        de comparacao e o gancho, e o placar e R$ por mil visualizacoes, com
+        retencao so como desempate quando ainda nao ha venda lancada.
+        """
+        grupos = {}
+        for row in db().execute('SELECT id,name,checklist FROM campaigns ORDER BY id DESC LIMIT 200'):
+            try:
+                checklist = json.loads(row['checklist'] or '{}')
+            except (TypeError, ValueError):
+                continue
+            etiqueta = (checklist or {}).get('experiment')
+            if not etiqueta:
+                continue
+            perf = checklist.get('performance') if isinstance(checklist.get('performance'), dict) else {}
+            entradas = [e for e in perf.values() if isinstance(e, dict)]
+            receitas = [e['revenue_per_1k'] for e in entradas if e.get('revenue_per_1k') is not None]
+            retencoes = [e['watch_pct'] for e in entradas if e.get('watch_pct') is not None]
+            gancho = ''
+            for p in db().execute("SELECT content FROM prompts WHERE campaign_id=? AND kind='hook'", (row['id'],)):
+                gancho = p['content']
+            grupos.setdefault(etiqueta, []).append({
+                'campaign_id': row['id'],
+                'name': row['name'],
+                'hook': gancho,
+                'revenue_per_1k': max(receitas) if receitas else None,
+                'watch_pct': max(retencoes) if retencoes else None,
+            })
+        saida = []
+        for etiqueta, itens in grupos.items():
+            com_venda = [i for i in itens if i['revenue_per_1k'] is not None]
+            chave = ((lambda i: i['revenue_per_1k']) if com_venda
+                     else (lambda i: i['watch_pct'] if i['watch_pct'] is not None else -1))
+            itens.sort(key=chave, reverse=True)
+            saida.append({
+                'experiment': etiqueta,
+                'ranked_by': 'revenue_per_1k' if com_venda else 'watch_pct',
+                'complete': len(itens) >= 2 and all(
+                    (i['revenue_per_1k'] is not None) if com_venda else (i['watch_pct'] is not None)
+                    for i in itens),
+                'items': itens,
+            })
+        saida.sort(key=lambda g: g['experiment'])
+        return jsonify(saida)
+
     @app.post('/api/campaigns/<int:cid>/performance')
     def save_performance(cid):
         """Merge user-entered metrics into checklist.performance[color]."""

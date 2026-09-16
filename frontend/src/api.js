@@ -109,6 +109,7 @@ export const productivityQueue=()=>api('/productivity');
 
 export const playbookCreateCampaign=(body={})=>api('/studio/playbook/campaign',{method:'POST',body});
 
+export const listExperiments=()=>api('/experiments');
 export const studioIdentity=()=>api('/studio/identity');
 export const setupStatus=()=>api('/setup-status');
 

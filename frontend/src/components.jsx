@@ -1,7 +1,7 @@
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2 } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -584,7 +584,7 @@ export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
 }
 
 
-export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport,onSavePublishedLink}){
+export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onSaveExperiment,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport,onSavePublishedLink}){
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
   const insightsMap=(c.checklist&&c.checklist.insights)||{};
@@ -594,6 +594,14 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
   const [metrics,setMetrics]=useState({});
   const [criticoNote,setCriticoNote]=useState('');
   const [gateRun,setGateRun]=useState(null);
+  // Teste de gancho: agrupa campanhas que mudaram UMA coisa e mostra qual
+  // rendeu mais por mil visualizacoes. Sem isso nao da para saber se o video
+  // foi bem por causa do gancho, da peca, da cor ou do horario.
+  const [experimento,setExperimento]=useState((c.checklist||{}).experiment||'');
+  const [grupos,setGrupos]=useState([]);
+  useEffect(()=>{setExperimento((c.checklist||{}).experiment||'')},[c.id,c.version]);
+  useEffect(()=>{listExperiments().then(setGrupos).catch(()=>setGrupos([]))},[c.version]);
+  const meuGrupo=grupos.find(g=>g.experiment===((c.checklist||{}).experiment||''));
   const slotUrl=((c.checklist&&c.checklist.slots)||{})[active||'']?.url||((c.checklist&&c.checklist.slots)||{})[active||'default']?.url||'';
   const [tiktokLink,setTiktokLink]=useState(c.published_url||slotUrl||'');
   useEffect(()=>{const su=((c.checklist&&c.checklist.slots)||{})[active||'']?.url||((c.checklist&&c.checklist.slots)||{})[active||'default']?.url||'';setTiktokLink(c.published_url||su||'');},[c.id,c.version,c.published_url,active]);
@@ -640,6 +648,25 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
       <button type="button" className="primary" disabled={busy||!onSavePerformance} onClick={save}>Salvar métricas</button>
       <button type="button" disabled={busy||!onGenerateInsights} onClick={()=>onGenerateInsights({color:variant?.color})}>Gerar insights</button>
     </div>
+    <section className="experiment-block">
+      <div className="section-title"><h3>Teste de gancho</h3><span className="help">compare uma coisa por vez</span></div>
+      <p className="help">Dê o mesmo nome a duas ou três campanhas da mesma peça em que só o gancho muda. O app ranqueia por R$ por mil visualizações — e usa retenção só enquanto não houver comissão lançada.</p>
+      <div className="experiment-form">
+        <input aria-label="Nome do teste" value={experimento} maxLength={80} disabled={busy}
+          placeholder="ex.: gancho-legging-bolso" onChange={e=>setExperimento(e.target.value)}/>
+        <button type="button" disabled={busy||!onSaveExperiment} onClick={()=>onSaveExperiment(experimento)}>Marcar campanha</button>
+      </div>
+      {meuGrupo&&meuGrupo.items.length>1&&<table className="experiment-table">
+        <thead><tr><th>Gancho</th><th>{meuGrupo.ranked_by==='revenue_per_1k'?'R$/1k views':'Watch %'}</th></tr></thead>
+        <tbody>{meuGrupo.items.map(item=><tr key={item.campaign_id} className={item.campaign_id===c.id?'is-current':''}>
+          <td>{item.hook||'—'}</td>
+          <td>{meuGrupo.ranked_by==='revenue_per_1k'
+            ? (item.revenue_per_1k==null?'—':`R$ ${Number(item.revenue_per_1k).toFixed(2)}`)
+            : (item.watch_pct==null?'—':`${item.watch_pct}%`)}</td>
+        </tr>)}</tbody>
+      </table>}
+      {meuGrupo&&!meuGrupo.complete&&<small className="help">Falta lançar resultado de alguma campanha deste teste — só compare quando todas tiverem número.</small>}
+    </section>
     {card?<>
       <div className="score-grid">
         {scoreBox('Hook',card.hook)}

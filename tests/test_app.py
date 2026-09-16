@@ -186,6 +186,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.json)
         self.assertNotEqual(result.json['variants'][0]['prompts']['hook'],variant['prompts']['hook'])
 
+    def test_hook_experiment_ranks_by_revenue_not_by_reach(self):
+        # Teste controlado de gancho: mesma peca, ganchos diferentes. Sem
+        # agrupar e comparar, quando um video vai bem mudaram peca, cor, gancho
+        # e horario ao mesmo tempo -- e o aprendizado vira palpite.
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code, 200)
+        self.assertEqual(self.post('/experiment', {'experiment': 'gancho-vestido'}).status_code, 200)
+        self.post('/performance', {'color': 'Azul', 'metrics': {'views_7d': 5000, 'revenue': 150,
+                                                                'watch_pct': 3.0}})
+        vencedor = self.get()['prompts']['hook']
+
+        outra = self.client.post('/api/campaigns', json={**self.brief, 'name': 'Variação B'},
+                                 headers=self.headers)
+        cid2 = outra.json['id']
+        self.client.post(f'/api/campaigns/{cid2}/assets',
+                         data={'kind': 'reference', 'file': (io.BytesIO(image_bytes()), 't.png')},
+                         headers=self.headers)
+        self.client.post(f'/api/campaigns/{cid2}/generate', json={}, headers=self.headers)
+        self.client.post(f'/api/campaigns/{cid2}/experiment', json={'experiment': 'gancho-vestido'},
+                         headers=self.headers)
+        self.client.post(f'/api/campaigns/{cid2}/performance',
+                         json={'color': 'Azul', 'metrics': {'views_7d': 300000, 'revenue': 30,
+                                                            'watch_pct': 80.0}},
+                         headers=self.headers)
+
+        grupos = self.client.get('/api/experiments').json
+        self.assertEqual(len(grupos), 1)
+        grupo = grupos[0]
+        self.assertEqual(grupo['experiment'], 'gancho-vestido')
+        self.assertEqual(grupo['ranked_by'], 'revenue_per_1k')
+        self.assertTrue(grupo['complete'])
+        # 150/5k = R$30 por mil; 30/300k = R$0,10 por mil. Alcance perde.
+        self.assertEqual(grupo['items'][0]['hook'], vencedor)
+        self.assertEqual(grupo['items'][0]['revenue_per_1k'], 30.0)
+
     def test_package_carries_post_texts_without_putting_them_inside_the_video(self):
         # Texto na tela e o que entrega o gancho para quem assiste sem som. A
         # proibicao continua valendo DENTRO do video gerado (IA escreve letra

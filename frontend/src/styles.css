@@ -5050,3 +5050,12 @@ button.linkish {
 /* Textos que vao na postagem (capa e tela), nao dentro do video gerado. */
 .post-text-block{margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#d9dee5)}
 .post-text-block input{width:100%}
+
+/* Teste de gancho: comparar uma variavel por vez. */
+.experiment-block{margin-top:16px;padding-top:14px;border-top:1px solid var(--line,#d9dee5)}
+.experiment-form{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.experiment-form input{flex:1 1 220px}
+.experiment-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.92rem}
+.experiment-table th,.experiment-table td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line,#e6eaef)}
+.experiment-table td:last-child,.experiment-table th:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.experiment-table tr.is-current{font-weight:600}
