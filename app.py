@@ -1438,6 +1438,40 @@ def create_app(config=None):
         db().commit()
         return jsonify(layout=positions)
 
+    def recent_spoken_lines(limit=40):
+        """Ultimas falas ja gravadas, para o gerador nao repetir o molde.
+
+        Le do proprio banco (tabela prompts e as variacoes por cor): o historico
+        ja estava la, entao a memoria nao exige tabela nova nem migracao no
+        Supabase. Falha em silencio de proposito -- memoria e reforco de
+        qualidade e jamais deve impedir a geracao de um roteiro.
+        """
+        out = {'hook': [], 'development': [], 'cta': []}
+        try:
+            for row in db().execute(
+                    "SELECT kind,content FROM prompts WHERE kind IN ('hook','development','cta')"
+                    " ORDER BY updated_at DESC LIMIT ?", (limit * 3,)):
+                kind = row['kind']
+                if kind in out and len(out[kind]) < limit:
+                    out[kind].append(row['content'])
+            for row in db().execute(
+                    'SELECT prompts FROM campaign_variants ORDER BY id DESC LIMIT ?', (limit,)):
+                try:
+                    data = json.loads(row['prompts'] or '{}')
+                except (TypeError, ValueError):
+                    continue
+                for kind in out:
+                    value = (data or {}).get(kind)
+                    if value and len(out[kind]) < limit * 2:
+                        out[kind].append(value)
+        except Exception as exc:
+            app.logger.info('memoria de falas indisponivel: %s', exc)
+        return out
+
+    def with_line_memory(campaign):
+        """Anexa ao briefing as falas recentes, que o gerador usa para variar."""
+        return {**campaign, 'recent_lines': recent_spoken_lines()}
+
     def write_with_llm(campaign, pack, cid=None, required=False):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
 
@@ -1448,8 +1482,17 @@ def create_app(config=None):
             # Fica no checklist (que agora sobrevive as transicoes) para a tela
             # poder dizer quem escreveu. Sem isso o operador nao tem como saber
             # se leu um texto do modelo ou do gerador local.
+            #
+            # 'local_audit' guarda o que a auditoria achou do texto que
+            # realmente foi publicado. Antes a regua so era aplicada no texto da
+            # IA: o deterministico ia pro ar reprovado e ninguem ficava sabendo.
             if cid:
-                patch_checklist(cid, {'writer': {'by': origem, 'reason': motivo}})
+                registro = {'by': origem, 'reason': motivo}
+                try:
+                    registro['local_audit'] = copywriter.audit(pack, campaign)
+                except Exception:
+                    registro['local_audit'] = []
+                patch_checklist(cid, {'writer': registro})
 
         settings = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
         if not settings.get('enabled'):
@@ -1515,20 +1558,20 @@ def create_app(config=None):
         need_asset(cid,'reference')
         if c['status']!='briefing':
             raise Invalid('Edite o briefing para iniciar uma nova versão dos prompts.',409)
-        current=detail(cid)
+        current=with_line_memory(detail(cid))
         for photo in current['product_assets']:
             path_for(photo)
         colors=color_variants(current['color'])
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         if len(colors)>=2:
-            variants=generate_variants(current)
+            variants=generate_variants(current,audit=copywriter.audit)
             for variant in variants:
                 variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'],cid)
                 db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
                              (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
             save_prompts(cid,variants[0]['prompts'])
         else:
-            pack,_=write_with_llm(current,generate(current),cid)
+            pack,_=write_with_llm(current,generate(current,audit=copywriter.audit),cid)
             save_prompts(cid,pack)
         touch(cid, c['version'])
         db().commit()
@@ -1547,11 +1590,11 @@ def create_app(config=None):
         need_asset(cid,'reference')
         if c['status']!='briefing':
             raise Invalid('Edite o briefing para gerar novas variações.',409)
-        current=detail(cid)
+        current=with_line_memory(detail(cid))
         for photo in current['product_assets']:
             path_for(photo)
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
-        variants=generate_variants(current)
+        variants=generate_variants(current,audit=copywriter.audit)
         for variant in variants:
             variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'],cid)
             db().execute('INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?)',
@@ -2252,9 +2295,10 @@ def create_app(config=None):
         writer_mode=data.get('writer_mode','auto')
         if writer_mode not in {'auto','ai','local'}:
             raise Invalid('Modo de escrita inválido.')
-        merged=refresh_script_fields(c,c['color'],current['prompts'],fields=fields)
+        merged=refresh_script_fields(with_line_memory(c),c['color'],current['prompts'],fields=fields)
         if writer_mode=='local':
-            patch_checklist(cid, {'writer': {'by': 'local', 'reason': ''}})
+            patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
+                                             'local_audit': copywriter.audit(merged, c)}})
             rewritten=merged
         else:
             writer_campaign={**c,'previous_script':{k:current['prompts'].get(k,'') for k in ('hook','development','cta')}}
@@ -2294,7 +2338,7 @@ def create_app(config=None):
             raise Invalid('Modo de escrita inválido.')
         current=json.loads(row['prompts'])
         try:
-            merged=refresh_script_fields(c,row['color'],current,fields=fields,bump=1)
+            merged=refresh_script_fields(with_line_memory(c),row['color'],current,fields=fields,bump=1)
         except ValueError as exc:
             raise Invalid(str(exc)) from exc
         # keep existing image prompt if present

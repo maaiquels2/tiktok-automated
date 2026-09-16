@@ -911,10 +911,16 @@ function WriterBadge({c}){
   if(!info) return null;
   const nomes={openai:'OpenAI',gemini:'Gemini',ia:'IA'};
   const porIA=info.by&&info.by!=='local';
-  return <div className={'writer-badge '+(porIA?'is-ai':'is-local')}>
+  // A auditoria agora julga tambem o texto local, que e o que realmente vai ao
+  // ar quando a IA nao responde. Se ela reprovou, isso aparece aqui: publicar
+  // sem saber que o roteiro esta abaixo da regua era o problema.
+  const reprovas=Array.isArray(info.local_audit)?info.local_audit:[];
+  return <div className={'writer-badge '+(reprovas.length?'is-flagged':porIA?'is-ai':'is-local')}>
     <strong>{porIA?`Escrito por IA · ${nomes[info.by]||info.by}`:'Texto local (sem IA)'}</strong>
     {!porIA&&info.reason&&<small>A IA tentou e foi recusada: {info.reason}. Use “Atualizar fala inteira” para tentar de novo.</small>}
     {!porIA&&!info.reason&&<small>Ligue a escrita por IA no ícone de Identidade, no topo.</small>}
+    {reprovas.length>0&&<small className="writer-audit-fail"><strong>A auditoria reprovou este roteiro:</strong> {reprovas.join('; ')}. Gere outra fala antes de publicar.</small>}
+    {reprovas.length===0&&<small className="writer-audit-ok">Auditoria: aprovado.</small>}
   </div>;
 }
 function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter}){

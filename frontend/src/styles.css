@@ -5036,3 +5036,8 @@ button.linkish {
     flex: 1 1 100%;
   }
 }
+
+/* Auditoria do roteiro: o texto que vai ao ar tambem passa pela regua. */
+.writer-badge.is-flagged{border-color:var(--danger,#b3261e)}
+.writer-badge .writer-audit-fail{color:var(--danger,#b3261e)}
+.writer-badge .writer-audit-ok{opacity:.75}

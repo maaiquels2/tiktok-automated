@@ -1,4 +1,5 @@
 """Local, deterministic drafts. No paid generation or external API calls."""
+import difflib
 import re
 import unicodedata
 
@@ -917,62 +918,151 @@ def _count_words(text):
     return len([w for w in _phrase(text).split() if w])
 
 
-def _pick_in_budget(candidates, index, low, high):
-    # Prefere as opcoes dentro do orcamento falado; se nenhuma couber, usa a mais curta.
-    clean = [c for c in candidates if _phrase(c)]
-    if not clean:
+def _line_key(text):
+    """Impressao digital de uma fala, usada para reconhecer repeticao."""
+    txt = unicodedata.normalize('NFKD', _phrase(text).casefold())
+    txt = ''.join(ch for ch in txt if not unicodedata.combining(ch))
+    return re.sub(r'[^a-z0-9]+', ' ', txt).strip()
+
+
+# Duas falas com o mesmo molde ("Olha o bolso com a legging..." e "Olha o forro
+# com o vestido...") sao quase identicas caractere a caractere, porque o molde
+# ocupa a maior parte da frase. Acima deste limite tratamos como repeticao --
+# e o que impede a conta de publicar a mesma abertura cinco vezes por semana.
+_REPEAT_RATIO = 0.72
+
+
+def _too_similar(candidate, used_keys, fuzzy=True):
+    """Ja usamos esta fala, ou uma com o mesmo molde?
+
+    ``fuzzy`` fica desligado no CTA de proposito: chamada para acao repete
+    vocabulario por natureza ("no carrinho aqui embaixo" aparece em quase
+    todas), entao a semelhanca de texto ali nao significa molde repetido --
+    significa so que as duas sao um CTA. No hook e no desenvolvimento, que e
+    onde a repeticao cansa o espectador, a semelhanca vale.
+    """
+    key = _line_key(candidate)
+    if not key:
+        return False
+    if key in used_keys:
+        return True
+    if not fuzzy:
+        return False
+    return any(difflib.SequenceMatcher(None, old, key).ratio() > _REPEAT_RATIO
+               for old in used_keys if old)
+
+
+def _used_keys(c, field):
+    """Falas ja publicadas, entregues pelo app em 'recent_lines'.
+
+    O app le as ultimas falas gravadas no banco e manda junto com o briefing.
+    Sem esse campo o gerador funciona como antes -- a memoria e um reforco,
+    nunca um requisito.
+    """
+    data = c.get('recent_lines')
+    if not isinstance(data, dict):
+        return set()
+    return {k for k in (_line_key(t) for t in (data.get(field) or [])) if k}
+
+
+def _pick_in_budget(candidates, index, low, high, used_keys=(), fuzzy=True):
+    """Escolhe uma fala dentro do orcamento falado, evitando molde repetido.
+
+    ``candidates`` aceita texto solto ou pares (molde, texto). O molde nao muda
+    a escolha por si so: ele existe para deduplicar e para deixar claro, na
+    leitura do codigo, que cada familia e uma estrutura de frase diferente --
+    nao a mesma frase com outra palavra no meio.
+    """
+    pairs, seen = [], set()
+    for item in candidates:
+        tid, text = item if isinstance(item, tuple) else ('', item)
+        text = _phrase(text)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        pairs.append((tid, text))
+    if not pairs:
         return ''
-    fits = [c for c in clean if low <= _count_words(c) <= high]
+    fits = [p for p in pairs if low <= _count_words(p[1]) <= high]
     if not fits:
         # Nenhum candidato coube: usa os mais proximos da faixa, nao os mais
         # curtos - um hook curto demais vira rotulo e nao prende ninguem.
         def distance(item):
-            n = _count_words(item)
+            n = _count_words(item[1])
             return low - n if n < low else (n - high if n > high else 0)
-        fits = sorted(clean, key=distance)[:3]
-    return fits[int(index or 0) % len(fits)]
+        fits = sorted(pairs, key=distance)[:3]
+    fresh = [p for p in fits if not _too_similar(p[1], used_keys, fuzzy)] if used_keys else fits
+    pool = fresh or fits
+    return pool[int(index or 0) % len(pool)][1]
 
 
 def _hook_pool(c, detail, forms):
-    # Orcamento do hook: 10 a 12 palavras (4s a 2,8 palavras por segundo).
+    """Ganchos de 9 a 14 palavras, em primeira pessoa e sem inventar fato.
+
+    Primeira pessoa aqui e sempre sobre o que da para ver ou fazer na hora da
+    gravacao -- olhei, vesti, reparei, testei, me surpreendi. Nunca sobre
+    historia que ninguem pode verificar ("lavei vinte vezes", "comprei mes
+    passado"): isso seria inventar fato, exatamente o que o projeto inteiro
+    existe para evitar. Opiniao ("foi o que mais gostei") e livre, porque e
+    opiniao declarada e nao promessa de desempenho.
+
+    Cada familia abaixo e uma ESTRUTURA diferente de abertura, nao uma troca de
+    palavra dentro do mesmo molde -- e a estrutura que o espectador reconhece
+    quando ve o quarto video da semana.
+    """
     dem, prep, piece, art = forms['dem'], forms['prep'], forms['piece'], forms['art']
+    de = forms['de']
     det = _phrase(detail)
     det_em = _with_em(det)
     pain, _check = _objection_parts(c)
     offer = _offer_text(c)
-    desejo = [
-        f'Olha {det} com {art} {piece} em movimento, bem de perto.',
-        f'É {det} que muda o visual inteiro {prep} {piece}.',
-        f'Antes de escolher {dem} {piece}, repara {det_em} com calma.',
-        f'Vale olhar {det} bem de perto antes de decidir.',
-        f'O que decide {prep} {piece} é {det}. Olha só.',
-        f'Poucas pessoas reparam {det_em}, e é o que muda tudo.',
+
+    # Descoberta: eu vi algo que nao esperava ver.
+    descoberta = [
+        ('desc-achei', f'Achei {dem} {piece} e não esperava {det}.'),
+        ('desc-naosabia', f'Não sabia que {dem} {piece} tinha {det} até ver de perto.'),
+        ('desc-peguei', f'Peguei {dem} {piece} pra olhar de perto e encontrei {det}.'),
+        ('desc-vesti', f'Vesti {dem} {piece} e só então reparei {det_em}.'),
     ]
+    # Contraste: minha expectativa era uma, o que vi foi outra.
+    contraste = [
+        ('cont-igual', f'Achei que {dem} {piece} fosse igual às outras. Aí vi {det}.'),
+        ('cont-batido', f'Quase passei batido {prep} {piece}, mas {det} me segurou.'),
+        ('cont-esperava', f'Esperava pouco {de} {piece} e me surpreendi com {det}.'),
+    ]
+    # Criterio: o detalhe que decidiu por mim.
+    decide = [
+        ('dec-escolhi', f'O que me fez escolher {dem} {piece} foi {det}.'),
+        ('dec-mudou', f'Reparei {det_em} e mudou o que eu achava {de} {piece}.'),
+        ('dec-criterio', f'Pra mim o que decide {prep} {piece} é {det}.'),
+    ]
+    # Uso: eu com a peca, agora.
+    uso = [
+        ('uso-gostei', f'Vesti {dem} {piece} e {det} foi o que mais gostei.'),
+        ('uso-volto', f'Uso {dem} {piece} e sempre acabo voltando {det_em}.'),
+    ]
+    # Necessidade: a dor que o briefing declarou, na minha voz.
     necessidade = []
     if pain:
         necessidade = [
-            f'Se você já desistiu {forms["de"]} {piece} por {pain}, olha isto.',
-            f'O que mais segura a compra costuma ser {pain}. Olha isto.',
-            f'Como saber se vai {pain}? Repara {det_em} agora.',
-            f'Cansou de {pain}? Então olha {det} com atenção.',
+            ('nec-medo', f'Meu medo {de} {piece} sempre foi {pain}. Olha {det}.'),
+            ('nec-segurava', f'O que me segurava {prep} {piece} era {pain}. Repara {det_em}.'),
+            ('nec-desisti', f'Eu já desisti {de} {piece} quando o problema era {pain}.'),
+            ('nec-testei', f'Testei {dem} {piece} justamente porque meu medo era {pain}.'),
         ]
+    # Escassez com oferta real declarada no briefing.
     escassez = []
     if offer:
         escassez = [
-            f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes de acabar.',
-            f'Antes de acabar: {offer}. Repara {det_em}.',
+            ('esc-oferta', f'{_sentence(offer[0].upper() + offer[1:])} E eu reparei {det_em}.'),
+            ('esc-antes', f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes.'),
         ]
-    # Escassez de contexto (descoberta): sempre honesta, nao depende de
-    # oferta real -- 'achei e nao esperava' em vez de prazo/estoque inventado.
-    escassez_contexto = [
-        f'Achei {dem} {piece} e não esperava {det}.',
-        f'Não sabia que {dem} {piece} tinha {det} até ver de perto.',
-    ]
+
     motor = _dominant_motor(c)
     order = {
-        'necessidade': [necessidade, desejo, escassez_contexto],
-        'desejo': [desejo, necessidade, escassez_contexto],
-        'escassez': [escassez, escassez_contexto, necessidade, desejo],
+        'necessidade': [necessidade, contraste, decide, descoberta, uso],
+        'desejo': [decide, uso, descoberta, contraste, necessidade],
+        'escassez': [escassez, descoberta, contraste, decide, uso],
     }[motor]
     if offer and motor != 'escassez':
         order.insert(1, escassez)
@@ -984,10 +1074,11 @@ def _hook_pool(c, detail, forms):
     return pool
 
 
-def _development_line(c, detail, features, forms, index):
+def _development_line(c, detail, features, forms, index, used_keys=()):
     # Tres batidas: prova (4-6s), objecao quebrada (6-10s), posse (10-12s).
-    # Orcamento total: 20 a 24 palavras. Se estourar, cai a posse primeiro -
-    # a prova nunca e descartada.
+    # A auditoria pede de 18 a 26 palavras: as combinacoes de prova e
+    # fechamento existem para o trecho cair dentro da faixa em vez de sair
+    # curto demais, que era o defeito antigo ("development tem 17 palavras").
     feats = list(features or [])
     benefit_preview = _benefit_clause(c).casefold()
     # Se o beneficio ja cita o primeiro fato, a prova usa o segundo. Repetir a
@@ -998,12 +1089,13 @@ def _development_line(c, detail, features, forms, index):
         det = _phrase(detail)
     det_em = _with_em(det)
     provas = [
-        f'Olha {det} de perto.',
-        f'Repara {det_em} com calma.',
-        f'Aqui aparece {det}.',
-        f'Começa {det_em}.',
+        ('prv-olha', f'Olha {det} de perto.'),
+        ('prv-repara', f'Repara {det_em} com calma.'),
+        ('prv-aqui', f'Aqui aparece {det}.'),
+        ('prv-reparei', f'Eu reparei {det_em} primeiro.'),
+        ('prv-fui', f'Fui ver {det} de perto.'),
+        ('prv-parte', f'A parte que eu mais olho é {det}.'),
     ]
-    prova = provas[int(index or 0) % len(provas)]
     _pain, check = _objection_parts(c)
     benefit = _benefit_clause(c)
     benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
@@ -1017,59 +1109,77 @@ def _development_line(c, detail, features, forms, index):
     else:
         meio = ''
     occasion = _NICHE_OCCASION.get((c.get('niche') or '').strip(), '')
-    posse = _sentence(f'Dá para usar {occasion}') if occasion else ''
-    beats = [b for b in (_sentence(prova), meio, posse) if b]
-    while len(beats) > 1 and _count_words(' '.join(beats)) > 24:
-        beats.pop()
-    return ' '.join(beats)
+    fechamentos = []
+    if occasion:
+        fechamentos = [
+            ('fec-da', _sentence(f'Dá para usar {occasion}')),
+            ('fec-eu', _sentence(f'Eu mesma uso {occasion}')),
+        ]
+    # Fechamento de opiniao: nao afirma desempenho, so declara preferencia.
+    # Serve para o trecho alcancar o piso de 18 palavras sem inventar atributo.
+    fechamentos.append(('fec-tipo', 'É o tipo de detalhe que eu procuro.'))
+
+    candidates = []
+    for ptid, prova in provas:
+        for ftid, fecho in fechamentos:
+            beats = [b for b in (_sentence(prova), meio, fecho) if b]
+            texto = ' '.join(beats)
+            if _count_words(texto) > 26:
+                texto = ' '.join(beats[:-1])
+            candidates.append((f'{ptid}+{ftid}', texto))
+    return _pick_in_budget(candidates, index, 18, 26, used_keys)
 
 
 def _cta_pool(c, forms):
-    # Orcamento do CTA: 7 a 9 palavras.
+    # Orcamento do CTA: 6 a 10 palavras.
     #
     # Vocabulario real do TikTok Shop: o botao e o carrinho laranja e o link
     # fica embaixo do video. "Produto marcado" e linguagem de painel, nao de
     # quem fala com a camera - por isso o CTA soava de aviso institucional.
     piece, dem, art = forms['piece'], forms['dem'], forms['art']
+    concord = 'a' if art == 'a' else 'o'
     colors = color_variants(c.get('color'))
     pain, _check = _objection_parts(c)
     offer = _offer_text(c)
     direto = [
-        'Se você também gostou, dá uma conferida no carrinho.',
-        'O link tá aqui embaixo, é só tocar no carrinho.',
-        'Dá uma olhada no carrinho aqui embaixo.',
-        f'Quer {art} {piece}? Tá no carrinho aqui embaixo.',
+        ('cta-gostou', 'Se você também gostou, dá uma conferida no carrinho.'),
+        ('cta-link', 'O link tá aqui embaixo, é só tocar no carrinho.'),
+        ('cta-olhada', 'Dá uma olhada no carrinho aqui embaixo.'),
+        ('cta-quer', f'Quer {art} {piece}? Tá no carrinho aqui embaixo.'),
+        ('cta-deixei', f'Deixei {forms["pron"]} marcad{concord} no carrinho aqui embaixo.'),
+        ('cta-vaila', 'Vai lá no carrinho aqui embaixo dar uma olhada.'),
     ]
     if len(colors) > 1:
         direto = [
-            'As cores tão todas no carrinho aqui embaixo.',
-            'Escolhe a tua cor no carrinho aqui embaixo.',
-            'Corre ver as cores no carrinho aqui embaixo.',
+            ('cta-cores', 'As cores tão todas no carrinho aqui embaixo.'),
+            ('cta-escolhe', 'Escolhe a tua cor no carrinho aqui embaixo.'),
+            ('cta-vercores', 'Corre ver as cores no carrinho aqui embaixo.'),
         ] + direto
     condicional = [
-        'Se isso te incomoda também, olha no carrinho.',
-        'Se você já passou por isso, o link tá embaixo.',
+        ('cta-incomoda', 'Se isso te incomoda também, olha no carrinho.'),
+        ('cta-passou', 'Se você já passou por isso, o link tá embaixo.'),
+        ('cta-mesmo', 'Se for o teu caso, dá uma olhada no carrinho.'),
     ] if pain else []
     escassez = [
-        _sentence(f'{offer}. Corre no carrinho aqui embaixo'),
-        _sentence(f'{offer}. O link tá aqui embaixo'),
+        ('cta-ofcorre', _sentence(f'{offer}. Corre no carrinho aqui embaixo')),
+        ('cta-oflink', _sentence(f'{offer}. O link tá aqui embaixo')),
     ] if offer else []
     posse = [
-        'Corre garantir a tua, o link tá aqui embaixo.',
-        'Pega a tua no carrinho aqui embaixo.',
-        f'Garante {art} tu{"a" if art == "a" else "o"} no carrinho aqui embaixo.',
+        ('cta-garante', 'Corre garantir a tua, o link tá aqui embaixo.'),
+        ('cta-pega', 'Pega a tua no carrinho aqui embaixo.'),
+        ('cta-tua', f'Garante {art} tu{"a" if art == "a" else "o"} no carrinho aqui embaixo.'),
     ]
     descoberta = [
-        'Se isso te interessou, dá uma olhada no produto.',
-        'Se isso te chamou atenção, olha no produto.',
+        ('cta-interessou', 'Se isso te interessou, dá uma olhada no carrinho.'),
+        ('cta-chamou', 'Se isso te chamou atenção, olha no carrinho.'),
     ]
     motor = _dominant_motor(c)
     if motor == 'escassez':
         order = [descoberta, direto, posse, condicional]
     elif motor == 'necessidade':
-        order = [condicional, direto, posse]
+        order = [condicional, direto, posse, descoberta]
     else:
-        order = [posse, direto, condicional]
+        order = [posse, direto, descoberta, condicional]
     if offer:
         order.insert(0, escassez)
     pool = []
@@ -1090,9 +1200,12 @@ def _script_variation(c, color, index=0):
     detail = _with_article(focus if focus else 'o caimento')
     i = int(index or 0)
 
-    selected_hook = _pick_in_budget(_hook_pool(c, hook_detail, forms), i, 10, 13)
-    selected_development = _development_line(c, detail, features, forms, i)
-    selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10)
+    selected_hook = _pick_in_budget(_hook_pool(c, hook_detail, forms), i, 10, 13,
+                                    _used_keys(c, 'hook'))
+    selected_development = _development_line(c, detail, features, forms, i,
+                                             _used_keys(c, 'development'))
+    selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10,
+                                   _used_keys(c, 'cta'), fuzzy=False)
 
     # Teto absoluto de 45 palavras faladas (~15s). Se estourar, encurta o
     # desenvolvimento pela ultima batida, nunca pela prova.
@@ -1417,15 +1530,45 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     )
 
 
-def generate_variants(c):
+def generate_variants(c, audit=None):
     colors = color_variants(c.get('color'))
     # A primeira cor edita a referencia; as seguintes editam a base aprovada,
     # mantendo cenario, pose e enquadramento identicos.
-    return [{'color': color, 'prompts': generate({**c, 'color': color}, variant_index=index, base_image=index > 0)}
-            for index, color in enumerate(colors)]
+    #
+    # As falas ja escolhidas entram na memoria da propria rodada: sem isso as
+    # cores de uma mesma campanha saem com o mesmo molde de frase, que e
+    # justamente o que o espectador percebe quando ve dois posts seguidos.
+    memoria = {k: list(v) for k, v in (c.get('recent_lines') or {}).items() if isinstance(v, list)}
+    saida = []
+    for index, color in enumerate(colors):
+        pacote = generate({**c, 'color': color, 'recent_lines': memoria},
+                          variant_index=index, base_image=index > 0, audit=audit)
+        for campo in ('hook', 'development', 'cta'):
+            if pacote.get(campo):
+                memoria.setdefault(campo, []).append(pacote[campo])
+        saida.append({'color': color, 'prompts': pacote})
+    return saida
 
 
-def generate(c, script=None, variant_index=0, base_image=False):
+def generate(c, script=None, variant_index=0, base_image=False, audit=None, attempts=6):
+    """Monta o pacote (imagem, video, falas, legenda) de uma cor.
+
+    ``audit`` e opcional e recebe ``(pacote, campanha)``, devolvendo a lista de
+    problemas. Quando vem preenchido, o gerador percorre as variacoes seguintes
+    ate achar uma que passe -- e a forma de a mesma regua que julga o texto da
+    IA valer tambem para o texto local. Sem ele o comportamento e o de antes.
+    Texto escrito pelo operador (``script``) nunca e trocado por este caminho.
+    """
+    if audit is not None and not script:
+        melhor, melhor_problemas = None, None
+        for passo in range(max(1, int(attempts))):
+            pacote = generate(c, variant_index=int(variant_index or 0) + passo, base_image=base_image)
+            problemas = list(audit(pacote, c) or [])
+            if not problemas:
+                return pacote
+            if melhor_problemas is None or len(problemas) < len(melhor_problemas):
+                melhor, melhor_problemas = pacote, problemas
+        return melhor
     # Always treat color as a single variant for one image/video package.
     colors = color_variants(c.get('color'))
     if len(colors) > 1:

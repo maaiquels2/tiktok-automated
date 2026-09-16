@@ -80,10 +80,15 @@ GENERIC_HOOK_PATTERNS = (
     r'^olha\s+(?:só\s+)?ess[ae]\b', r'^essa\s+pe[çc]a\s+[ée]\b',
 )
 
+# Marcas de fala em primeira pessoa. A lista antiga deixava de fora formas
+# obviamente pessoais ("reparei", "gostei", "pra mim") e por isso reprovava
+# texto correto -- era parte do motivo de o gerador local nunca passar aqui.
 FIRST_PERSON_PATTERNS = (
-    r'\beu\b', r'\bme\b', r'\bminh[ao]s?\b', r'\bcomigo\b',
+    r'\beu\b', r'\bme\b', r'\bmim\b', r'\bminh[ao]s?\b', r'\bcomigo\b',
     r'\bachei\b', r'\bvesti\b', r'\busei\b', r'\buso\b',
     r'\btestei\b', r'\bexperimentei\b', r'\bpercebi\b',
+    r'\breparei\b', r'\bolhei\b', r'\bpeguei\b', r'\bgostei\b',
+    r'\bencontrei\b', r'\bsurpreendi\b',
 )
 
 SYSTEM_PROMPT = """Você é uma roteirista sênior de resposta direta para vídeos UGC de 15 segundos no TikTok Shop, em português do Brasil.

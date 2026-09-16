@@ -186,6 +186,60 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.json)
         self.assertNotEqual(result.json['variants'][0]['prompts']['hook'],variant['prompts']['hook'])
 
+    def test_local_script_passes_the_apps_own_audit(self):
+        # A regua que julga o texto da IA vale para o texto local: antes o
+        # deterministico saia reprovado ("nao soam como experiencia pessoal")
+        # e mesmo assim ia pro ar.
+        for product, outfit, benefit, niche in (
+                ('Legging cintura alta com bolso', 'legging', 'tem bolso lateral', 'academia'),
+                ('Vestido midi de alcinha', 'vestido', 'tem forro interno', 'casual'),
+                ('Camisola de renda', 'camisola', 'tem detalhe em renda', 'intima')):
+            campaign = {**self.brief, 'product': product, 'outfit': outfit,
+                        'benefit': benefit, 'niche': niche, 'details': ''}
+            pack = generate(campaign, audit=copywriter_audit)
+            self.assertEqual(copywriter_audit(pack, campaign), [], f'{product}: {pack["hook"]}')
+
+    def test_recent_lines_keep_the_generator_from_repeating_the_same_mold(self):
+        # O defeito real: 32 geracoes do mesmo produto davam 4 ganchos, e todos
+        # os produtos usavam a mesma frase com as palavras trocadas.
+        campaign = {**self.brief, 'product': 'Legging cintura alta com bolso',
+                    'outfit': 'legging', 'benefit': 'tem bolso lateral', 'niche': 'academia'}
+        memoria = {'hook': [], 'development': [], 'cta': []}
+        ganchos = []
+        for _ in range(6):
+            pack = generate({**campaign, 'recent_lines': {k: list(v) for k, v in memoria.items()}})
+            ganchos.append(pack['hook'])
+            for campo in memoria:
+                memoria[campo].append(pack[campo])
+        self.assertEqual(len(set(ganchos)), len(ganchos), ganchos)
+
+    def test_generate_endpoint_does_not_repeat_the_hook_of_the_previous_campaign(self):
+        # Ponta a ponta: a memoria precisa chegar ate o endpoint, senao cada
+        # campanha de cor unica nasce com o mesmo gancho (variant_index=0).
+        self.assertEqual(self.upload('reference').status_code, 201)
+        self.assertEqual(self.post('/generate').status_code, 200)
+        primeiro = self.get()['prompts']['hook']
+
+        outra = self.client.post('/api/campaigns', json={**self.brief, 'name': 'Segunda campanha'},
+                                 headers=self.headers)
+        self.assertEqual(outra.status_code, 201, outra.json)
+        cid2 = outra.json['id']
+        self.client.post(f'/api/campaigns/{cid2}/assets',
+                         data={'kind': 'reference', 'file': (io.BytesIO(image_bytes()), 'test.png')},
+                         headers=self.headers)
+        self.assertEqual(self.client.post(f'/api/campaigns/{cid2}/generate', json={},
+                                          headers=self.headers).status_code, 200)
+        segundo = self.client.get(f'/api/campaigns/{cid2}').json['prompts']['hook']
+        self.assertNotEqual(primeiro, segundo)
+
+    def test_writer_record_says_whether_the_published_text_passed_the_audit(self):
+        # Sem isso o operador nao tem como saber que publicou texto reprovado.
+        self.assertEqual(self.upload('reference').status_code, 201)
+        self.assertEqual(self.post('/generate').status_code, 200)
+        writer = self.get()['checklist'].get('writer') or {}
+        self.assertIn('local_audit', writer)
+        self.assertEqual(writer['local_audit'], [])
+
     def test_hooks_have_complete_openings_with_bounded_length(self):
         for product in ('Legging de treino cintura alta com bolso lateral poliamida','Vestido midi','Conjunto casual'):
             for index in range(6):
