@@ -603,7 +603,8 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
     setMetrics({
       views_24h:prev.views_24h??'',views_7d:prev.views_7d??'',watch_pct:prev.watch_pct??'',
       likes:prev.likes??'',comments:prev.comments??'',saves:prev.saves??'',shares:prev.shares??'',
-      orders:prev.orders??'',notes:prev.notes??''
+      orders:prev.orders??'',product_clicks:prev.product_clicks??'',revenue:prev.revenue??'',
+      notes:prev.notes??''
     });
   },[active,c.version]);
   const variant=variants.find(v=>v.color===active)||variants[0];
@@ -616,15 +617,25 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onG
   const save=()=>onSavePerformance&&onSavePerformance({color:variant?.color,metrics:{
     views_24h:num(metrics.views_24h),views_7d:num(metrics.views_7d),watch_pct:num(metrics.watch_pct),
     likes:num(metrics.likes),comments:num(metrics.comments),saves:num(metrics.saves),shares:num(metrics.shares),
-    orders:num(metrics.orders),notes:metrics.notes||undefined
+    orders:num(metrics.orders),product_clicks:num(metrics.product_clicks),
+    revenue:num(metrics.revenue),notes:metrics.notes||undefined
   }});
   const scoreBox=(title,block)=><div className="score-card"><strong>{title}</strong><div className="score-num">{block?.score??'—'}</div><p>{block?.note||''}</p></div>;
   return <section className="performance-panel">
     <div className="section-title"><h3>Performance & Insights</h3><span className="help">métricas manuais · crítico local</span></div>
     <div className="publish-slot-tabs">{variants.map(v=><button type="button" key={v.color||'x'} className={'slot-tab'+(active===v.color?' active':'')} disabled={busy} onClick={()=>setActive(v.color)}>{v.color||'Produto'}</button>)}</div>
+    {(() => {
+      // Alcance nao paga comissao. R$/1k views e o unico numero que compara
+      // um video de 200 mil views sem clique com um de 8 mil que vendeu.
+      const atual=perfMap[active||'default']||perfMap[active]||{};
+      const rpm=atual.revenue_per_1k;
+      if(rpm==null) return <p className="help">Preencha comissão e views para o app calcular R$ por mil visualizações — é por esse número que vale ranquear o que repetir.</p>;
+      return <div className="revenue-pill"><span>R$ por mil views</span><strong>{`R$ ${Number(rpm).toFixed(2)}`}</strong></div>;
+    })()}
     <div className="metric-form">
       {field('views_24h','Views 24h')}{field('views_7d','Views 7d')}{field('watch_pct','Watch %','0.1')}
-      {field('likes','Likes')}{field('comments','Comentários')}{field('saves','Saves')}{field('shares','Shares')}{field('orders','Pedidos')}
+      {field('likes','Likes')}{field('comments','Comentários')}{field('saves','Saves')}{field('shares','Shares')}
+      {field('product_clicks','Cliques no produto')}{field('orders','Pedidos')}{field('revenue','Comissão R$','0.01')}
       {field('notes','Notas')}
       <button type="button" className="primary" disabled={busy||!onSavePerformance} onClick={save}>Salvar métricas</button>
       <button type="button" disabled={busy||!onGenerateInsights} onClick={()=>onGenerateInsights({color:variant?.color})}>Gerar insights</button>

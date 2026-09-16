@@ -5041,3 +5041,8 @@ button.linkish {
 .writer-badge.is-flagged{border-color:var(--danger,#b3261e)}
 .writer-badge .writer-audit-fail{color:var(--danger,#b3261e)}
 .writer-badge .writer-audit-ok{opacity:.75}
+
+/* Placar de receita por mil views, no painel de performance. */
+.revenue-pill{display:inline-flex;align-items:baseline;gap:10px;margin:4px 0 10px;padding:8px 14px;border:1px solid var(--line,#d9dee5);border-radius:999px}
+.revenue-pill span{font-size:.8rem;opacity:.75}
+.revenue-pill strong{font-size:1.15rem;font-variant-numeric:tabular-nums}

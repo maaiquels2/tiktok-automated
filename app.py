@@ -2403,6 +2403,22 @@ def create_app(config=None):
 
 
 
+    def _revenue_per_1k(entry):
+        """R$ por mil visualizacoes -- o placar honesto para afiliado.
+
+        Alcance sozinho nao paga comissao: um video de 200 mil views sem clique
+        vale menos que um de 8 mil que vendeu. Devolve None quando faltar
+        receita ou views, para a interface nao exibir zero como se fosse medida.
+        """
+        try:
+            receita=float(entry.get('revenue') or 0)
+            views=float(entry.get('views_7d') or entry.get('views_24h') or 0)
+        except (TypeError,ValueError):
+            return None
+        if receita<=0 or views<=0:
+            return None
+        return round(receita*1000.0/views,2)
+
     @app.post('/api/campaigns/<int:cid>/performance')
     def save_performance(cid):
         """Merge user-entered metrics into checklist.performance[color]."""
@@ -2421,7 +2437,12 @@ def create_app(config=None):
         if color and slots!=[''] and color not in slots:
             raise Invalid('Cor inválida para esta campanha.')
         key=color or 'default'
-        allowed=('views_24h','views_7d','watch_pct','likes','comments','saves','shares','orders','notes')
+        # 'orders', 'product_clicks' e 'revenue' sao o placar que interessa a
+        # afiliado: o Studio nao entrega nenhum dos tres, entao eles entram a
+        # mao. Sem isso o app so sabe medir atencao, e otimizar atencao empurra
+        # o conteudo para o que prende e nao para o que vende.
+        allowed=('views_24h','views_7d','watch_pct','likes','comments','saves','shares',
+                 'orders','product_clicks','revenue','notes')
         clean={}
         for k in allowed:
             if k not in metrics:
@@ -2442,6 +2463,7 @@ def create_app(config=None):
         perf=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
         prev=perf.get(key) if isinstance(perf.get(key),dict) else {}
         merged={**prev,**clean,'updated_at':__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'}
+        merged['revenue_per_1k']=_revenue_per_1k(merged)
         perf[key]=merged
         checklist['performance']=perf
         db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
@@ -2523,11 +2545,12 @@ def create_app(config=None):
                 if raw.get('new_followers') is not None: bits.append(f"followers+={raw['new_followers']}")
                 if raw.get('analytics_url'): bits.append(raw['analytics_url'])
                 if bits: entry['notes']=' | '.join(bits); cleaned['notes']=entry['notes']
-        perf[color] = entry
-        # alias keys so UI always finds the row
-        for alias in {color, color or 'default', 'default', 'Produto', ''}:
-            if alias != color:
-                perf[alias] = entry
+        # Uma medicao pertence a UMA cor. Antes o mesmo objeto era gravado sob
+        # todos os apelidos ('default', 'Produto', ''), e dai toda cor passava a
+        # exibir o numero do ultimo video consultado -- o que destruia
+        # exatamente a comparacao entre cores que a campanha existe para fazer.
+        entry['revenue_per_1k'] = _revenue_per_1k(entry)
+        perf[color or 'default'] = entry
         checklist['performance'] = perf
         db().execute('UPDATE campaigns SET checklist=? WHERE id=?', (json.dumps(checklist, ensure_ascii=False), cid))
         touch(cid, c['version'])

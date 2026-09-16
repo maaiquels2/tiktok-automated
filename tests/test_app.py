@@ -186,6 +186,21 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.json)
         self.assertNotEqual(result.json['variants'][0]['prompts']['hook'],variant['prompts']['hook'])
 
+    def test_sales_metrics_are_stored_per_color_and_score_revenue_per_1k(self):
+        # Comissao e cliques nao vem do Studio: entram a mao, e sao o unico
+        # placar que diz o que repetir. E cada medicao pertence a UMA cor --
+        # gravar a mesma no apelido de todas destruia a comparacao.
+        self.client.patch(f'/api/campaigns/{self.cid}', json={'color': 'Azul, Preto'},
+                          headers=self.headers)
+        self.upload('reference')
+        self.post('/generate')
+        self.post('/performance', {'color': 'Azul', 'metrics': {'views_7d': 8000, 'revenue': 240}})
+        self.post('/performance', {'color': 'Preto', 'metrics': {'views_7d': 50000, 'revenue': 50}})
+        perf = self.get()['checklist']['performance']
+        self.assertEqual(perf['Azul']['revenue_per_1k'], 30.0)
+        self.assertEqual(perf['Preto']['revenue_per_1k'], 1.0)
+        self.assertNotEqual(perf['Azul']['views_7d'], perf['Preto']['views_7d'])
+
     def test_local_script_passes_the_apps_own_audit(self):
         # A regua que julga o texto da IA vale para o texto local: antes o
         # deterministico saia reprovado ("nao soam como experiencia pessoal")
