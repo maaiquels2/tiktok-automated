@@ -1190,6 +1190,65 @@ def _cta_pool(c, forms):
     return pool
 
 
+def _sem_artigo(value):
+    """Tira o artigo inicial: 'o bolso lateral' -> 'bolso lateral'."""
+    return re.sub(r'^(o|a|os|as)\s+', '', _phrase(value), flags=re.I)
+
+
+def _cover_text(c, forms, detail, index=0):
+    """Texto da capa: 3 a 6 palavras, lido no feed ANTES de alguem dar play.
+
+    Existe porque o prompt de video proibe (com razao) texto dentro do quadro:
+    gerador de IA escreve letra torta e inventa marca. A proibicao vale para o
+    video gerado -- nao para a postagem. Este campo e para colar no CapCut ou
+    no editor do TikTok, onde a letra sai correta.
+
+    Vale a mesma regra de honestidade do resto: so entra fato que o briefing
+    sustenta.
+    """
+    det = _phrase(detail)
+    nu = _sem_artigo(det)
+    piece = forms['piece']
+    opcoes = [
+        f'{nu.capitalize()}?',
+        f'{piece.capitalize()} com {nu}',
+        f'Repara {_with_em(det)}',
+        f'O detalhe é {det}',
+    ]
+    opcoes = [o for o in opcoes if 2 <= _count_words(o) <= 6]
+    if not opcoes:
+        return f'{piece.capitalize()}'
+    return opcoes[int(index or 0) % len(opcoes)]
+
+
+def _screen_text(c, forms, detail, index=0):
+    """Texto de tela dos primeiros 3 segundos, para quem assiste sem som.
+
+    Boa parte do TikTok roda mudo. Sem texto na tela, esse publico nao recebe o
+    gancho -- ve uma modelo se mexendo em silencio. Aqui a ideia do gancho vira
+    escrita, curta o bastante para caber num frame.
+    """
+    det = _phrase(detail)
+    nu = _sem_artigo(det)
+    piece = forms['piece']
+    pain, _check = _objection_parts(c)
+    opcoes = []
+    if pain:
+        # A objecao escrita e o que mais segura o dedo de quem tem essa duvida.
+        opcoes.append(f'O medo era {pain}')
+        opcoes.append(f'Você também desistiu por {pain}?')
+    opcoes.extend([
+        f'{piece.capitalize()}: {nu}',
+        f'Não sabia que tinha {det}',
+        f'Repara {_with_em(det)}',
+        f'{nu.capitalize()} de perto',
+    ])
+    opcoes = [o for o in opcoes if 3 <= _count_words(o) <= 8]
+    if not opcoes:
+        return f'{piece.capitalize()}: {nu}'
+    return opcoes[int(index or 0) % len(opcoes)]
+
+
 def _script_variation(c, color, index=0):
     # Constroi as tres falas a partir de evidencia explicita do briefing.
     # A cor NAO entra no hook: o espectador ja a ve na tela, e cada palavra do
@@ -1656,7 +1715,22 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         base_image=base_image,
     )
     caption = build_caption(c, color=color, cta=None, variation_index=variant_index)
-    return dict(image=image, video=video, hook=hook, development=development, cta=cta, caption=caption, variation_index=variant_index)
+    # Texto de capa e texto de tela: ficam FORA do video gerado de proposito
+    # (o prompt continua proibindo letra dentro do quadro) e sao colados na
+    # postagem, onde a tipografia sai correta.
+    forms_txt = _piece_forms(c)
+    focus_txt, features_txt = _focus_parts(c)
+    detail_txt = _with_article(features_txt[0] if features_txt else (focus_txt or 'o caimento'))
+    cover_text = _cover_text(c, forms_txt, detail_txt, variant_index)
+    # Deslocado de proposito: capa e texto de tela aparecem juntos na postagem,
+    # entao repetir a mesma frase nos dois desperdica o unico frame que quem
+    # assiste sem som realmente le.
+    screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 1)
+    if _line_key(screen_text) == _line_key(cover_text):
+        screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 2)
+    return dict(image=image, video=video, hook=hook, development=development, cta=cta,
+                caption=caption, cover_text=cover_text, screen_text=screen_text,
+                variation_index=variant_index)
 
 
 def package_text(c):
@@ -1684,7 +1758,9 @@ def package_text(c):
                       f"LEGENDA\n{vp.get('caption','')}")
     for key, title in [('image', 'PROMPT DE IMAGEM (cor principal)'), ('video', 'PROMPT DE VÍDEO (cor principal)'),
                        ('hook', 'HOOK · 0–4s'), ('development', 'DESENVOLVIMENTO · 4–12s'),
-                       ('cta', 'CTA · 12–15s'), ('caption', 'LEGENDA')]:
+                       ('cta', 'CTA · 12–15s'), ('caption', 'LEGENDA'),
+                       ('cover_text', 'TEXTO DA CAPA (colar no CapCut / editor do TikTok)'),
+                       ('screen_text', 'TEXTO NA TELA · 0–3s (colar no CapCut / editor do TikTok)')]:
         blocks.append(f"{title}\n{p.get(key, '(ainda não gerado)')}")
     blocks.append('REVISÃO HUMANA\n[ ] Conferir conta da Micaela\n[ ] Subir o MP4 aprovado\n'
                   '[ ] Unir clipes e exportar 1 único MP4 de 15s, se o gerador entregar em partes\n'

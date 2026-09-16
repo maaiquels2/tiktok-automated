@@ -5046,3 +5046,7 @@ button.linkish {
 .revenue-pill{display:inline-flex;align-items:baseline;gap:10px;margin:4px 0 10px;padding:8px 14px;border:1px solid var(--line,#d9dee5);border-radius:999px}
 .revenue-pill span{font-size:.8rem;opacity:.75}
 .revenue-pill strong{font-size:1.15rem;font-variant-numeric:tabular-nums}
+
+/* Textos que vao na postagem (capa e tela), nao dentro do video gerado. */
+.post-text-block{margin-top:18px;padding-top:14px;border-top:1px solid var(--line,#d9dee5)}
+.post-text-block input{width:100%}

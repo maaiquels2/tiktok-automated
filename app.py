@@ -30,6 +30,12 @@ ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
 FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','objection','offer','generator','motor','video_mode']
 PROMPTS = ['image','video','hook','development','cta','caption']
+# Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
+# continua proibindo letra no quadro). Ficam fora de PROMPTS de proposito:
+# PROMPTS e a lista de itens obrigatorios para avancar de etapa, e campanhas
+# geradas antes desta versao nao os possuem -- exigi-los travaria trabalho em
+# andamento.
+EXTRA_PROMPTS = ['cover_text','screen_text']
 NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
 
 try:
@@ -1669,7 +1675,7 @@ def create_app(config=None):
         c=start(cid,data)
         editable(c)
         values=data.get('prompts')
-        if not isinstance(values,dict) or not values or set(values)-set(PROMPTS):
+        if not isinstance(values,dict) or not values or set(values)-set(PROMPTS)-set(EXTRA_PROMPTS):
             raise Invalid('Prompts inválidos.')
         if any(not isinstance(v,str) or not v.strip() or len(v)>12000 for v in values.values()):
             raise Invalid('Cada texto deve conter de 1 a 12.000 caracteres.')
@@ -2414,7 +2420,7 @@ def create_app(config=None):
         db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(merged,ensure_ascii=False),vid))
         variants=detail(cid)['variants']
         if variants and variants[0]['id']==vid:
-            save_prompts(cid,{k:merged[k] for k in PROMPTS if k in merged})
+            save_prompts(cid,{k:merged[k] for k in PROMPTS+EXTRA_PROMPTS if k in merged})
         only_caption = set(fields) == {'caption'}
         if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:
             # editing falas after images: keep images, invalidate videos
@@ -2437,7 +2443,7 @@ def create_app(config=None):
         if not row:
             raise Invalid('Variação de cor não encontrada.',404)
         values=data.get('prompts')
-        if not isinstance(values,dict) or not values or set(values)-set(PROMPTS):
+        if not isinstance(values,dict) or not values or set(values)-set(PROMPTS)-set(EXTRA_PROMPTS):
             raise Invalid('Prompts inválidos.')
         if any(not isinstance(v,str) or not v.strip() or len(v)>12000 for v in values.values()):
             raise Invalid('Cada texto deve conter de 1 a 12.000 caracteres.')
@@ -2452,7 +2458,7 @@ def create_app(config=None):
         # keep main prompts aligned with first variant when edited
         variants=detail(cid)['variants']
         if variants and variants[0]['id']==vid:
-            save_prompts(cid,{k:merged[k] for k in PROMPTS if k in merged})
+            save_prompts(cid,{k:merged[k] for k in PROMPTS+EXTRA_PROMPTS if k in merged})
         if STATES.index(c['status'])>=2 and set(changed)&{'hook','development','cta','video'}:
             state(cid,'image_approved')
             clear_after(cid,['video'])

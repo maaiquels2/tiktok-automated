@@ -186,6 +186,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result.status_code,200,result.json)
         self.assertNotEqual(result.json['variants'][0]['prompts']['hook'],variant['prompts']['hook'])
 
+    def test_package_carries_post_texts_without_putting_them_inside_the_video(self):
+        # Texto na tela e o que entrega o gancho para quem assiste sem som. A
+        # proibicao continua valendo DENTRO do video gerado (IA escreve letra
+        # torta); o texto sai no pacote, para colar no editor.
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code, 200)
+        prompts = self.get()['prompts']
+        self.assertTrue(prompts.get('cover_text'))
+        self.assertTrue(prompts.get('screen_text'))
+        self.assertLessEqual(len(prompts['cover_text'].split()), 6)
+        self.assertLessEqual(len(prompts['screen_text'].split()), 8)
+        self.assertNotEqual(prompts['cover_text'], prompts['screen_text'])
+        self.assertIn('textos na tela', prompts['video'])
+        package = self.client.get(f'/api/campaigns/{self.cid}/package.txt').data.decode('utf-8-sig')
+        self.assertIn('TEXTO DA CAPA', package)
+        self.assertIn('TEXTO NA TELA · 0–3s', package)
+
     def test_brief_carries_what_the_published_videos_taught(self):
         # O elo que faltava: metrica era coletada e parava na aba Resultados.
         # Agora o desempenho vira direcao de escrita dentro do briefing da IA.
@@ -1264,7 +1281,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         self.assertEqual([variant['color'] for variant in response.json['variants']],['azul','branco','preto'])
         self.assertEqual(set(response.json['variants'][0]['prompts']),
-                         {'image','video','hook','development','cta','caption','variation_index'})
+                         {'image','video','hook','development','cta','caption',
+                          'cover_text','screen_text','variation_index'})
         self.assertIn('Cor: azul',response.json['variants'][0]['prompts']['image'])
         self.assertIn('Cor: branco',response.json['variants'][1]['prompts']['image'])
         package=self.client.get(f'/api/campaigns/{self.cid}/package.txt').data.decode('utf-8-sig')
