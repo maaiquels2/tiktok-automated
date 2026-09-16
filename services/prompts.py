@@ -1119,15 +1119,24 @@ def _development_line(c, detail, features, forms, index, used_keys=()):
     # Serve para o trecho alcancar o piso de 18 palavras sem inventar atributo.
     fechamentos.append(('fec-tipo', 'É o tipo de detalhe que eu procuro.'))
 
+    def _primeira(texto):
+        palavras = _phrase(texto).split()
+        return palavras[0].casefold() if palavras else ''
+
     candidates = []
     for ptid, prova in provas:
+        # Duas batidas seguidas comecando pela mesma palavra ("Olha o coso de
+        # perto. Olha contra a luz...") soam como gagueira em 15 segundos.
+        colide = bool(meio) and _primeira(prova) == _primeira(meio)
         for ftid, fecho in fechamentos:
             beats = [b for b in (_sentence(prova), meio, fecho) if b]
             texto = ' '.join(beats)
             if _count_words(texto) > 26:
                 texto = ' '.join(beats[:-1])
-            candidates.append((f'{ptid}+{ftid}', texto))
-    return _pick_in_budget(candidates, index, 18, 26, used_keys)
+            candidates.append((f'{ptid}+{ftid}', texto, colide))
+    limpos = [(tid, txt) for tid, txt, colide in candidates if not colide]
+    escolha = limpos or [(tid, txt) for tid, txt, _c in candidates]
+    return _pick_in_budget(escolha, index, 18, 26, used_keys)
 
 
 def _cta_pool(c, forms):
