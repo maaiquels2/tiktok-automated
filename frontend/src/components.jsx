@@ -91,7 +91,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow',motor:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -903,6 +903,19 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </label>
           </div>
           <small className="help">Define o gatilho que comanda o hook e o CTA. Sem oferta real preenchida, "Escassez" usa só descoberta honesta (achei e não esperava) — nunca prazo ou estoque inventado.</small>
+        </label>
+        <label>Formato do vídeo
+          <div className="generator-options pov-options" role="radiogroup" aria-label="Formato do vídeo gerado">
+            <label className={'generator-option '+(!draft.video_mode?'selected':'')}>
+              <input type="radio" name="video_mode" value="" checked={!draft.video_mode} onChange={()=>change('video_mode','')}/>
+              <span><strong>UGC com modelo</strong><small>Modelo aparece de frente, como hoje</small></span>
+            </label>
+            <label className={'generator-option '+(draft.video_mode==='pov'?'selected':'')}>
+              <input type="radio" name="video_mode" value="pov" checked={draft.video_mode==='pov'} onChange={()=>change('video_mode','pov')}/>
+              <span><strong>POV do produto</strong><small>Câmera na mão, só produto e mãos, sem rosto</small></span>
+            </label>
+          </div>
+          <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
         </label>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">

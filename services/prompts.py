@@ -902,6 +902,17 @@ def _dominant_motor(c):
     return 'desejo'
 
 
+_VIDEO_MODE_ALIASES = {
+    'pov': 'pov', 'pov_produto': 'pov', 'pov-produto': 'pov', 'pov produto': 'pov',
+    'produto': 'pov',
+}
+
+
+def _video_mode(c):
+    """Formato de video escolhido explicitamente pelo operador, se houver."""
+    return _VIDEO_MODE_ALIASES.get(_phrase(c.get('video_mode')).casefold(), '')
+
+
 def _count_words(text):
     return len([w for w in _phrase(text).split() if w])
 
@@ -1239,6 +1250,88 @@ def _niche_key(c):
     return "casual"
 
 
+def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
+    """Video POV (primeira pessoa, produto em foco, rosto nunca aparece).
+
+    Reaproveita o mesmo conteudo falado (hook/development/cta) e as mesmas
+    garantias de honestidade do video UGC padrao -- so muda a direcao de
+    camera, identidade e performance para o formato POV.
+    """
+    niche = _niche_key(c)
+    dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
+    outfit = _pt_br(c.get("outfit")) or "visual do produto"
+    style = _pt_br(c.get("style")) or "natural e realista"
+    tone = _pt_br(c.get("tone")) or "conversacional"
+    model = _phrase(c.get("model_name")) or "a pessoa"
+    color_l = _phrase(color) or "a cor escolhida"
+    product_l = product or "o produto"
+    benefit_l = _phrase(benefit)
+    benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
+    benefit_l = benefit_l or "somente fatos visíveis do produto"
+    moves = _movement_plan(movements) or "manuseio natural que mostre o produto de perto"
+    video_notes = _video_details(details)
+    extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
+    focus, features = _focus_parts(c)
+    facts = ', '.join(features) if features else focus
+    materials = ', '.join(_material_facts(c)) or 'não especificada'
+    gender_note = ' Modelagem unissex: manter o produto neutro e fiel à referência.' if _is_unisex(c) else ''
+    scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
+                  else 'o mesmo ambiente mostrado na foto de referência da modelo')
+    gestures = _proof_gestures(_product_features(c, limit=4))
+    proof_block = (
+        'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s, sempre visto pelas mãos em primeira pessoa: '
+        + '; '.join(gestures) + '.\n'
+    ) if gestures else ''
+
+    return (
+        f"VÍDEO POV (ponto de vista em primeira pessoa) TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}, "
+        "gravado como se fosse filmado ao vivo no celular por uma pessoa real testando o produto -- não é um anúncio, é um momento real. "
+        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+        f"PONTO DE VISTA: câmera em primeira pessoa o tempo todo, como se fossem os olhos de {model} segurando o celular. "
+        "NUNCA mostrar rosto, pescoço, orelha ou qualquer reflexo (espelho, vidro, tela escura) que revele a identidade da pessoa; "
+        "aparecem somente as mãos e o produto, com o mesmo tom de pele, mãos e unhas da imagem aprovada, sem trocar a pessoa nem redesenhar as mãos. "
+        f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
+        f"FATOS CONFIRMADOS: {facts}. "
+        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
+        f"Benefício a provar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
+        f"CENÁRIO FIXO (todos os frames e variações de cor): {scene_lock}. "
+        "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
+        "Repetir exatamente fundo, objetos e iluminação, sem trocar a locação; o fundo pode ficar naturalmente fora de foco quando a mão se aproxima da lente, como em uma gravação real de celular. "
+        "CÂMERA: câmera na mão (handheld) em primeira pessoa, com micro-tremores sutis e ritmo de respiração natural; pequenos ajustes de enquadramento, como alguém reposicionando o celular ou as mãos; "
+        "sem movimentos cinematográficos, sem ângulos dramáticos e sem estabilização artificial. "
+        f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
+        f"EVITAR: mostrar o rosto, o pescoço ou qualquer reflexo da pessoa; estabilização perfeita de câmera; ângulos ou movimentos cinematográficos; "
+        f"pose de apresentador olhando para a lente; comportamento de influenciador; sensação de anúncio; {dirn['avoid']}; textos na tela; marcas inventadas; "
+        "cortes que quebrem a continuidade; deformação ou alteração do produto.\n"
+        f"{proof_block}"
+        "MÃOS: são o único ponto de identidade visível na cena; manuseiam o produto com naturalidade -- pegando, girando, testando, mostrando -- "
+        "com pressão, velocidade e jeito de segurar coerentes com o tipo de produto; sem gestos ensaiados nem coreografia perfeita; pequenas pausas e imperfeições são bem-vindas. "
+        f"AÇÕES (escolha 2 a 3 destas, na ordem em que aparecem, executadas entre 0s e 11s; ritmo natural -- não é obrigatório usar a lista inteira): {moves}. "
+        "ENCERRAMENTO (12–15s): a câmera se aproxima com calma de um detalhe final do produto nas mãos, ainda com o leve tremor natural de quem segura o celular (nunca perfeitamente parada), "
+        "enquanto a fala de fechamento acontece; sem posar para a câmera, porque a câmera é o próprio olhar da pessoa."
+        f"{extras}\n"
+        f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
+        f"0–4s ABERTURA: a mão pega ou revela o produto pela primeira vez diante da câmera, com curiosidade genuína, sem introdução formal. Fala (PT-BR), tom espontâneo, como se pensasse em voz alta: \"{hook}\"\n"
+        f"4–12s TESTE / DEMONSTRAÇÃO — uma única fala, dita de forma contínua e natural neste intervalo, emendando sem pausa a frase anterior (mesma respiração, mesma cadência); "
+        f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
+        f"   · 4–6s PROVA 1 (ação silenciosa, sem nova fala): a mão aproxima ou mostra de perto o detalhe que vende "
+        f"(tecido, acabamento, botão, textura, encaixe); câmera segue o movimento da mão.\n"
+        f"   · 6–11s PROVA 2 (ação silenciosa, sem nova fala): manuseio completo que demonstra o benefício ({benefit_l}) -- "
+        f"girar, abrir, testar, encostar, conforme as ações escolhidas. Manter cor {color_l} e acabamento fiéis.\n"
+        f"   · 11–12s REAÇÃO (ação silenciosa, sem nova fala): pequena pausa natural, como quem aprova o que acabou de ver, sem sorriso pra câmera (o rosto não aparece).\n"
+        f"12–15s FECHAMENTO: a câmera mantém o produto em destaque nas mãos; nenhum olhar pra lente, porque não há lente visível -- é o olhar da própria pessoa. Emendar esta fala sem pausa à anterior, como conclusão natural do mesmo pensamento, num tom leve, nunca de vendedor. Fala (PT-BR): \"{cta}\"\n"
+        f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
+        "ENQUADRAMENTO: pequenos reenquadramentos naturais (como quem ajusta o celular na mão) são esperados e bem-vindos; não são cortes de câmera nem trocas de cena, e a cena continua sendo a mesma o tempo todo. "
+        "Evite qualquer sensação de propaganda ou atuação: sem comportamento de influenciador, sem gestos ensaiados, sem timing artificial de IA -- o momento deve parecer real, levemente imperfeito e espontâneo. "
+        "As três falas formam um único discurso contínuo, dito pela mesma pessoa sem pausa artificial entre os trechos, sem silêncio perceptível entre elas e sem reset de respiração -- é uma frase longa dividida em três marcações de tempo, nunca três falas separadas, entregue como quem fala sozinho ou com um amigo, nunca como um roteiro decorado. "
+        f"Estilo visual: {style}, com qualidade de câmera de celular real (sem filtros, sem efeitos cinematográficos). Tom de performance: espontâneo e casual, nunca de vendedor -- {tone} fica em segundo plano diante da naturalidade. "
+        f"Áudio: voz clara em português do Brasil, ritmo de fala espontâneo, como conversa real (sem ler texto em voz alta). "
+        f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "
+        f"Total das falas fornecidas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; se ultrapassar 15s em leitura natural, sinalize para revisão em vez de acelerar. "
+        f"Sem promessas não demonstradas no vídeo."
+    )
+
+
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     niche = _niche_key(c)
     dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
@@ -1405,7 +1498,8 @@ def generate(c, script=None, variant_index=0, base_image=False):
         + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
     )
     resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
-    video = _build_video_prompt(
+    build_video = _build_pov_video_prompt if _video_mode(c) == 'pov' else _build_video_prompt
+    video = build_video(
         c,
         resolution=resolution,
         color=c.get('color'),

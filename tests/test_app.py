@@ -387,6 +387,35 @@ class WorkflowTests(unittest.TestCase):
         reopened=self.client.get(f'/api/campaigns/{self.cid}').json
         self.assertEqual(reopened.get('motor'),'desejo_posse')
 
+    def test_pov_video_mode_hides_the_face_and_keeps_the_same_falas(self):
+        # Modo POV troca so a direcao de video (camera/identidade/atuacao);
+        # o conteudo falado (hook/development/cta) continua o mesmo do modo
+        # UGC padrao, so a performance/entrega muda.
+        campaign=dict(model_name='Micaela',product='Mochila',outfit='mochila',color='preto',
+                      audience='universitarios',benefit='tem compartimento para notebook',
+                      angle='mostrar o compartimento',tone='conversacional',style='natural',
+                      details='',movements='abrir o zíper; mostrar o compartimento',
+                      generator='flow',niche='casual')
+        ugc=generate(campaign)
+        pov=generate({**campaign,'video_mode':'pov'})
+        self.assertEqual(ugc['hook'],pov['hook'])
+        self.assertEqual(ugc['development'],pov['development'])
+        self.assertEqual(ugc['cta'],pov['cta'])
+        self.assertNotIn('VÍDEO POV',ugc['video'])
+        self.assertIn('VÍDEO POV',pov['video'])
+        self.assertIn('NUNCA mostrar rosto',pov['video'])
+        self.assertNotIn('olhar na lente',pov['video'])
+        self.assertNotIn('sorriso confiante',pov['video'])
+        self.assertIn('ATRIBUTOS NÃO CONFIRMADOS',pov['video'])
+        self.assertIn(f'"{pov["hook"]}"',pov['video'])
+        self.assertIn(f'"{pov["cta"]}"',pov['video'])
+
+    def test_pov_video_mode_is_saved_and_read_back_from_the_campaign(self):
+        # 'video_mode' precisa estar no FIELDS ponta a ponta (create -> DB -> read).
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'video_mode':'pov'},headers=self.headers)
+        reopened=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual(reopened.get('video_mode'),'pov')
+
     def test_each_confirmed_fact_gets_the_gesture_that_proves_it(self):
         # Movimento generico ("mostrar o caimento") nao demonstra nada. O gesto
         # especifico e a prova - padrao tirado dos prompts que funcionavam.

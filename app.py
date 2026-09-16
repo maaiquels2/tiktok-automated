@@ -28,7 +28,7 @@ from services import copywriter
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
-FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','objection','offer','generator','motor']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','objection','offer','generator','motor','video_mode']
 PROMPTS = ['image','video','hook','development','cta','caption']
 NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
 
@@ -231,7 +231,7 @@ def create_app(config=None):
                 generator TEXT NOT NULL DEFAULT 'flow',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             columns={r['name'] for r in conn.execute('PRAGMA table_info(campaigns)')}
-            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note','niche','objection','offer','motor']}
+            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note','niche','objection','offer','motor','video_mode']}
             additions.update(version='INTEGER NOT NULL DEFAULT 1',layout="TEXT NOT NULL DEFAULT '{}'",
                              checklist="TEXT NOT NULL DEFAULT '{}'",published_url="TEXT NOT NULL DEFAULT ''")
             for name,definition in additions.items():
