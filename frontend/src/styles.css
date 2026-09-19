@@ -4575,6 +4575,9 @@ button.linkish {
   min-height: 42px;
   white-space: nowrap;
 }
+.button-label-mobile {
+  display: none;
+}
 .script-ai-action.is-off {
   border-style: dashed;
 }
@@ -4603,7 +4606,20 @@ button.linkish {
   }
   .script-ai-buttons button {
     flex: 1 1 0;
-    white-space: normal;
+    min-height: 38px;
+    padding: 7px 9px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .script-ai-buttons button svg {
+    width: 14px;
+    height: 14px;
+  }
+  .button-label-desktop {
+    display: none;
+  }
+  .button-label-mobile {
+    display: inline;
   }
 }
 

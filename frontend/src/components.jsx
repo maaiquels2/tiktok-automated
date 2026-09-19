@@ -167,8 +167,8 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
               <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?`Escolha entre gerar somente ${variant.color} ou os roteiros das ${variants.length} cores em uma solicitação.`:'Configure a chave para chamar a API nesta etapa.'}</small></div>
               {writer?.enabled
                 ?<div className="script-ai-buttons">
-                  <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar esta cor</button>
-                  {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar todas as {variants.length} cores</button>}
+                  <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar esta cor</span><span className="button-label-mobile">Esta cor</span></button>
+                  {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar todas as {variants.length} cores</span><span className="button-label-mobile">Todas ({variants.length})</span></button>}
                 </div>
                 :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
             </section>}
