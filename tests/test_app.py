@@ -572,6 +572,52 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f'"{pov["hook"]}"',pov['video'])
         self.assertIn(f'"{pov["cta"]}"',pov['video'])
 
+    def test_movement_mode_has_no_speech_and_keeps_the_fit_check_moves(self):
+        # Terceiro formato: so movimento. Ninguem fala, a mensagem fica na
+        # legenda e o som vira a trend escolhida na hora de publicar.
+        campaign = dict(model_name='Micaela', product='Vestido midi', outfit='vestido', color='verde',
+                        audience='mulheres', benefit='tem forro interno', angle='mostrar o caimento',
+                        tone='natural', style='natural', details='', movements='',
+                        generator='flow', niche='casual', video_mode='movimento')
+        video = generate(campaign)['video']
+        self.assertIn('VÍDEO SEM FALA', video)
+        # Nenhuma fala embutida: o formato nao tem trechos falados.
+        self.assertNotIn('Fala (PT-BR)', video)
+        self.assertNotIn('DESENVOLVIMENTO', video)
+        # Os quatro movimentos que o operador pediu.
+        for movimento in ('DE LEVE', 'gira devagar de lado', 'girando de costas', 'como quem arruma'):
+            self.assertIn(movimento, video)
+        # A direcao de camera do nicho casual fala em "falando com a câmera":
+        # num video mudo isso seria uma contradicao dentro do proprio prompt.
+        self.assertNotIn('falando com a câmera', video)
+        # Erros ja corrigidos antes continuam barrados neste formato.
+        self.assertIn('Nunca esticar a peça com força', video)
+        self.assertIn('não manter as costas para a câmera', video)
+        self.assertIn('nenhuma voz', video)
+        # E as travas de honestidade e de cenario valem igual.
+        self.assertIn('ATRIBUTOS NÃO CONFIRMADOS', video)
+        self.assertIn('o mesmo ambiente mostrado na foto de referência da modelo', video)
+
+    def test_movement_mode_still_produces_the_script_for_caption_and_other_formats(self):
+        # O roteiro continua existindo: alimenta a legenda, o orcamento falado
+        # e a troca para os outros dois formatos sem precisar regerar tudo.
+        campaign = dict(model_name='Micaela', product='Vestido midi', outfit='vestido', color='verde',
+                        audience='mulheres', benefit='tem forro interno', angle='mostrar o caimento',
+                        tone='natural', style='natural', details='', movements='',
+                        generator='flow', niche='casual')
+        falado = generate(campaign)
+        mudo = generate({**campaign, 'video_mode': 'movimento'})
+        self.assertEqual(falado['hook'], mudo['hook'])
+        self.assertEqual(falado['caption'], mudo['caption'])
+        self.assertIn(falado['hook'], falado['video'])
+        self.assertNotIn(mudo['hook'], mudo['video'])
+
+    def test_movement_video_mode_is_saved_and_read_back_from_the_campaign(self):
+        self.client.patch(f'/api/campaigns/{self.cid}', json={'video_mode': 'movimento'},
+                          headers=self.headers)
+        reopened = self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual(reopened.get('video_mode'), 'movimento')
+
     def test_pov_video_mode_is_saved_and_read_back_from_the_campaign(self):
         # 'video_mode' precisa estar no FIELDS ponta a ponta (create -> DB -> read).
         self.client.patch(f'/api/campaigns/{self.cid}',json={'video_mode':'pov'},headers=self.headers)

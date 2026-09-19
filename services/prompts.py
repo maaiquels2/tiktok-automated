@@ -906,6 +906,9 @@ def _dominant_motor(c):
 _VIDEO_MODE_ALIASES = {
     'pov': 'pov', 'pov_produto': 'pov', 'pov-produto': 'pov', 'pov produto': 'pov',
     'produto': 'pov',
+    'movimento': 'movimento', 'movimentos': 'movimento', 'so_movimento': 'movimento',
+    'so-movimento': 'movimento', 'só movimento': 'movimento', 'so movimento': 'movimento',
+    'fit': 'movimento', 'fit_check': 'movimento', 'fit check': 'movimento',
 }
 
 
@@ -1431,6 +1434,95 @@ def _niche_key(c):
     return "casual"
 
 
+def _build_movement_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
+    """Video so de movimento: a peca no corpo, sem nenhuma fala.
+
+    E o formato "fit check": ninguem fala, a modelo mostra como a peca cai --
+    puxa de leve, gira de lado, gira de costas, ajusta como quem arruma. O som
+    vira por conta da trend escolhida no TikTok e a mensagem fica na legenda do
+    post, entao o quadro fica limpo: sem locucao, sem legenda automatica e sem
+    texto na tela.
+
+    hook/development/cta chegam aqui e NAO sao usados de proposito: continuam
+    existindo na campanha (alimentam a legenda, o orcamento falado e a troca
+    para os outros formatos), mas neste video ninguem fala.
+    """
+    niche = _niche_key(c)
+    dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
+    outfit = _pt_br(c.get("outfit")) or "visual do produto"
+    style = _pt_br(c.get("style")) or "natural e realista"
+    model = _phrase(c.get("model_name")) or "a modelo"
+    color_l = _phrase(color) or "a cor escolhida"
+    product_l = product or "o produto"
+    benefit_l = _phrase(benefit)
+    benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
+    benefit_l = benefit_l or "somente fatos visíveis da peça"
+    moves = _movement_plan(movements)
+    video_notes = _video_details(details)
+    extras = f" Notas adicionais do operador (não são falas nem texto na tela): {video_notes}." if video_notes else ""
+    focus, features = _focus_parts(c)
+    facts = ', '.join(features) if features else focus
+    materials = ', '.join(_material_facts(c)) or 'não especificada'
+    gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
+    scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
+                  else 'o mesmo ambiente mostrado na foto de referência da modelo')
+    forms = _piece_forms(c)
+    anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
+    gestures = _proof_gestures(_product_features(c, limit=4))
+    proof_block = (
+        'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 3s e 11s: '
+        + '; '.join(gestures) + '.\n'
+    ) if gestures else ''
+    extra_moves = f" Se couber no ritmo, inclua também: {moves}." if moves else ''
+    # A direcao de camera do nicho pode mencionar fala ("caminhada frontal
+    # falando com a camera"). Neste formato ninguem fala: deixar a frase
+    # passar seria mandar o gerador fazer as duas coisas ao mesmo tempo.
+    camera = re.sub(r',?\s*falando com a c[âa]mera', '', dirn['camera'], flags=re.I).strip(' ;,')
+
+    return (
+        f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
+        "VÍDEO SEM FALA: ninguém fala, ninguém narra e não existe voz em nenhum momento. "
+        "O vídeo é só a modelo mostrando como a peça fica no corpo. "
+        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+        f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros "
+        f"(sem transformação de rosto, troca de identidade ou redesenho). "
+        f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
+        f"FATOS CONFIRMADOS: {facts}. "
+        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
+        f"Benefício a mostrar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
+        f"CENÁRIO FIXO (todos os frames e variações de cor): {scene_lock}. "
+        "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
+        "Repetir exatamente fundo, objetos e iluminação, sem trocar a locação nem desfocar o fundo; a câmera pode se aproximar durante a demonstração, "
+        "voltando à distância e ao enquadramento do quadro inicial no encerramento. "
+        f"CÂMERA: {camera}. "
+        f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
+        f"EVITAR: {dirn['avoid']}; qualquer fala, narração, locução ou voz; legenda automática; textos na tela; "
+        "marcas inventadas; cortes que quebrem continuidade; pose parada de modelo de catálogo.\n"
+        f"{proof_block}"
+        "MOVIMENTO (é o conteúdo inteiro do vídeo, executado com calma e naturalidade, na ordem do SHOT LIST abaixo): "
+        f"a modelo puxa {anchor} {forms['de']} {forms['piece']} DE LEVE, só o suficiente para o tecido mostrar como assenta, e solta -- "
+        "a peça volta exatamente ao lugar; gira devagar de lado, mostrando o perfil; continua girando de costas e volta de frente; "
+        f"e ajusta {forms['art']} {forms['piece']} como quem arruma uma peça que não está perfeitamente no lugar "
+        f"(alinhar a barra, subir levemente o cós, acertar uma alça, endireitar uma dobra).{extra_moves}{extras} "
+        "Nunca esticar a peça com força para os lados: o tecido deforma e o vídeo fica falso. "
+        "MÃOS: uma das mãos mantém contato com a peça na maior parte do tempo; as duas só ficam livres ao mesmo tempo durante um gesto que exija isso, por no máximo 1 segundo. "
+        "CABELO: se solto, acompanha o movimento do corpo e da cabeça de forma natural e fluida, sem travar, sem tremular e sem cortes abruptos entre um movimento e outro. "
+        "COSTAS: a rotação de costas é um giro contínuo, não uma pose -- não manter as costas para a câmera nem o olhar por cima do ombro parados por mais de 1 a 2 segundos.\n"
+        f"SHOT LIST 15s — um único take contínuo ou cortes invisíveis, sem nenhuma fala em nenhum momento:\n"
+        f"0–3s ABERTURA: plano médio frontal, a peça inteira visível no corpo; a modelo faz um ajuste curto e natural, como quem acabou de se arrumar; expressão tranquila.\n"
+        f"3–7s CAIMENTO: puxa a peça de leve com a ponta dos dedos e solta, deixando o tecido responder sozinho; a câmera aproxima do detalhe que vende ({focus}) e volta.\n"
+        f"7–11s VOLTA COMPLETA: gira devagar de lado, segue de costas e retorna de frente, em movimento contínuo, para o caimento aparecer de todos os ângulos.\n"
+        f"11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento inicial e sustenta o olhar calmo na lente até o fim.\n"
+        f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
+        "ENQUADRAMENTO: não altere a cena entre os beats; a câmera pode aproximar e afastar, mantendo a mesma locação. "
+        "Evite movimentos artificiais de IA: o ritmo é de quem se olha no espelho, não de coreografia ensaiada; pequenas imperfeições e pausas são bem-vindas. "
+        f"Estilo visual: {style}. "
+        "ÁUDIO: nenhuma voz, nenhuma narração e nenhuma música — apenas som ambiente natural e discreto. "
+        "A trilha entra depois, na edição, com o áudio em alta escolhido na hora de publicar. "
+        "Sem promessas não demonstradas no vídeo."
+    )
+
+
 def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     """Video POV (primeira pessoa, produto em foco, rosto nunca aparece).
 
@@ -1709,7 +1801,10 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
     )
     resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
-    build_video = _build_pov_video_prompt if _video_mode(c) == 'pov' else _build_video_prompt
+    build_video = {
+        'pov': _build_pov_video_prompt,
+        'movimento': _build_movement_video_prompt,
+    }.get(_video_mode(c), _build_video_prompt)
     video = build_video(
         c,
         resolution=resolution,

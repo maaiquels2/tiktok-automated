@@ -952,8 +952,13 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               <input type="radio" name="video_mode" value="pov" checked={draft.video_mode==='pov'} onChange={()=>change('video_mode','pov')}/>
               <span><strong>POV do produto</strong><small>Câmera na mão, só produto e mãos, sem rosto</small></span>
             </label>
+            <label className={'generator-option '+(draft.video_mode==='movimento'?'selected':'')}>
+              <input type="radio" name="video_mode" value="movimento" checked={draft.video_mode==='movimento'} onChange={()=>change('video_mode','movimento')}/>
+              <span><strong>Só movimento</strong><small>Sem fala: puxa, gira e ajusta a peça no corpo</small></span>
+            </label>
           </div>
           <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
+          <small className="help">Em "Só movimento" ninguém fala: a modelo puxa a peça de leve, gira de lado, gira de costas e ajusta como quem arruma. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
         </label>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">
