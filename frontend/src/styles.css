@@ -1655,6 +1655,31 @@ textarea:focus {
   gap: 10px;
   padding: 11px 12px;
 }
+.prompt-tools,
+.video-prompt-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.video-prompt-refresh {
+  margin-bottom: 10px;
+}
+.prompt-tools button,
+.video-prompt-refresh button {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.prompt-length {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.prompt-length.is-over {
+  color: var(--danger, #b3261e);
+  font-weight: 700;
+}
 .variant-card summary::-webkit-details-marker {
   display: none;
 }

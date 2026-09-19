@@ -2,7 +2,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from 
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2 } from 'lucide-react';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
@@ -100,7 +100,7 @@ export function ProductGallery({photos=[]}){
   if(!photos.length)return null;
   return <section className="product-gallery"><h3>Fotos do produto</h3><p>Anexe estas fotos depois da referência fixa da modelo.</p><div className="product-photo-grid">{photos.map((photo,i)=><AssetView key={photo.id} asset={photo} title={`Produto · foto ${i+1}`} compact/>)}</div></section>;
 }
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onConfigureWriter,immutable}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onConfigureWriter,videoPromptLimit,immutable}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -151,7 +151,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           </>}
           {focus==='video'&&<>
             {img?<AssetView asset={img} title={`Imagem aprovada · ${variant.color}`} compact/>:<div className="notice">Falta a imagem desta cor.</div>}
-            <div className="variant-prompt"><div className="section-title"><strong>Prompt de vídeo — {variant.color}</strong><CopyButton text={p.video||''} onError={onError}/></div><p>{p.video||'-'}</p></div>
+            <div className="variant-prompt"><div className="section-title"><strong>Prompt de vídeo — {variant.color}</strong><div className="prompt-tools"><small className={'prompt-length '+(videoPromptLimit&&p.video?.length>videoPromptLimit?'is-over':'')}>{p.video?.length||0}{videoPromptLimit?` / ${videoPromptLimit}`:''} caracteres</small>{onRefreshVideoPrompt&&!immutable&&<button type="button" disabled={busy} onClick={()=>onRefreshVideoPrompt(variant.id)}><RefreshCw size={14}/> Recriar prompt</button>}<CopyButton text={p.video||''} onError={onError}/></div></div><p>{p.video||'-'}</p></div>
             <div className="variant-prompt"><div className="section-title"><strong>Falas 15s</strong></div>
               <p><strong>0–4s:</strong> {p.hook||'-'}</p>
               <p><strong>4–12s:</strong> {p.development||'-'}</p>

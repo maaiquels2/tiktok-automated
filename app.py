@@ -2574,6 +2574,92 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+    def rebuild_video_prompt(cid,c,prompts,color,base_image=False):
+        """Rebuild only the video prompt from the saved briefing and speech.
+
+        This is also the migration path for campaigns created before Grok's
+        4,000-character limit was enforced. Images, copy and captions remain
+        untouched.
+        """
+        if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
+            raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de recriar o prompt de vídeo.',409)
+        source={**detail(cid),'color':color}
+        rebuilt=generate(
+            source,script=prompts,
+            variant_index=int(prompts.get('variation_index') or 0),
+            base_image=base_image)['video']
+        if (c.get('generator') or '').casefold()=='grok' and len(rebuilt)>4000:
+            raise Invalid('O prompt recriado ainda ultrapassou o limite de 4.000 caracteres do Grok.',500)
+        return rebuilt
+
+    def invalidate_video_slot(cid,c,slot=None):
+        """Discard a rendered video only when one already exists for the prompt."""
+        if slot is None:
+            exists=bool(db().execute(
+                "SELECT 1 FROM assets WHERE campaign_id=? AND kind='video' AND active=1 LIMIT 1",(cid,)
+            ).fetchone() or db().execute(
+                'SELECT 1 FROM device_videos WHERE campaign_id=? LIMIT 1',(cid,)
+            ).fetchone())
+            if exists:
+                clear_after(cid,['video'])
+        else:
+            exists=bool(db().execute(
+                "SELECT 1 FROM assets WHERE campaign_id=? AND kind='video' AND slot=? AND active=1 LIMIT 1",
+                (cid,slot)).fetchone() or db().execute(
+                'SELECT 1 FROM device_videos WHERE campaign_id=? AND slot=? LIMIT 1',(cid,slot)
+            ).fetchone())
+            if exists:
+                db().execute(
+                    "UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind='video' AND slot=?",
+                    (cid,slot))
+                db().execute('DELETE FROM device_videos WHERE campaign_id=? AND slot=?',(cid,slot))
+        if exists and STATES.index(c['status'])>=STATES.index('video_ready'):
+            # O roteiro continua concluido; somente o video precisa ser gerado
+            # outra vez com o novo prompt.
+            state(cid,'script_ready')
+
+    @app.post('/api/campaigns/<int:cid>/prompts/refresh-video')
+    def refresh_single_video_prompt(cid):
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        current=detail(cid)
+        if current['variants']:
+            raise Invalid('Escolha a cor cujo prompt de vídeo deseja recriar.',409)
+        prompts=current['prompts']
+        if not prompts.get('video'):
+            raise Invalid('Gere os textos pelo briefing primeiro.',409)
+        video=rebuild_video_prompt(cid,c,prompts,c.get('color') or '',base_image=False)
+        invalidate_video_slot(cid,c)
+        save_prompts(cid,{'video':video})
+        touch(cid,c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
+    @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/refresh-video')
+    def refresh_variant_video_prompt(cid,vid):
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        rows=db().execute(
+            'SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)
+        ).fetchall()
+        selected=next(((index,row) for index,row in enumerate(rows) if row['id']==vid),None)
+        if selected is None:
+            raise Invalid('Variação de cor não encontrada.',404)
+        index,row=selected
+        prompts=json.loads(row['prompts'])
+        prompts['video']=rebuild_video_prompt(
+            cid,c,prompts,row['color'],base_image=index>0)
+        invalidate_video_slot(cid,c,row['color'])
+        db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
+                     (json.dumps(prompts,ensure_ascii=False),vid))
+        if index==0:
+            save_prompts(cid,{'video':prompts['video']})
+        touch(cid,c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
     @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
     def edit_variant_prompts(cid,vid):
         data=body()

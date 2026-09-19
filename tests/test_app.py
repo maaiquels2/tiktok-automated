@@ -699,6 +699,48 @@ class WorkflowTests(unittest.TestCase):
                     video = generate(campaign)['video']
                     self.assertLessEqual(len(video), 4000, f'{produto} / {modo or "ugc"}: {len(video)}')
 
+    def test_old_oversized_single_video_prompt_can_be_rebuilt_without_recreating_campaign(self):
+        self.client.patch(f'/api/campaigns/{self.cid}',json={
+            'generator':'grok','details':'Destacar textura e modelagem.'},headers=self.headers)
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        current=self.get()
+        old_hook=current['prompts']['hook']
+        old_image=current['prompts']['image']
+        oversized='PROMPT ANTIGO '+('muito longo '*520)
+        changed=self.client.patch(f'/api/campaigns/{self.cid}/prompts',json={
+            'version':current['version'],'prompts':{'video':oversized}},headers=self.headers)
+        self.assertEqual(changed.status_code,200,changed.json)
+        response=self.post('/prompts/refresh-video',{'version':changed.json['version']})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertLessEqual(len(response.json['prompts']['video']),4000)
+        self.assertEqual(response.json['prompts']['hook'],old_hook)
+        self.assertEqual(response.json['prompts']['image'],old_image)
+        self.assertEqual(response.json['name'],self.brief['name'])
+
+    def test_old_oversized_variant_video_prompt_can_be_rebuilt_for_only_one_color(self):
+        other=self.client.post('/api/campaigns',json={
+            **self.brief,'generator':'grok','color':'Azul, Branco'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        current=self.get()
+        target=current['variants'][1]
+        untouched=current['variants'][0]
+        changed=self.client.patch(
+            f"/api/campaigns/{self.cid}/variants/{target['id']}/prompts",
+            json={'version':current['version'],'prompts':{'video':'PROMPT ANTIGO '+('muito longo '*520)}},
+            headers=self.headers)
+        self.assertEqual(changed.status_code,200,changed.json)
+        response=self.post(f"/variants/{target['id']}/refresh-video",{
+            'version':changed.json['version']})
+        self.assertEqual(response.status_code,200,response.json)
+        by_id={v['id']:v for v in response.json['variants']}
+        self.assertLessEqual(len(by_id[target['id']]['prompts']['video']),4000)
+        self.assertEqual(by_id[target['id']]['prompts']['hook'],target['prompts']['hook'])
+        self.assertEqual(by_id[target['id']]['prompts']['image'],target['prompts']['image'])
+        self.assertEqual(by_id[untouched['id']]['prompts'],untouched['prompts'])
+
     def test_short_prompt_never_drops_what_cannot_be_lost(self):
         # Cortar para caber so vale se o que sobra for o que sustenta o video:
         # identidade, cenario presos a foto, as tres falas, as maos, a prova de
