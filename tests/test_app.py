@@ -501,7 +501,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn(termo,video,f'o prompt nao pode citar "{termo}"')
         self.assertIn('ENCERRAMENTO',video)
         self.assertIn('mãos tocando',video)
-        self.assertIn('escolha 2 a 3 destas ações',video)
+        self.assertIn('escolha 2 a 3, na ordem',video)
         self.assertIn('entre 0s e 11s',video)
 
     def test_negative_attributes_stay_grammatical(self):
@@ -648,6 +648,92 @@ class WorkflowTests(unittest.TestCase):
         faltando = [f for f in FIELDS if f not in base and f not in CAMPAIGN_COLUMNS]
         self.assertEqual(faltando, [], f'campos sem migracao definida: {faltando}')
 
+    def test_ai_writing_stops_instead_of_spending_a_second_full_timeout(self):
+        # Gerar o roteiro levava perto de um minuto: duas tentativas de 25s em
+        # sequencia. Agora a segunda so comeca se couber no orcamento da etapa.
+        import time as _time
+        import services.copywriter as cw
+        chamadas = []
+
+        def lento(settings, system, user):
+            chamadas.append(1)
+            _time.sleep(0.2)
+            return '{"opcoes": []}'
+
+        brief = {'product': 'Top', 'color': 'preto', 'benefit': 'tem gola'}
+        conta = {'provider': 'openai', 'api_key': 'x', 'model': 'm'}
+        with patch.dict(cw.CALLERS, {'openai': lento}), patch.object(cw, 'TIMEOUT', 0.19):
+            cw.write_script(brief, conta, orcamento_s=0.25)
+        self.assertEqual(len(chamadas), 1, 'não devia ter começado a segunda tentativa')
+
+        chamadas.clear()
+        with patch.dict(cw.CALLERS, {'openai': lento}), patch.object(cw, 'TIMEOUT', 0.19):
+            cw.write_script(brief, conta, orcamento_s=10)
+        self.assertEqual(len(chamadas), 2, 'com tempo de sobra, a segunda tentativa vale a pena')
+
+    def test_grok_video_prompt_always_fits_the_4000_character_field(self):
+        # O Grok corta o prompt em 4000 caracteres sem avisar. Todo prompt de
+        # video saia com 4600 a 6800, entao o FINAL era descartado em silencio
+        # -- justamente onde ficam as travas de honestidade e de audio.
+        movimentos = ('Entrar no frame ja vestida; girar 180 graus; puxar a barra; mostrar bolso; '
+                      'caminhar dois passos; aceno e CTA no final; sentar e levantar')
+        produtos = [
+            ('Legging sem transparência com bolso lateral e cós largo em poliamida', 'tem cós largo', 'academia'),
+            ('Vestido midi com forro, fenda lateral e alça regulável', 'tem forro interno', 'casual'),
+            ('Camisola de renda com alça regulável e detalhe em cetim', 'tem detalhe em renda', 'intima'),
+            ('Top Gola Polo', 'tem gola', 'casual'),
+        ]
+        for produto, beneficio, nicho in produtos:
+            for modo in ('', 'pov', 'movimento'):
+                for cor in ('preto', 'azul marinho degradê com detalhes em off white'):
+                    campaign = dict(model_name='Micaela Fernanda dos Santos', product=produto,
+                                    outfit='Conjunto casual urbano completo', color=cor,
+                                    audience='mulheres de 25 a 40 anos', benefit=beneficio,
+                                    angle='Antes e depois do visual montado, do cabide para o corpo em quinze segundos',
+                                    tone='Amiga proxima, conversacional e confiante',
+                                    style='Natural e realista, street casual, luz natural de fim de tarde, 9:16',
+                                    details='Destacar textura, modelagem e acabamento das costuras.',
+                                    movements=movimentos, generator='grok', niche=nicho,
+                                    video_mode=modo, objection='Fica transparente no agachamento',
+                                    offer='20% até domingo')
+                    video = generate(campaign)['video']
+                    self.assertLessEqual(len(video), 4000, f'{produto} / {modo or "ugc"}: {len(video)}')
+
+    def test_short_prompt_never_drops_what_cannot_be_lost(self):
+        # Cortar para caber so vale se o que sobra for o que sustenta o video:
+        # identidade, cenario presos a foto, as tres falas, as maos, a prova de
+        # cada fato e a trava de honestidade. E o briefing do operador.
+        campaign = dict(model_name='Micaela', product='Legging sem transparência com bolso lateral e cós largo',
+                        outfit='legging', color='preto', audience='mulheres que treinam',
+                        benefit='tem cós largo', angle='mostrar o cós com calma',
+                        tone='conversacional', style='Fitness clean',
+                        details='Destacar textura.',
+                        movements='caminhar; agachar; girar 180 graus; ajustar o cós',
+                        generator='grok', niche='academia')
+        pack = generate(campaign)
+        video = pack['video']
+        self.assertLessEqual(len(video), 4000)
+        for essencial in ('preserve 100% o mesmo rosto',
+                          'o mesmo ambiente mostrado na foto de referência da modelo',
+                          'PROVA VISUAL', 'MÃOS:', 'ATRIBUTOS NÃO CONFIRMADOS',
+                          'girar 180 graus'):
+            self.assertIn(essencial, video, essencial)
+        for fala in (pack['hook'], pack['development'], pack['cta']):
+            self.assertIn(fala, video)
+
+    def test_flow_keeps_the_full_prompt_because_it_has_no_tight_limit(self):
+        # O corte existe por causa do limite do Grok; onde nao ha limite, o
+        # prompt continua completo -- inclusive o contexto opcional de nicho.
+        campaign = dict(model_name='Micaela', product='Vestido midi', outfit='vestido', color='verde',
+                        audience='mulheres', benefit='tem forro interno', angle='mostrar o forro',
+                        tone='natural', style='natural', details='', movements='caminhar; girar',
+                        niche='casual')
+        curto = generate({**campaign, 'generator': 'grok'})['video']
+        completo = generate({**campaign, 'generator': 'flow'})['video']
+        self.assertGreater(len(completo), len(curto))
+        self.assertIn('CONTEXTO VISUAL OPCIONAL', completo)
+        self.assertNotIn('CONTEXTO VISUAL OPCIONAL', curto)
+
     def test_movement_mode_has_no_speech_and_keeps_the_fit_check_moves(self):
         # Terceiro formato: so movimento. Ninguem fala, a mensagem fica na
         # legenda e o som vira a trend escolhida na hora de publicar.
@@ -661,7 +747,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('Fala (PT-BR)', video)
         self.assertNotIn('DESENVOLVIMENTO', video)
         # Os quatro movimentos que o operador pediu.
-        for movimento in ('DE LEVE', 'gira devagar de lado', 'girando de costas', 'como quem arruma'):
+        for movimento in ('DE LEVE', 'gira devagar de lado', 'continua de costas', 'como quem arruma'):
             self.assertIn(movimento, video)
         # A direcao de camera do nicho casual fala em "falando com a câmera":
         # num video mudo isso seria uma contradicao dentro do proprio prompt.
@@ -707,20 +793,30 @@ class WorkflowTests(unittest.TestCase):
                       outfit='legging',color='preto',audience='mulheres que treinam',
                       benefit='tem cós largo',angle='mostrar o cós',tone='direta',style='natural',
                       details='',movements='caminhar; girar',generator='grok',niche='academia')
-        video=generate(campaign)['video']
+        # Sem limite de caracteres (Flow), todo fato confirmado ganha o gesto
+        # que o prova.
+        video=generate({**campaign,'generator':'flow'})['video']
         self.assertIn('PROVA VISUAL',video)
         self.assertIn('coloca a mão dentro do bolso e tira',video)
         self.assertIn('puxa o cós para a frente e solta',video)
         self.assertIn('gira de costas para a câmera',video)
+        # No Grok, que corta o prompt em 4000 caracteres, a prova continua
+        # existindo -- com os dois fatos principais em vez de todos. Melhor
+        # dois gestos que chegam do que quatro que o gerador descarta junto
+        # com o final do prompt.
+        curto=generate({**campaign,'generator':'grok'})['video']
+        self.assertIn('PROVA VISUAL',curto)
+        self.assertIn('coloca a mão dentro do bolso e tira',curto)
+        self.assertLessEqual(len(curto),4000)
 
     def test_scene_locks_and_hand_anchor_are_present(self):
         campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',
                       audience='mulheres',benefit='tecido leve',angle='mostrar o caimento',tone='natural',
                       style='natural',details='',movements='',generator='flow',niche='casual')
         video=generate(campaign)['video']
-        self.assertIn('não altere o enquadramento',video)
-        self.assertIn('Evite movimentos artificiais de IA',video)
-        self.assertIn('um único discurso contínuo',video)
+        self.assertIn('manter a mesma cena entre os beats',video)
+        self.assertIn('Sem movimento artificial de IA',video)
+        self.assertIn('UM discurso contínuo',video)
         self.assertIn('MÃOS:',video)
         self.assertIn('como quem ajusta a peça',video)
         self.assertNotIn('contar um segredo',video)
@@ -740,7 +836,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('Fundo simples', video)
         self.assertNotIn('rua, quarto, cafe', video)
         self.assertIn('o mesmo ambiente mostrado na foto de referência da modelo', video)
-        self.assertIn('descrições genéricas de nicho não autorizam sua substituição', video)
+        self.assertIn('descrição genérica de nicho não autoriza substituir', video)
         video_base=generate(campaign, base_image=True)['video']
         self.assertIn('o mesmo ambiente mostrado na imagem aprovada desta campanha', video_base)
 
@@ -767,8 +863,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('plano médio dinâmico',video)
         self.assertIn('detalhe de perto no cós e no tecido',video)
         self.assertIn('acompanhamento ao caminhar até a câmera',video)
-        self.assertIn('use jogo de câmeras apenas se for necessário',video)
-        self.assertIn('mantendo a mesma cena',video)
+        self.assertIn('manter a mesma cena entre os beats',video)
+        self.assertIn('manter a mesma cena',video)
         self.assertNotIn('CÂMERA: vertical, fixa',video)
         self.assertNotIn('Não usar zoom',video)
 
@@ -1377,7 +1473,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('Mostre', prompts['development'])
         self.assertNotIn('close', prompts['development'].lower())
         self.assertIn('caimento firme', prompts['development'])
-        self.assertIn('movimentos, câmera, shot list', prompts['video'])
+        self.assertIn('câmera, shot list', prompts['video'])
         self.assertNotIn('caption_seed', prompts['video'])
         self.assertNotIn('caption_seed', prompts['image'])
 

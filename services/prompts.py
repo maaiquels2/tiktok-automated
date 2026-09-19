@@ -1434,6 +1434,48 @@ def _niche_key(c):
     return "casual"
 
 
+# Limite de caracteres do campo de prompt em cada gerador. O Grok corta em
+# 4000 sem avisar: ate aqui todo prompt de video saia com 4600 a 6800
+# caracteres, entao o FINAL (honestidade, audio, "fale so as falas") era
+# descartado em silencio -- as travas que o projeto inteiro existe para manter.
+_LIMITE_PROMPT = {'grok': 4000}
+# Margem: nome de produto, cor e movimentos vem do briefing e variam de tamanho.
+_MARGEM_PROMPT = 60
+
+
+def _limite_video(c):
+    limite = _LIMITE_PROMPT.get((c.get('generator') or '').strip().casefold())
+    return (limite - _MARGEM_PROMPT) if limite else None
+
+
+def _montar_video(blocos, limite=None):
+    """Junta as partes do prompt e, havendo limite, corta pelas menos essenciais.
+
+    Cada parte vem como (prioridade, texto): 0 e intocavel (identidade, cenario,
+    falas, honestidade) e numeros maiores sao dispensaveis (contexto opcional de
+    nicho, angulo de venda, contagem de palavras). Cortar um bloco inteiro e
+    melhor que deixar o gerador truncar no meio de uma frase, que era o que
+    vinha acontecendo.
+    """
+    partes = [(p, t) for p, t in blocos if t]
+    texto = ''.join(t for _p, t in partes)
+    if not limite or len(texto) <= limite:
+        return texto
+    # Corta um bloco de cada vez, começando pelo menos essencial e, dentro do
+    # mesmo nível, pelo mais comprido: assim sobra o máximo de instrução que
+    # cabe, em vez de perder um nível inteiro por causa de poucos caracteres.
+    descartaveis = sorted(
+        (i for i, (p, _t) in enumerate(partes) if p > 0),
+        key=lambda i: (partes[i][0], len(partes[i][1])), reverse=True)
+    fora = set()
+    for indice in descartaveis:
+        fora.add(indice)
+        texto = ''.join(t for i, (_p, t) in enumerate(partes) if i not in fora)
+        if len(texto) <= limite:
+            return texto
+    return texto
+
+
 def _build_movement_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     """Video so de movimento: a peca no corpo, sem nenhuma fala.
 
@@ -1468,7 +1510,11 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
     forms = _piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
-    gestures = _proof_gestures(_product_features(c, limit=4))
+    # Cada fato confirmado ganha o gesto que o prova -- isso nunca e descartado.
+    # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
+    # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
+    # gerador corta o final do prompt sozinho.
+    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 3s e 11s: '
         + '; '.join(gestures) + '.\n'
@@ -1479,49 +1525,55 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     # passar seria mandar o gerador fazer as duas coisas ao mesmo tempo.
     camera = re.sub(r',?\s*falando com a c[âa]mera', '', dirn['camera'], flags=re.I).strip(' ;,')
 
-    return (
-        f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
-        "VÍDEO SEM FALA: ninguém fala, ninguém narra e não existe voz em nenhum momento. "
-        "O vídeo é só a modelo mostrando como a peça fica no corpo. "
-        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
-        f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros "
-        f"(sem transformação de rosto, troca de identidade ou redesenho). "
-        f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
-        f"FATOS CONFIRMADOS: {facts}. "
-        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
-        f"Benefício a mostrar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
-        f"CENÁRIO FIXO (todos os frames e variações de cor): {scene_lock}. "
-        "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
-        "Repetir exatamente fundo, objetos e iluminação, sem trocar a locação nem desfocar o fundo; a câmera pode se aproximar durante a demonstração, "
-        "voltando à distância e ao enquadramento do quadro inicial no encerramento. "
-        f"CÂMERA: {camera}. "
-        f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
-        f"EVITAR: {dirn['avoid']}; qualquer fala, narração, locução ou voz; legenda automática; textos na tela; "
-        "marcas inventadas; cortes que quebrem continuidade; pose parada de modelo de catálogo.\n"
-        f"{proof_block}"
-        "MOVIMENTO (é o conteúdo inteiro do vídeo, executado com calma e naturalidade, na ordem do SHOT LIST abaixo): "
-        f"a modelo puxa {anchor} {forms['de']} {forms['piece']} DE LEVE, só o suficiente para o tecido mostrar como assenta, e solta -- "
-        "a peça volta exatamente ao lugar; gira devagar de lado, mostrando o perfil; continua girando de costas e volta de frente; "
-        f"e ajusta {forms['art']} {forms['piece']} como quem arruma uma peça que não está perfeitamente no lugar "
-        f"(alinhar a barra, subir levemente o cós, acertar uma alça, endireitar uma dobra).{extra_moves}{extras} "
-        "Nunca esticar a peça com força para os lados: o tecido deforma e o vídeo fica falso. "
-        "MÃOS: uma das mãos mantém contato com a peça na maior parte do tempo; as duas só ficam livres ao mesmo tempo durante um gesto que exija isso, por no máximo 1 segundo. "
-        "CABELO: se solto, acompanha o movimento do corpo e da cabeça de forma natural e fluida, sem travar, sem tremular e sem cortes abruptos entre um movimento e outro. "
-        "COSTAS: a rotação de costas é um giro contínuo, não uma pose -- não manter as costas para a câmera nem o olhar por cima do ombro parados por mais de 1 a 2 segundos.\n"
-        f"SHOT LIST 15s — um único take contínuo ou cortes invisíveis, sem nenhuma fala em nenhum momento:\n"
-        f"0–3s ABERTURA: plano médio frontal, a peça inteira visível no corpo; a modelo faz um ajuste curto e natural, como quem acabou de se arrumar; expressão tranquila.\n"
-        f"3–7s CAIMENTO: puxa a peça de leve com a ponta dos dedos e solta, deixando o tecido responder sozinho; a câmera aproxima do detalhe que vende ({focus}) e volta.\n"
-        f"7–11s VOLTA COMPLETA: gira devagar de lado, segue de costas e retorna de frente, em movimento contínuo, para o caimento aparecer de todos os ângulos.\n"
-        f"11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento inicial e sustenta o olhar calmo na lente até o fim.\n"
-        f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
-        "ENQUADRAMENTO: não altere a cena entre os beats; a câmera pode aproximar e afastar, mantendo a mesma locação. "
-        "Evite movimentos artificiais de IA: o ritmo é de quem se olha no espelho, não de coreografia ensaiada; pequenas imperfeições e pausas são bem-vindas. "
-        f"Estilo visual: {style}. "
-        "ÁUDIO: nenhuma voz, nenhuma narração e nenhuma música — apenas som ambiente natural e discreto. "
-        "A trilha entra depois, na edição, com o áudio em alta escolhido na hora de publicar. "
-        "Sem promessas não demonstradas no vídeo."
-    )
-
+    return _montar_video([
+        (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
+            "VÍDEO SEM FALA: ninguém fala, ninguém narra e não existe voz em nenhum momento. "
+            "O vídeo é só a modelo mostrando como a peça fica no corpo. "
+            f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+            f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros, "
+            f"sem troca de identidade ou redesenho. "
+            f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
+            f"FATOS CONFIRMADOS: {facts}. MATERIAL CONFIRMADO: {materials}. "
+            f"Benefício a mostrar visualmente, só se for demonstrável: {benefit_l}.\n"),
+        (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}. "
+            "Fundo, objetos e luz vêm só dessa foto; descrição genérica de nicho não autoriza substituir. "
+            "Não trocar a locação nem desfocar o fundo; a câmera pode aproximar, voltando ao enquadramento inicial no fim. "),
+        (2, f"CÂMERA: {camera}. "),
+        (0, f"DETALHE PRINCIPAL: {focus}. "),
+        (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
+        (3, f"EVITAR: {dirn['avoid']}; "),
+        (0, "EVITAR TAMBÉM: qualquer fala, narração ou voz; legenda automática; textos na tela; marcas inventadas; "
+            "cortes que quebrem a continuidade; pose parada de catálogo.\n"),
+        (0, proof_block),
+        (0, "MOVIMENTO (é o conteúdo inteiro do vídeo, com calma e naturalidade, na ordem do SHOT LIST): a modelo puxa "
+            f"{anchor} {forms['de']} {forms['piece']} DE LEVE, só o suficiente para o tecido mostrar como assenta, e solta — "
+            "a peça volta exatamente ao lugar; gira devagar de lado, mostrando o perfil; continua de costas e volta de frente; "
+            f"e ajusta {forms['art']} {forms['piece']} como quem arruma algo fora do lugar (alinhar a barra, subir o cós, "
+            f"acertar uma alça, endireitar uma dobra).{extra_moves}{extras} "
+            "Nunca esticar a peça com força para os lados: o tecido deforma e o vídeo fica falso. "),
+        (0, "MÃOS: uma sempre em contato com a peça; as duas só ficam livres juntas num gesto que exija isso, "
+            "por no máximo 1 segundo. "),
+        (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
+        (0, "COSTAS: a rotação de costas é um giro contínuo, não uma pose — não manter as costas para a câmera nem o "
+            "olhar por cima do ombro parados por mais de 1 a 2 segundos.\n"),
+        (0, "SHOT LIST 15s — um único take contínuo ou cortes invisíveis, sem nenhuma fala:\n"
+            "0–3s ABERTURA: plano médio frontal, a peça inteira visível no corpo; um ajuste curto e natural, como quem "
+            "acabou de se arrumar; expressão tranquila.\n"
+            "3–7s CAIMENTO: puxa a peça de leve com a ponta dos dedos e solta, deixando o tecido responder sozinho; "
+            f"a câmera aproxima do detalhe que vende ({focus}) e volta.\n"
+            "7–11s VOLTA COMPLETA: gira devagar de lado, segue de costas e retorna de frente, em movimento contínuo.\n"
+            "11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento "
+            "inicial e sustenta o olhar calmo na lente até o fim.\n"),
+        (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, "
+            "suporte ou composição — nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura "
+            "e brilho. "),
+        (0, "ENQUADRAMENTO: manter a mesma cena entre os beats; a câmera pode aproximar e afastar na mesma locação. "
+            "Sem movimento artificial de IA: o ritmo é de quem se olha no espelho, não de coreografia ensaiada. "),
+        (2, f"Estilo visual: {style}. "),
+        (0, "ÁUDIO: nenhuma voz, nenhuma narração e nenhuma música — apenas som ambiente natural e discreto. "
+            "A trilha entra depois, na edição, com o áudio escolhido na hora de publicar. "
+            "Sem promessas não demonstradas no vídeo."),
+    ], _limite_video(c))
 
 def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     """Video POV (primeira pessoa, produto em foco, rosto nunca aparece).
@@ -1550,60 +1602,70 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     gender_note = ' Modelagem unissex: manter o produto neutro e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
-    gestures = _proof_gestures(_product_features(c, limit=4))
+    # Cada fato confirmado ganha o gesto que o prova -- isso nunca e descartado.
+    # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
+    # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
+    # gerador corta o final do prompt sozinho.
+    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s, sempre visto pelas mãos em primeira pessoa: '
         + '; '.join(gestures) + '.\n'
     ) if gestures else ''
 
-    return (
-        f"VÍDEO POV (ponto de vista em primeira pessoa) TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}, "
-        "gravado como se fosse filmado ao vivo no celular por uma pessoa real testando o produto -- não é um anúncio, é um momento real. "
-        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
-        f"PONTO DE VISTA: câmera em primeira pessoa o tempo todo, como se fossem os olhos de {model} segurando o celular. "
-        "NUNCA mostrar rosto, pescoço, orelha ou qualquer reflexo (espelho, vidro, tela escura) que revele a identidade da pessoa; "
-        "aparecem somente as mãos e o produto, com o mesmo tom de pele, mãos e unhas da imagem aprovada, sem trocar a pessoa nem redesenhar as mãos. "
-        f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
-        f"FATOS CONFIRMADOS: {facts}. "
-        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
-        f"Benefício a provar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
-        f"CENÁRIO FIXO (todos os frames e variações de cor): {scene_lock}. "
-        "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
-        "Repetir exatamente fundo, objetos e iluminação, sem trocar a locação; o fundo pode ficar naturalmente fora de foco quando a mão se aproxima da lente, como em uma gravação real de celular. "
-        "CÂMERA: câmera na mão (handheld) em primeira pessoa, com micro-tremores sutis e ritmo de respiração natural; pequenos ajustes de enquadramento, como alguém reposicionando o celular ou as mãos; "
-        "sem movimentos cinematográficos, sem ângulos dramáticos e sem estabilização artificial. "
-        f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
-        f"EVITAR: mostrar o rosto, o pescoço ou qualquer reflexo da pessoa; estabilização perfeita de câmera; ângulos ou movimentos cinematográficos; "
-        f"pose de apresentador olhando para a lente; comportamento de influenciador; sensação de anúncio; {dirn['avoid']}; textos na tela; marcas inventadas; "
-        "cortes que quebrem a continuidade; deformação ou alteração do produto.\n"
-        f"{proof_block}"
-        "MÃOS: são o único ponto de identidade visível na cena; manuseiam o produto com naturalidade -- pegando, girando, testando, mostrando -- "
-        "com pressão, velocidade e jeito de segurar coerentes com o tipo de produto; sem gestos ensaiados nem coreografia perfeita; pequenas pausas e imperfeições são bem-vindas. "
-        f"AÇÕES (escolha 2 a 3 destas, na ordem em que aparecem, executadas entre 0s e 11s; ritmo natural -- não é obrigatório usar a lista inteira): {moves}. "
-        "ENCERRAMENTO (12–15s): a câmera se aproxima com calma de um detalhe final do produto nas mãos, ainda com o leve tremor natural de quem segura o celular (nunca perfeitamente parada), "
-        "enquanto a fala de fechamento acontece; sem posar para a câmera, porque a câmera é o próprio olhar da pessoa."
-        f"{extras}\n"
-        f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
-        f"0–4s ABERTURA: a mão pega ou revela o produto pela primeira vez diante da câmera, com curiosidade genuína, sem introdução formal. Fala (PT-BR), tom espontâneo, como se pensasse em voz alta: \"{hook}\"\n"
-        f"4–12s TESTE / DEMONSTRAÇÃO — uma única fala, dita de forma contínua e natural neste intervalo, emendando sem pausa a frase anterior (mesma respiração, mesma cadência); "
-        f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
-        f"   · 4–6s PROVA 1 (ação silenciosa, sem nova fala): a mão aproxima ou mostra de perto o detalhe que vende "
-        f"(tecido, acabamento, botão, textura, encaixe); câmera segue o movimento da mão.\n"
-        f"   · 6–11s PROVA 2 (ação silenciosa, sem nova fala): manuseio completo que demonstra o benefício ({benefit_l}) -- "
-        f"girar, abrir, testar, encostar, conforme as ações escolhidas. Manter cor {color_l} e acabamento fiéis.\n"
-        f"   · 11–12s REAÇÃO (ação silenciosa, sem nova fala): pequena pausa natural, como quem aprova o que acabou de ver, sem sorriso pra câmera (o rosto não aparece).\n"
-        f"12–15s FECHAMENTO: a câmera mantém o produto em destaque nas mãos; nenhum olhar pra lente, porque não há lente visível -- é o olhar da própria pessoa. Emendar esta fala sem pausa à anterior, como conclusão natural do mesmo pensamento, num tom leve, nunca de vendedor. Fala (PT-BR): \"{cta}\"\n"
-        f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
-        "ENQUADRAMENTO: pequenos reenquadramentos naturais (como quem ajusta o celular na mão) são esperados e bem-vindos; não são cortes de câmera nem trocas de cena, e a cena continua sendo a mesma o tempo todo. "
-        "Evite qualquer sensação de propaganda ou atuação: sem comportamento de influenciador, sem gestos ensaiados, sem timing artificial de IA -- o momento deve parecer real, levemente imperfeito e espontâneo. "
-        "As três falas formam um único discurso contínuo, dito pela mesma pessoa sem pausa artificial entre os trechos, sem silêncio perceptível entre elas e sem reset de respiração -- é uma frase longa dividida em três marcações de tempo, nunca três falas separadas, entregue como quem fala sozinho ou com um amigo, nunca como um roteiro decorado. "
-        f"Estilo visual: {style}, com qualidade de câmera de celular real (sem filtros, sem efeitos cinematográficos). Tom de performance: espontâneo e casual, nunca de vendedor -- {tone} fica em segundo plano diante da naturalidade. "
-        f"Áudio: voz clara em português do Brasil, ritmo de fala espontâneo, como conversa real (sem ler texto em voz alta). "
-        f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "
-        f"Total das falas fornecidas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; se ultrapassar 15s em leitura natural, sinalize para revisão em vez de acelerar. "
-        f"Sem promessas não demonstradas no vídeo."
-    )
-
+    return _montar_video([
+        (0, f"VÍDEO POV (primeira pessoa) TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}, "
+            "filmado no celular por uma pessoa real testando o produto. "
+            f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+            f"PONTO DE VISTA: câmera em primeira pessoa o tempo todo, como os olhos de {model} segurando o celular. "
+            "NUNCA mostrar rosto, pescoço ou reflexo (espelho, vidro, tela) que revele a pessoa: aparecem só as mãos "
+            "e o produto, com o mesmo tom de pele e mãos da imagem aprovada. "),
+        (0, f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
+            f"FATOS CONFIRMADOS: {facts}. MATERIAL CONFIRMADO: {materials}. "
+            f"Benefício a provar visualmente, só se for demonstrável: {benefit_l}.\n"),
+        (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}. "
+            "Fundo, objetos e luz vêm só dessa foto; descrição genérica de nicho não autoriza substituir. "
+            "Não trocar a locação; o fundo pode ficar fora de foco quando a mão se aproxima da lente, "
+            "como numa gravação real de celular. "),
+        (0, "CÂMERA: na mão, em primeira pessoa, com micro-tremores sutis e ritmo de respiração natural; pequenos "
+            "ajustes de enquadramento, como quem reposiciona o celular; sem movimento cinematográfico, sem ângulo "
+            "dramático, sem estabilização artificial. "),
+        (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
+        (3, f"EVITAR: {dirn['avoid']}; "),
+        (0, "EVITAR TAMBÉM: pose de apresentador; comportamento de influenciador; sensação de anúncio; textos na "
+            "tela; marcas inventadas; deformação do produto.\n"),
+        (0, proof_block),
+        (0, "MÃOS: são o único ponto de identidade visível; manuseiam o produto com naturalidade (pegar, girar, testar, "
+            "mostrar), com pressão coerente com o tipo de produto; sem gesto ensaiado, pausas e imperfeições bem-vindas. "),
+        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; não precisa usar todas): {moves}. "),
+        (0, "ENCERRAMENTO (12–15s): a câmera se aproxima com calma de um detalhe final do produto nas mãos, ainda com o "
+            "leve tremor de quem segura o celular, enquanto a fala de fechamento acontece."),
+        (1, extras),
+        (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
+            f"0–4s ABERTURA: a mão pega ou revela o produto pela primeira vez, com curiosidade genuína. "
+            f"Fala (PT-BR), tom espontâneo, como quem pensa em voz alta: \"{hook}\"\n"
+            f"4–12s TESTE — uma fala só, contínua, emendada sem pausa na anterior (mesma respiração); não repetir nem "
+            f"dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"),
+        (3, f"   · 4–6s PROVA 1 (ação silenciosa, sem fala): a mão mostra de perto o detalhe que vende; a câmera segue a mão.\n"
+            f"   · 6–11s PROVA 2 (ação silenciosa, sem fala): manuseio completo que demonstra o benefício ({benefit_l}) — "
+            f"girar, abrir, testar. Manter cor {color_l} e acabamento fiéis.\n"),
+        (4, "   · 11–12s REAÇÃO (ação silenciosa, sem fala): pequena pausa natural, como quem aprova o que viu.\n"),
+        (0, f"12–15s FECHAMENTO: o produto em destaque nas mãos. Emendar sem pausa à fala anterior, num tom leve, "
+            f"nunca de vendedor. Fala (PT-BR): \"{cta}\"\n"),
+        (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, "
+            "suporte ou composição — nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura "
+            "e brilho. "),
+        (1, "ENQUADRAMENTO: pequenos reenquadramentos naturais são esperados; não são cortes nem troca de cena. "
+            "Nada de propaganda ou atuação: o momento deve parecer real, levemente imperfeito e espontâneo. "),
+        (0, "As três falas são UM discurso contínuo: mesma respiração, sem pausa entre os trechos, como quem fala "
+            "sozinho ou com um amigo, nunca roteiro decorado. "),
+        (2, f"Estilo visual: {style}, com qualidade de câmera de celular real (sem filtros). Tom: espontâneo e casual, "
+            f"nunca de vendedor. "),
+        (0, "Áudio: voz clara em português do Brasil, ritmo de conversa real. Fale somente as três falas entre aspas, "
+            "palavra por palavra; nunca leia títulos, instruções, câmera, shot list ou notas. "),
+        (4, f"Total das falas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; "
+            f"se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
+        (0, "Sem promessas não demonstradas no vídeo."),
+    ], _limite_video(c))
 
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     niche = _niche_key(c)
@@ -1632,7 +1694,11 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
     forms = _piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
-    gestures = _proof_gestures(_product_features(c, limit=4))
+    # Cada fato confirmado ganha o gesto que o prova -- isso nunca e descartado.
+    # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
+    # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
+    # gerador corta o final do prompt sozinho.
+    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s: '
         + '; '.join(gestures) + '.\n'
@@ -1642,53 +1708,66 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         "como quem ajusta a peça, ou apoiadas na cintura"
     )
 
-    return (
-        f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
-        f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
-        f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros "
-        f"(sem transformação de rosto, troca de identidade ou redesenho). "
-        f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "
-        f"Ângulo de venda (contexto, não criar atributos): {angle_context}. FATOS CONFIRMADOS: {facts}. "
-        f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
-        f"Benefício a provar visualmente, somente se estiver demonstrável: {benefit_l}.\n"
-        f"CENÁRIO FIXO (todos os frames e variações de cor): {scene_lock}. "
-        "O cenário e a luz vêm exclusivamente dessa fotografia; descrições genéricas de nicho não autorizam sua substituição. "
-        f"Repetir exatamente fundo, objetos e iluminação, sem trocar a locação nem desfocar o fundo; a câmera pode se aproximar ou acompanhar a modelo durante a demonstração (ver COREOGRAFIA e CÂMERA abaixo), retornando à distância e ao enquadramento do quadro inicial no encerramento. "
-        f"CÂMERA: {dirn['camera']}. "
-        f"DETALHE PRINCIPAL: {focus}. CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
-        f"EVITAR: {dirn['avoid']}; textos na tela; marcas inventadas; cortes que quebrem continuidade; pose de costas ou olhando por cima do ombro mantida por mais de 1 a 2 segundos.\n"
-        f"{proof_block}"
-        "MÃOS: uma das mãos mantém contato com a peça o tempo todo (na cintura, no cós ou na barra) e a outra é a que mostra os detalhes; as duas só ficam livres ao mesmo tempo durante um gesto específico que exija isso (por exemplo, abrir a peça ou ajustar um acessório com as duas mãos), por no máximo 1 segundo. "
-        "CABELO: se solto, acompanha o movimento do corpo e da cabeça de forma natural e fluida, sem travar, sem tremular e sem cortes abruptos entre um movimento e outro. "
-        f"COREOGRAFIA / AÇÕES (escolha 2 a 3 destas ações, na ordem em que aparecem, executadas entre 0s e 11s; no máximo uma ação por beat, ritmo natural -- não é obrigatório usar a lista inteira): {moves}. "
-        f"ENCERRAMENTO (12–15s), posição obrigatória: a modelo está de frente para a lente, {closing_hands}. "
-        "As mãos continuam ocupadas nessa posição, na altura da cintura ou abaixo dela, durante toda a fala do CTA, "
-        "mas fazem UM pequeno ajuste natural e único nesse intervalo (por exemplo, um leve reposicionamento dos dedos na peça, ou uma leve pressão que solta em seguida) -- sem soltar a peça, sem afastar as mãos da cintura e sem repetir o gesto. "
-        "O corpo fica parado e estável; apenas o rosto, o olhar e esse pequeno ajuste das mãos se movem."
-        f"{extras}\n"
-        f"SHOT LIST 15s — executar como um único take contínuo ou cortes invisíveis:\n"
-        f"0–4s HOOK: a modelo se aproxima um passo da câmera, com a energia direta do gancho a seguir; plano médio frontal, "
-        f"olhar na lente, produto já visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
-        f"4–12s DESENVOLVIMENTO — uma única fala, dita de forma contínua e natural neste intervalo, emendando sem nenhuma pausa a frase anterior (mesma respiração, mesma cadência); "
-        f"não repetir, não antecipar e não dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"
-        f"   · 4–6s PROVA 1 (ação silenciosa da modelo, sem nova fala): aproxima OU mostra de perto o detalhe que vende "
-        f"(tecido, cós, alça, barra, acessório); mãos tocam o produto de forma natural.\n"
-        f"   · 6–11s PROVA 2 (ação silenciosa da modelo, sem nova fala): movimento completo que demonstra o benefício ({benefit_l}) — "
-        f"caminhar/girar/sentar/agachar conforme a coreografia. Manter cor {color_l} e caimento fiéis.\n"
-        f"   · 11–12s DESEJO (ação silenciosa da modelo, sem nova fala): plano médio, sorriso confiante, 1 detalhe hero em destaque.\n"
-        f"12–15s CTA: manter a posição de encerramento descrita acima, olhar firme na lente; o produto marcado é indicado apenas com o olhar. Emendar esta fala sem pausa à anterior, como conclusão natural do mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"
-        f"ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, suporte, impermeabilidade, composição ou qualquer benefício ausente nos FATOS CONFIRMADOS. Se houver material confirmado, preservar textura, brilho e comportamento; não substituí-lo por outro. "
-        "ENQUADRAMENTO: não altere o enquadramento entre os beats; use jogo de câmeras apenas se for necessário, mantendo a mesma cena. "
-        "Realize movimentos laterais quando precisar mostrar o produto completo no corpo. "
-        "Evite movimentos artificiais de IA: as expressões e os gestos acompanham as falas, no ritmo delas. "
-        "As três falas formam um único discurso contínuo, dito pela mesma pessoa sem pausa artificial entre os trechos, sem silêncio perceptível entre elas e sem reset de respiração -- é uma frase longa dividida em três marcações de tempo, nunca três falas separadas. "
-        f"Estilo visual: {style}. Tom de performance: {tone}. "
-        f"Áudio: voz clara em português do Brasil, ritmo de leitura em voz alta (sem correr). "
-        f"Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, movimentos, câmera, shot list, notas ou textos de interface. "
-        f"Total das falas fornecidas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; se ultrapassar 15s em leitura natural, sinalize para revisão em vez de acelerar. "
-        f"Sem promessas não demonstradas no vídeo."
-    )
-
+    return _montar_video([
+        (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
+            f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+            f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros, "
+            f"sem troca de identidade ou redesenho. "
+            f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "),
+        (4, f"Ângulo de venda (contexto, não criar atributos): {angle_context}. "),
+        (0, f"FATOS CONFIRMADOS: {facts}. MATERIAL CONFIRMADO: {materials}. "
+            f"Benefício a provar visualmente, só se for demonstrável: {benefit_l}.\n"),
+        (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}. "
+            "Fundo, objetos e luz vêm só dessa foto; descrição genérica de nicho não autoriza substituir. "
+            "Não trocar a locação nem desfocar o fundo; a câmera pode aproximar e acompanhar a modelo, "
+            "voltando ao enquadramento do quadro inicial no encerramento. "),
+        (2, f"CÂMERA: {dirn['camera']}. "),
+        (0, f"DETALHE PRINCIPAL: {focus}. "),
+        (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
+        (3, f"EVITAR: {dirn['avoid']}; "),
+        (0, "EVITAR TAMBÉM: textos na tela; marcas inventadas; cortes que quebrem a continuidade; "
+            "pose de costas ou olhar por cima do ombro parados por mais de 1 a 2 segundos.\n"),
+        (0, proof_block),
+        (0, "MÃOS: uma sempre em contato com a peça (cintura, cós ou barra) e a outra mostra os detalhes; "
+            "as duas só ficam livres juntas num gesto que exija isso, por no máximo 1 segundo. "),
+        (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
+        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; uma por beat, não precisa usar todas): {moves}. "),
+        (0, f"ENCERRAMENTO (12–15s): de frente para a lente, {closing_hands}. "
+            "As mãos ficam nessa posição durante todo o CTA, com UM único ajuste pequeno e natural (um leve "
+            "reposicionamento dos dedos) — sem soltar a peça nem repetir o gesto. "
+            "Corpo parado: só o rosto, o olhar e esse ajuste se movem."),
+        (1, extras),
+        (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
+            f"0–4s HOOK: a modelo se aproxima um passo, plano médio frontal, olhar na lente, "
+            f"produto visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
+            f"4–12s DESENVOLVIMENTO — uma fala só, contínua, emendada sem pausa na anterior "
+            f"(mesma respiração, mesma cadência); não repetir nem dividir em dois trechos. "
+            f"Fala (PT-BR): \"{development}\"\n"),
+        (3, f"   · 4–6s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
+            f"as mãos tocam o produto com naturalidade.\n"
+            f"   · 6–11s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
+            f"({benefit_l}) — caminhar, girar, sentar ou agachar conforme as ações. "
+            f"Manter cor {color_l} e caimento fiéis.\n"),
+        (4, "   · 11–12s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
+        (0, f"12–15s CTA: manter a posição de encerramento, olhar firme na lente; o produto marcado é "
+            f"indicado só com o olhar. Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
+            f"Fala (PT-BR): \"{cta}\"\n"),
+        (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, "
+            "secagem, suporte ou composição — nada fora dos FATOS CONFIRMADOS. "
+            "Com material confirmado, preservar textura e brilho. "),
+        (0, "ENQUADRAMENTO: manter a mesma cena entre os beats. Sem movimento artificial de IA: gestos e expressões "
+            "seguem o ritmo da fala. "),
+        (3, "Usar movimento lateral quando precisar mostrar a peça inteira no corpo. "),
+        (0, "As três falas são UM discurso contínuo: mesma respiração, sem pausa nem silêncio entre os trechos — "
+            "uma frase longa em três marcações de tempo, nunca três falas separadas. "),
+        (2, f"Estilo visual: {style}. Tom: {tone}. "),
+        (0, "Áudio: voz clara em português do Brasil, ritmo de fala natural (sem correr). "
+            "Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, "
+            "câmera, shot list ou notas. "),
+        (4, f"Total das falas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; "
+            f"se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
+        (0, "Sem promessas não demonstradas no vídeo."),
+    ], _limite_video(c))
 
 def generate_variants(c, audit=None):
     colors = color_variants(c.get('color'))

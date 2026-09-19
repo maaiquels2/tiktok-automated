@@ -21,6 +21,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -34,6 +35,9 @@ SETTINGS_FILE = 'llm.json'
 PROVIDERS = ('openai', 'gemini')
 DEFAULT_MODELS = {'openai': 'gpt-4o-mini', 'gemini': 'gemini-2.0-flash'}
 TIMEOUT = 25
+# Teto de tempo da etapa inteira de escrita. Duas tentativas de 25s somavam
+# quase um minuto; aqui a segunda so comeca se couber dentro do orcamento.
+BUDGET_SECONDS = 32
 
 # Afirmacoes de desempenho que so podem aparecer se estiverem no briefing.
 # Entusiasmo subjetivo ("linda", "maravilhosa") fica liberado: e opiniao, nao
@@ -532,14 +536,26 @@ def _parse(raw: str) -> dict:
     return _parse_candidates(raw)[0]
 
 
-def write_script(c: dict, settings: dict, attempts: int = 2) -> tuple[dict | None, str]:
-    """Escreve as falas com o modelo. Devolve (pacote, motivo_da_falha)."""
+def write_script(c: dict, settings: dict, attempts: int = 2,
+                 orcamento_s: float = BUDGET_SECONDS) -> tuple[dict | None, str]:
+    """Escreve as falas com o modelo. Devolve (pacote, motivo_da_falha).
+
+    ``orcamento_s`` limita o tempo TOTAL da etapa. Sem ele, duas tentativas de
+    25 segundos somavam quase um minuto de tela parada para quem so queria
+    gerar o roteiro -- e, na nuvem, chegavam perto do teto de duracao da
+    funcao. Esgotado o orcamento, o app usa o texto deterministico, que agora
+    passa na mesma auditoria.
+    """
     caller = CALLERS.get(settings.get('provider'))
     if not caller or not settings.get('api_key'):
         return None, 'sem provedor configurado'
     user = build_brief(c)
     ultimo = ''
+    comeco = time.monotonic()
     for tentativa in range(max(1, attempts)):
+        if tentativa and (time.monotonic() - comeco) + TIMEOUT > orcamento_s:
+            # Nao comeca uma tentativa que nao tem tempo de terminar.
+            return None, (ultimo or 'sem tempo para uma nova tentativa')
         try:
             bruto = caller(settings, SYSTEM_PROMPT, user)
             candidates = _parse_candidates(bruto)
