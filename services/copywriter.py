@@ -135,6 +135,11 @@ Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 # provedor, mas cada cor continua recebendo um roteiro independente.
 _SYSTEM_RULES = SYSTEM_PROMPT.rsplit('\n\nResponda SOMENTE', 1)[0]
 _BATCH_SYSTEM_RULES = re.sub(r'\n- caption:.*', '', _SYSTEM_RULES)
+_BATCH_SYSTEM_RULES = _BATCH_SYSTEM_RULES.replace(
+    'linguagem falada em primeira pessoa.', 'linguagem falada natural.')
+_BATCH_SYSTEM_RULES = re.sub(
+    r'\n6\. Fale na primeira pessoa,.*?(?=\n7\.)', '',
+    _BATCH_SYSTEM_RULES, flags=re.S)
 BATCH_SYSTEM_PROMPT = _BATCH_SYSTEM_RULES + """
 
 MODO LOTE — CORES DA MESMA CAMPANHA
@@ -148,6 +153,10 @@ MODO LOTE — CORES DA MESMA CAMPANHA
   pronunciado. Não use a estrutura, a tensão nem a conclusão de outro eixo.
 - A cor pode aparecer na fala quando for relevante, mas não precisa ser a
   ideia central de todas as versões.
+- Primeira pessoa é uma opção, não uma obrigação. Alterne naturalmente entre
+  experiência pessoal, observação direta, contraste e situação de uso.
+- As faixas mínimas de palavras são alvos de ritmo. Uma frase natural um pouco
+  mais curta é válida; nunca preencha espaço com palavras artificiais.
 - Devolva todas as chaves recebidas exatamente uma vez.
 - Gere somente hook, development e cta. A legenda pertence à etapa de
   publicação e não faz parte desta solicitação.
@@ -331,8 +340,16 @@ def _learning_lines(learning: dict | None) -> list[str]:
 
 
 # --------------------------------------------------------------------------- auditoria
-def audit(pack: dict, c: dict, require_caption: bool = True) -> list[str]:
-    """Devolve a lista de violacoes. Lista vazia = texto aprovado."""
+def audit(pack: dict, c: dict, require_caption: bool = True,
+          strict_style: bool = True) -> list[str]:
+    """Devolve violações que realmente impedem o uso do roteiro.
+
+    ``strict_style`` conserva a curadoria mais exigente da geração individual.
+    No lote ele fica desligado: contagem mínima, primeira pessoa e formato do
+    gancho são preferências editoriais, não motivos para perder todas as cores
+    de uma chamada válida. Tetos de duração, fatos inventados, falsa urgência,
+    direção de cena falada e repetição do roteiro anterior continuam bloqueando.
+    """
     problemas = []
     for campo, (low, high) in BUDGET.items():
         texto = (pack.get(campo) or '').strip()
@@ -340,7 +357,7 @@ def audit(pack: dict, c: dict, require_caption: bool = True) -> list[str]:
             problemas.append(f'{campo} veio vazio')
             continue
         n = _count_words(texto)
-        if n < low:
+        if strict_style and n < low:
             problemas.append(f'{campo} tem {n} palavras, precisa de pelo menos {low}')
         elif n > high:
             problemas.append(f'{campo} tem {n} palavras, o teto é {high}')
@@ -372,20 +389,21 @@ def audit(pack: dict, c: dict, require_caption: bool = True) -> list[str]:
             problemas.append(f'"{achado.group(0)}" é direção de cena e não pode ser pronunciada')
             break
 
-    for padrao in GENERIC_HOOK_PATTERNS:
-        if re.search(padrao, hook):
-            problemas.append('o hook é uma pergunta ou abertura genérica; use uma experiência, receio ou descoberta específica')
-            break
+    if strict_style:
+        for padrao in GENERIC_HOOK_PATTERNS:
+            if re.search(padrao, hook):
+                problemas.append('o hook é uma pergunta ou abertura genérica; use uma experiência, receio ou descoberta específica')
+                break
 
-    if not any(re.search(padrao, f'{hook} {development}') for padrao in FIRST_PERSON_PATTERNS):
-        problemas.append('hook e desenvolvimento não soam como experiência pessoal em primeira pessoa')
+        if not any(re.search(padrao, f'{hook} {development}') for padrao in FIRST_PERSON_PATTERNS):
+            problemas.append('hook e desenvolvimento não soam como experiência pessoal em primeira pessoa')
 
     if re.search(r'\b(?:mulheres|homens|pessoas)\s+(?:de\s+)?\d{2}\s*(?:a|-|–)\s*\d{2}\b', falado):
         problemas.append('a fala recita a faixa etária do público')
 
     colors = color_variants(c.get('color'))
     color = (c.get('color') or '').strip().casefold()
-    if color and len(colors) <= 1 and color in cta:
+    if strict_style and color and len(colors) <= 1 and color in cta:
         problemas.append('o CTA repete a cor sem acrescentar uma razão para agir')
 
     previous = c.get('previous_script') or {}
@@ -761,7 +779,11 @@ def write_scripts(campaigns: list[dict], settings: dict,
         for key, campaign in expected.items():
             approved = []
             for pack in parsed[key]:
-                problemas = audit(pack, campaign, require_caption=False)
+                # Em lote, estilo e comprimento minimo orientam o modelo, mas
+                # nao anulam todas as cores. A auditoria ainda bloqueia riscos
+                # concretos e o teto que precisa caber nos 15 segundos.
+                problemas = audit(
+                    pack, campaign, require_caption=False, strict_style=False)
                 if problemas:
                     rejected.extend(f'{campaign.get("color") or key}: {item}' for item in problemas)
                 else:

@@ -1224,6 +1224,42 @@ class WorkflowTests(unittest.TestCase):
             ('Azul',result['azul']),('Branco',result['branco'])]),[])
         caller.assert_called_once()
 
+    def test_batch_copywriter_does_not_reject_shorter_or_non_first_person_copy(self):
+        """Preferências editoriais não podem apagar um lote inteiro válido."""
+        from services import copywriter as cw
+        campaigns=[
+            {**self.brief,'color':'Azul','batch_key':'azul'},
+            {**self.brief,'color':'Branco','batch_key':'branco'},
+        ]
+        azul={
+            'hook':'O acabamento desta peça muda completamente a primeira impressão no corpo',
+            'development':'A costura bem feita e o caimento acompanham o treino, mantendo o visual arrumado até o fim.',
+            'cta':'Confira os detalhes dela agora no carrinho.',
+        }
+        branco={
+            'hook':'A versão clara deixa o visual elegante sem complicar a combinação',
+            'development':'O branco ilumina a produção e combina com peças diferentes, criando opções práticas para momentos do dia.',
+            'cta':'Veja no carrinho qual versão combina com você.',
+        }
+        self.assertEqual(cw._count_words(azul['development']),17)
+        self.assertTrue(any('pelo menos 18' in item for item in
+                            cw.audit(azul,campaigns[0],require_caption=False)))
+        self.assertFalse(any('pelo menos 18' in item or 'primeira pessoa' in item for item in
+                             cw.audit(azul,campaigns[0],require_caption=False,strict_style=False)))
+        raw=json.dumps({'scripts':[
+            {'key':'azul','options':[azul]},
+            {'key':'branco','options':[branco]},
+        ]},ensure_ascii=False)
+        caller=Mock(return_value=raw)
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'},attempts=1)
+        self.assertEqual(reason,'')
+        for field in ('hook','development','cta'):
+            self.assertEqual(result['azul'][field],azul[field])
+            self.assertEqual(result['branco'][field],branco[field])
+        caller.assert_called_once()
+
     def test_audit_blocks_unconfirmed_claims_and_fake_urgency(self):
         from services.copywriter import audit
         brief=dict(product='Legging cintura alta',outfit='legging',benefit='tem cós largo',
