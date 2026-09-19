@@ -758,8 +758,10 @@ class WorkflowTests(unittest.TestCase):
         for essencial in ('preserve 100% o mesmo rosto',
                           'o mesmo ambiente mostrado na foto de referência da modelo',
                           'PROVA VISUAL', 'MÃOS:', 'ATRIBUTOS NÃO CONFIRMADOS',
-                          'girar 180 graus'):
+                          'ORIENTAÇÃO CORPORAL:'):
             self.assertIn(essencial, video, essencial)
+        actions=video.split('AÇÕES',1)[1].split('ENCERRAMENTO',1)[0]
+        self.assertNotIn('girar 180 graus',actions)
         for fala in (pack['hook'], pack['development'], pack['cta']):
             self.assertIn(fala, video)
 
@@ -788,19 +790,22 @@ class WorkflowTests(unittest.TestCase):
         # Nenhuma fala embutida: o formato nao tem trechos falados.
         self.assertNotIn('Fala (PT-BR)', video)
         self.assertNotIn('DESENVOLVIMENTO', video)
-        # Os quatro movimentos que o operador pediu.
-        for movimento in ('DE LEVE', 'gira devagar de lado', 'continua de costas', 'como quem arruma'):
+        # Sem autorizacao, o fit check continua frontal.
+        for movimento in ('DE LEVE', 'permanece de frente', 'como quem arruma'):
             self.assertIn(movimento, video)
         # A direcao de camera do nicho casual fala em "falando com a câmera":
         # num video mudo isso seria uma contradicao dentro do proprio prompt.
         self.assertNotIn('falando com a câmera', video)
         # Erros ja corrigidos antes continuam barrados neste formato.
         self.assertIn('Nunca esticar a peça com força', video)
-        self.assertIn('não manter as costas para a câmera', video)
+        self.assertIn('não mostrar perfil, costas', video)
         self.assertIn('nenhuma voz', video)
         # E as travas de honestidade e de cenario valem igual.
         self.assertIn('ATRIBUTOS NÃO CONFIRMADOS', video)
         self.assertIn('o mesmo ambiente mostrado na foto de referência da modelo', video)
+        with_back=generate({**campaign,'body_turns':'costas'})['video']
+        self.assertIn('uma única rotação contínua e breve até mostrar as costas',with_back)
+        self.assertIn('as costas aparecerem por no máximo 1 segundo',with_back)
 
     def test_movement_mode_still_produces_the_script_for_caption_and_other_formats(self):
         # O roteiro continua existindo: alimenta a legenda, o orcamento falado
@@ -841,7 +846,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('PROVA VISUAL',video)
         self.assertIn('coloca a mão dentro do bolso e tira',video)
         self.assertIn('puxa o cós para a frente e solta',video)
-        self.assertIn('gira de costas para a câmera',video)
+        self.assertIn('agachamento curto de frente',video)
         # No Grok, que corta o prompt em 4000 caracteres, a prova continua
         # existindo -- com os dois fatos principais em vez de todos. Melhor
         # dois gestos que chegam do que quatro que o gerador descarta junto
@@ -850,6 +855,37 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('PROVA VISUAL',curto)
         self.assertIn('coloca a mão dentro do bolso e tira',curto)
         self.assertLessEqual(len(curto),4000)
+
+    def test_body_orientation_is_explicit_and_overrides_old_niche_movements(self):
+        base=dict(model_name='Micaela',product='Top Gola Polo',outfit='top',color='preto',
+                  audience='mulheres',benefit='caimento visível',angle='mostrar a gola',
+                  tone='conversacional',style='natural',details='',
+                  movements='Entrar no frame; girar 180 graus; caminhar dois passos; aceno final',
+                  generator='flow',niche='casual')
+        frontal=generate(base)['video']
+        self.assertIn('ORIENTAÇÃO CORPORAL: sempre de frente',frontal)
+        actions=frontal.split('AÇÕES',1)[1].split('ENCERRAMENTO',1)[0]
+        self.assertNotIn('girar 180 graus',actions)
+        self.assertIn('Entrar no frame',actions)
+        self.assertIn('caminhar dois passos',actions)
+
+        perfil=generate({**base,'body_turns':'lado'})['video']
+        self.assertIn('uma única virada de 90 graus até o perfil',perfil)
+        self.assertIn('virar uma vez de lado até o perfil e voltar de frente',perfil)
+        self.assertNotIn('uma única virada contínua de costas',perfil)
+
+        costas=generate({**base,'body_turns':'costas'})['video']
+        self.assertIn('uma única virada contínua de costas',costas)
+        self.assertIn('por no máximo 1 segundo',costas)
+
+    def test_body_orientation_is_saved_and_read_back_from_campaign(self):
+        response=self.client.patch(
+            f'/api/campaigns/{self.cid}',json={'body_turns':'leve_lado'},headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json['body_turns'],'leve_lado')
+        invalid=self.client.patch(
+            f'/api/campaigns/{self.cid}',json={'body_turns':'giro_total'},headers=self.headers)
+        self.assertEqual(invalid.status_code,400,invalid.json)
 
     def test_scene_locks_and_hand_anchor_are_present(self):
         campaign=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='azul',
@@ -1260,6 +1296,60 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(result['branco'][field],branco[field])
         caller.assert_called_once()
 
+    def test_batch_copywriter_strengthens_weak_ctas_without_another_api_call(self):
+        from services import copywriter as cw
+        campaigns=[
+            {**self.brief,'color':'Preto','batch_key':'preto'},
+            {**self.brief,'color':'Branco','batch_key':'branco'},
+        ]
+        weak=[
+            {
+                'hook':'Eu quase deixei essa peça passar até reparar melhor no acabamento',
+                'development':'A costura aparece bem no corpo e o caimento acompanha meus passos, deixando a produção pronta para diferentes momentos do dia.',
+                'cta':'Se fez sentido pra você, confere no carrinho.',
+            },
+            {
+                'hook':'A gola foi o detalhe que mudou minha primeira impressão dessa peça',
+                'development':'No corpo, a modelagem organiza o visual e combina com outras peças sem complicar a escolha para sair durante o dia.',
+                'cta':'Quer levar essa ideia? Confere lá no carrinho.',
+            },
+        ]
+        raw=json.dumps({'scripts':[
+            {'key':'preto','options':[weak[0]]},
+            {'key':'branco','options':[weak[1]]},
+        ]},ensure_ascii=False)
+        caller=Mock(return_value=raw)
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'},attempts=1)
+        self.assertEqual(reason,'')
+        self.assertIn('carrinho laranja',result['preto']['cta'].lower())
+        self.assertIn('carrinho laranja',result['branco']['cta'].lower())
+        self.assertFalse(result['preto']['cta'].lower().startswith('se '))
+        self.assertFalse(result['branco']['cta'].lower().startswith('quer '))
+        self.assertNotEqual(result['preto']['cta'],result['branco']['cta'])
+        caller.assert_called_once()
+
+    def test_batch_copywriter_turns_provider_timeout_into_a_safe_message(self):
+        from services import copywriter as cw
+        campaigns=[{**self.brief,'color':'Preto','batch_key':'preto'}]
+        settings={'provider':'openai','api_key':'sk-x','model':'gpt-4o-mini'}
+        with patch('urllib.request.urlopen',side_effect=TimeoutError('read timed out')) as request:
+            result,reason=cw.write_scripts(campaigns,settings,attempts=1)
+        self.assertIsNone(result)
+        self.assertIn('não respondeu em 45 segundos',reason)
+        self.assertIn('nenhuma fala foi alterada',reason)
+        self.assertEqual(request.call_args.kwargs['timeout'],cw.BATCH_TIMEOUT)
+
+    def test_single_copywriter_keeps_the_shorter_provider_timeout(self):
+        from services import copywriter as cw
+        settings={'provider':'openai','api_key':'sk-x','model':'gpt-4o-mini'}
+        with patch('urllib.request.urlopen',side_effect=TimeoutError('read timed out')) as request:
+            result,reason=cw.write_script(self.brief,settings,attempts=1)
+        self.assertIsNone(result)
+        self.assertIn('não respondeu em 25 segundos',reason)
+        self.assertEqual(request.call_args.kwargs['timeout'],cw.TIMEOUT)
+
     def test_audit_blocks_unconfirmed_claims_and_fake_urgency(self):
         from services.copywriter import audit
         brief=dict(product='Legging cintura alta',outfit='legging',benefit='tem cós largo',
@@ -1384,7 +1474,8 @@ class WorkflowTests(unittest.TestCase):
         for i in range(4):
             cta=generate({**base,'color':'preto'},variant_index=i)['cta'].lower()
             self.assertNotIn('produto marcado',cta)
-            self.assertRegex(cta,r'carrinho|link t[áa] (aqui )?embaixo')
+            self.assertIn('carrinho laranja',cta)
+            self.assertNotRegex(cta,r'^(se|quer|gosta)\b')
         com_dor=generate({**base,'color':'preto','objection':'Parece barata de perto'},variant_index=0)['cta']
         self.assertRegex(com_dor.lower(),r'carrinho|link')
 
@@ -1603,7 +1694,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('veste muito bem no corpo e é leve',prompts['development'])
         self.assertIn('cós',prompts['development'].lower())
         self.assertIn('legging de treino cintura alta com bolso lateral',prompts['image'])
-        self.assertIn('caminhar dois passos, virar de lado e ajustar o cós',prompts['video'])
+        self.assertIn('caminhar dois passos',prompts['video'])
+        self.assertIn('ajustar o cós',prompts['video'])
+        self.assertIn('ORIENTAÇÃO CORPORAL: sempre de frente',prompts['video'])
         self.assertGreaterEqual(len(' '.join(prompts[k] for k in ('hook','development','cta')).split()),28)
 
     def test_generated_development_is_speech_and_fits_15_second_budget(self):

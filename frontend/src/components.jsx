@@ -91,7 +91,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -961,7 +961,28 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </label>
           </div>
           <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
-          <small className="help">Em "Só movimento" ninguém fala: a modelo puxa a peça de leve, gira de lado, gira de costas e ajusta como quem arruma. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
+          <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
+        </label>
+        <label>Orientação corporal no vídeo
+          <div className="generator-options turn-options" role="radiogroup" aria-label="Maior giro permitido para a modelo">
+            <label className={'generator-option '+(!draft.body_turns?'selected':'')}>
+              <input type="radio" name="body_turns" value="" checked={!draft.body_turns} onChange={()=>change('body_turns','')}/>
+              <span><strong>De frente</strong><small>Sem virar o corpo</small></span>
+            </label>
+            <label className={'generator-option '+(draft.body_turns==='leve_lado'?'selected':'')}>
+              <input type="radio" name="body_turns" value="leve_lado" checked={draft.body_turns==='leve_lado'} onChange={()=>change('body_turns','leve_lado')}/>
+              <span><strong>Leve de lado</strong><small>Giro curto de até 30°</small></span>
+            </label>
+            <label className={'generator-option '+(draft.body_turns==='lado'?'selected':'')}>
+              <input type="radio" name="body_turns" value="lado" checked={draft.body_turns==='lado'} onChange={()=>change('body_turns','lado')}/>
+              <span><strong>De lado</strong><small>Perfil de 90°, volta de frente</small></span>
+            </label>
+            <label className={'generator-option '+(draft.body_turns==='costas'?'selected':'')}>
+              <input type="radio" name="body_turns" value="costas" checked={draft.body_turns==='costas'} onChange={()=>change('body_turns','costas')}/>
+              <span><strong>De costas</strong><small>Somente quando a peça exige</small></span>
+            </label>
+          </div>
+          <small className="help">Essa escolha tem prioridade sobre os movimentos automáticos do nicho. “De frente” impede giros inesperados; costas só aparecem quando você autorizar.</small>
         </label>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">

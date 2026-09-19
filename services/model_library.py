@@ -29,7 +29,7 @@ NICHE_DEFAULTS = {
         "tone": "Leve, animada e conversacional",
         "style": "Natural e realista, luz de sol, cores vivas, 9:16",
         "details": "Rosto e corpo da Micaela fixos (foto padrao do nicho). Priorizar produto em close + plano medio. Evitar logos de marca de terceiros. Gestos naturais: ajustar alca, girar, sorrir pra camera.",
-        "movements": "Olhar pra camera e sorrir; dar dois passos na areia/deck; girar de lado mostrando o caimento; ajustar a peca; close no detalhe do produto; pose final com CTA visual"
+        "movements": "Olhar pra camera e sorrir; dar dois passos na areia/deck; ajustar a peca; close no detalhe do produto; pose final com CTA visual"
     },
     "academia": {
         "outfit": "Roupa de treino / academia (legging, top ou conjunto fitness do produto)",
@@ -39,7 +39,7 @@ NICHE_DEFAULTS = {
         "tone": "Energica, motivacional e direta",
         "style": "Fitness clean, academia ou outdoor sport, luz clara, realista, 9:16",
         "details": "Manter identidade da Micaela. Mostrar tecido stretch, cos e suporte. Evitar academia vazia demais; preferir ambiente crivel. Suor leve ok; nada exagerado.",
-        "movements": "Caminhar ate a camera; agachar leve mostrando a legging; virar de lado; ajustar o cos; alongar os bracos; close no tecido; pose confiante final"
+        "movements": "Caminhar ate a camera; agachar leve mostrando a legging; ajustar o cos; alongar os bracos; close no tecido; pose confiante final"
     },
     "casual": {
         "outfit": "Visual casual urbano (camiseta, calça, vestido leve ou peça do produto no dia a dia)",
@@ -49,7 +49,7 @@ NICHE_DEFAULTS = {
         "tone": "Amiga proxima, conversacional e confiante",
         "style": "Natural e realista, street casual, luz natural, 9:16",
         "details": "Rosto/corpo Micaela fixos. Enquadramento dinamico: plano medio + close no caimento. Fundo simples (rua, quarto, cafe). Destacar textura e modelagem.",
-        "movements": "Entrar no frame ja vestida; girar 180 graus; puxar a barra da peca; mostrar bolso/detalhe; caminhar dois passos; close no tecido; aceno/CTA no final"
+        "movements": "Entrar no frame ja vestida; puxar a barra da peca; mostrar bolso/detalhe; caminhar dois passos; close no tecido; pose frontal no final"
     },
     "dia-a-dia": {
         "outfit": "Roupa confortavel de rotina (lounge, basic tee, calca moletom ou peca do produto no cotidiano)",
@@ -69,7 +69,7 @@ NICHE_DEFAULTS = {
         "tone": "Sensual clean, intima e segura (nunca explcito)",
         "style": "Sensual clean, luz suave de estudio/quarto, tons quentes, realista premium, 9:16",
         "details": "Manter Micaela. Evitar nudez; coberturas adequadas as politicas do TikTok. Fundo limpo. Destacar elogiacao, renda/tecido e ajuste. Camera estavel.",
-        "movements": "Pose inicial frontal; virar de lado; ajustar alca/fecho; close no tecido; caminhar lenta ate a camera; sorriso confiante; CTA suave no final"
+        "movements": "Pose inicial frontal; ajustar alca/fecho; close no tecido; caminhar lenta ate a camera; sorriso confiante; CTA suave no final"
     },
     "fantasia": {
         "outfit": "Fantasia / cosplay / visual temático do produto (personagem ou tema claro)",
@@ -79,7 +79,7 @@ NICHE_DEFAULTS = {
         "tone": "Divertida, teatral e empolgante",
         "style": "Tematico, cenario combinando com a fantasia, cores saturadas, realista cinematografico leve, 9:16",
         "details": "Identidade Micaela sob a fantasia. Mostrar acessorios (peruca, asas, cinto). Cenario coerente (quarto, festa, fundo simples com luz colorida). Evitar marcas de terceiros.",
-        "movements": "Revelar a fantasia; pose iconica do personagem; girar mostrando costas/acessorios; close em detalhe; gesto caracteristico; caminhar ate camera; CTA final animado"
+        "movements": "Revelar a fantasia; pose iconica do personagem; close em detalhe; gesto caracteristico; caminhar ate camera; CTA final animado"
     }
 }
 

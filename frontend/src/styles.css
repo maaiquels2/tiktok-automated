@@ -2619,6 +2619,9 @@ button.linkish {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
+.turn-options {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
 .generator-option {
   display: flex;
   flex-direction: row;
@@ -4623,14 +4626,19 @@ button.linkish {
     align-items: stretch;
     flex-direction: column;
   }
-  .script-ai-action .primary {
+  .script-ai-action > .primary {
     width: 100%;
   }
-  .script-ai-buttons {
+  .script-ai-action .script-ai-buttons {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     width: 100%;
   }
-  .script-ai-buttons button {
-    flex: 1 1 0;
+  .script-ai-action .script-ai-buttons button,
+  .script-ai-action .script-ai-buttons .primary {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
     min-height: 38px;
     padding: 7px 9px;
     font-size: 12px;
@@ -4932,6 +4940,10 @@ button.linkish {
 
   .generator-options {
     grid-template-columns: 1fr;
+  }
+  .turn-options {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
   }
   .generator-option {
     min-height: 56px;

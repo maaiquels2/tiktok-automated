@@ -472,11 +472,26 @@ _PROOF_GESTURES = {
 }
 
 
-def _proof_gestures(features, limit=3):
+def _proof_gestures(features, limit=3, turns=()):
     """Converte cada fato confirmado no gesto que o demonstra na camera."""
+    turns = set(turns or ())
     plan = []
     for label in features or []:
         gesture = _PROOF_GESTURES.get(label)
+        # Prova visual também respeita a orientação escolhida. Antes, o fato
+        # "sem transparência" reintroduzia uma virada de costas mesmo quando a
+        # lista de movimentos não pedia giro algum.
+        if label == 'sem transparência' and 'costas' not in turns:
+            if 'lado' in turns:
+                gesture = ('vira somente até o perfil e faz um agachamento curto sob a mesma luz, '
+                           'sem mostrar as costas')
+            elif 'leve_lado' in turns:
+                gesture = ('inclina o corpo até 30 graus e faz um agachamento curto sob a mesma luz, '
+                           'mantendo a frente da peça visível')
+            else:
+                gesture = ('faz um agachamento curto de frente sob a mesma luz, sem girar o corpo')
+        elif label == 'recorte' and not turns:
+            gesture = 'aponta o recorte com um dedo mantendo o corpo de frente'
         if gesture and gesture not in plan:
             plan.append(f'{label} → {gesture}')
         if len(plan) >= limit:
@@ -485,7 +500,7 @@ def _proof_gestures(features, limit=3):
 
 
 _ARM_ACTIONS = ('alongar', 'along', 'braco', 'braço', 'levantar', 'erguer',
-                'acenar', 'maos para cima', 'mãos para cima', 'comemor')
+                'acenar', 'aceno', 'maos para cima', 'mãos para cima', 'comemor')
 
 
 def _is_arm_action(chunk: str) -> bool:
@@ -522,6 +537,69 @@ def _movement_plan(value: str, limit: int = 6) -> str:
                 insert_at += 1
             chunks = head
     return '; '.join(chunks)[:900]
+
+
+_TURN_ACTION_RE = re.compile(
+    r'\b(?:girar?|giro|virar?|virada|rota(?:ç|c)[ãa]o|volta\s+completa|de\s+costas|perfil|por\s+cima\s+do\s+ombro)\b',
+    re.I,
+)
+
+
+def _body_turns(c: dict) -> list[str]:
+    """Return only body rotations explicitly authorized in the brief."""
+    raw = str(c.get('body_turns') or '')
+    selected = {part.strip() for part in raw.split(',') if part.strip()}
+    return [key for key in ('leve_lado', 'lado', 'costas') if key in selected]
+
+
+def _movement_without_unapproved_turns(value: str) -> str:
+    """Remove inherited niche rotations; the dedicated selector owns them."""
+    raw = _phrase(value)
+    if not raw:
+        return ''
+    action_separator = (
+        r'\s*;\s*|\n+|,\s*|\s+e\s+'
+        r'(?=(?:ajust|caminh|gir|vir|pux|mostr|entr|sorr|agach|sent|levant|along|acen|toc|segur|apont|pose|inclin))'
+    )
+    chunks = [part.strip(' .,:;') for part in re.split(action_separator, raw, flags=re.I)
+              if part.strip(' .,:;')]
+    return '; '.join(part for part in chunks if not _TURN_ACTION_RE.search(part))
+
+
+def _turn_direction(c: dict) -> tuple[str, str]:
+    """Prompt rule and action for the largest rotation the operator allowed."""
+    selected = _body_turns(c)
+    if 'costas' in selected:
+        return (
+            'ORIENTAÇÃO CORPORAL: uma única virada contínua de costas, por no máximo 1 segundo, e retorno '
+            'imediato de frente; sem pose nem olhar por cima do ombro.',
+            'virar brevemente de costas e voltar de frente sem pausar',
+        )
+    if 'lado' in selected:
+        return (
+            'ORIENTAÇÃO CORPORAL: uma única virada de 90 graus até o perfil e retorno de frente; '
+            'não ultrapassar o perfil nem mostrar as costas.',
+            'virar uma vez de lado até o perfil e voltar de frente',
+        )
+    if 'leve_lado' in selected:
+        return (
+            'ORIENTAÇÃO CORPORAL: uma única inclinação de 20 a 30 graus, mantendo rosto e frente da peça '
+            'visíveis; sem perfil ou costas.',
+            'inclinar levemente o corpo de lado e voltar de frente',
+        )
+    return (
+        'ORIENTAÇÃO CORPORAL: sempre de frente, com ombros e frente da peça voltados à lente; '
+        'não mostrar perfil, costas ou olhar por cima do ombro.',
+        '',
+    )
+
+
+def _configured_movement_plan(value: str, c: dict, limit: int = 6) -> str:
+    """Combine safe product actions with the one explicitly allowed rotation."""
+    cleaned = _movement_without_unapproved_turns(value)
+    _direction, turn_action = _turn_direction(c)
+    combined = '; '.join(part for part in (cleaned, turn_action) if part)
+    return _movement_plan(combined, limit=limit)
 
 
 def _slug_tag(value, limit=28):
@@ -1148,42 +1226,39 @@ def _cta_pool(c, forms):
     # Vocabulario real do TikTok Shop: o botao e o carrinho laranja e o link
     # fica embaixo do video. "Produto marcado" e linguagem de painel, nao de
     # quem fala com a camera - por isso o CTA soava de aviso institucional.
-    piece, dem, art = forms['piece'], forms['dem'], forms['art']
-    concord = 'a' if art == 'a' else 'o'
+    piece, art = forms['piece'], forms['art']
+    possessive = 'a tua' if art == 'a' else 'o teu'
     colors = color_variants(c.get('color'))
     pain, _check = _objection_parts(c)
     offer = _offer_text(c)
     direto = [
-        ('cta-gostou', 'Se você também gostou, dá uma conferida no carrinho.'),
-        ('cta-link', 'O link tá aqui embaixo, é só tocar no carrinho.'),
-        ('cta-olhada', 'Dá uma olhada no carrinho aqui embaixo.'),
-        ('cta-quer', f'Quer {art} {piece}? Tá no carrinho aqui embaixo.'),
-        ('cta-deixei', f'Deixei {forms["pron"]} marcad{concord} no carrinho aqui embaixo.'),
-        ('cta-vaila', 'Vai lá no carrinho aqui embaixo dar uma olhada.'),
+        ('cta-corre', 'Corre pro carrinho laranja e confere os detalhes agora.'),
+        ('cta-abre', 'Abre o carrinho laranja e escolhe a sua versão.'),
+        ('cta-aproveita', 'Aproveita e garante a sua versão no carrinho laranja.'),
+        ('cta-agora', 'Não deixa pra depois: confere no carrinho laranja agora.'),
+        ('cta-toca', 'Toca no carrinho laranja e vê todos os detalhes.'),
     ]
     if len(colors) > 1:
         direto = [
-            ('cta-cores', 'As cores tão todas no carrinho aqui embaixo.'),
-            ('cta-escolhe', 'Escolhe a tua cor no carrinho aqui embaixo.'),
-            ('cta-vercores', 'Corre ver as cores no carrinho aqui embaixo.'),
+            ('cta-cores', 'Escolhe a tua cor agora no carrinho laranja.'),
+            ('cta-vercores', 'Corre pro carrinho laranja e compara as cores agora.'),
         ] + direto
     condicional = [
-        ('cta-incomoda', 'Se isso te incomoda também, olha no carrinho.'),
-        ('cta-passou', 'Se você já passou por isso, o link tá embaixo.'),
-        ('cta-mesmo', 'Se for o teu caso, dá uma olhada no carrinho.'),
+        ('cta-resolve', 'Resolve essa dúvida agora: abre o carrinho laranja.'),
+        ('cta-confere', 'Confere essa solução agora no carrinho laranja.'),
     ] if pain else []
-    escassez = [
-        ('cta-ofcorre', _sentence(f'{offer}. Corre no carrinho aqui embaixo')),
-        ('cta-oflink', _sentence(f'{offer}. O link tá aqui embaixo')),
-    ] if offer else []
+    offer_short = ' '.join(offer.split()[:5]).rstrip('.,;:')
+    if offer and re.search(r'últim|ultim|estoque|esgot|peças|pecas|unidades',offer.casefold()):
+        escassez = [('cta-ofestoque',f'Corre pro carrinho laranja: {offer_short}.')]
+    else:
+        escassez = [('cta-oferta',f'Aproveita {offer_short} no carrinho laranja.')] if offer else []
     posse = [
-        ('cta-garante', 'Corre garantir a tua, o link tá aqui embaixo.'),
-        ('cta-pega', 'Pega a tua no carrinho aqui embaixo.'),
-        ('cta-tua', f'Garante {art} tu{"a" if art == "a" else "o"} no carrinho aqui embaixo.'),
+        ('cta-garante', f'Corre pro carrinho laranja e garante {possessive} agora.'),
+        ('cta-escolhe', f'Abre o carrinho laranja e escolhe {possessive}.'),
     ]
     descoberta = [
-        ('cta-interessou', 'Se isso te interessou, dá uma olhada no carrinho.'),
-        ('cta-chamou', 'Se isso te chamou atenção, olha no carrinho.'),
+        ('cta-achado', 'Salva esse achado agora no carrinho laranja.'),
+        ('cta-detalhes', 'Toca no carrinho laranja e confere os detalhes.'),
     ]
     motor = _dominant_motor(c)
     if motor == 'escassez':
@@ -1400,7 +1475,7 @@ _VIDEO_NICHE = {
     },
     "casual": {
         "setting": "rua, cafe ou quarto com luz natural; visual street realista",
-        "camera": "aproximação suave; giro de 180 graus; detalhe de perto na barra, bolso ou textura; caminhada frontal falando com a câmera",
+        "camera": "aproximação suave; detalhe de perto na barra, bolso ou textura; acompanhamento frontal em dois passos",
         "must_show": "como a peça cai no corpo em movimento urbano, textura e detalhe que estejam visíveis (barra, costura ou bolso)",
         "avoid": "fundo genérico borrado sem contexto, gestos roboticos, troca de identidade",
     },
@@ -1490,10 +1565,10 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     """Video so de movimento: a peca no corpo, sem nenhuma fala.
 
     E o formato "fit check": ninguem fala, a modelo mostra como a peca cai --
-    puxa de leve, gira de lado, gira de costas, ajusta como quem arruma. O som
-    vira por conta da trend escolhida no TikTok e a mensagem fica na legenda do
-    post, entao o quadro fica limpo: sem locucao, sem legenda automatica e sem
-    texto na tela.
+    puxa de leve, segue somente a orientacao corporal autorizada e ajusta como
+    quem arruma. O som vira por conta da trend escolhida no TikTok e a mensagem
+    fica na legenda do post, entao o quadro fica limpo: sem locucao, sem legenda
+    automatica e sem texto na tela.
 
     hook/development/cta chegam aqui e NAO sao usados de proposito: continuam
     existindo na campanha (alimentam a legenda, o orcamento falado e a troca
@@ -1509,7 +1584,8 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis da peça"
-    moves = _movement_plan(movements)
+    moves = _movement_plan(_movement_without_unapproved_turns(movements))
+    turn_direction, _turn_action = _turn_direction(c)
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas nem texto na tela): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
@@ -1520,11 +1596,28 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
     forms = _piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
+    selected_turns = _body_turns(c)
+    if 'costas' in selected_turns:
+        rotation_motion = ('faz uma única rotação contínua e breve até mostrar as costas por no máximo 1 segundo, '
+                           'e volta imediatamente de frente; ')
+        rotation_shot = ('faz uma única rotação contínua até as costas aparecerem por no máximo 1 segundo e '
+                         'retorna de frente, sem posar')
+    elif 'lado' in selected_turns:
+        rotation_motion = 'vira uma única vez até o perfil, sem mostrar as costas, e volta de frente; '
+        rotation_shot = 'vira uma única vez até o perfil e retorna de frente, sem ultrapassar 90 graus'
+    elif 'leve_lado' in selected_turns:
+        rotation_motion = 'inclina o corpo uma única vez de 20 a 30 graus e volta de frente; '
+        rotation_shot = 'inclina o corpo de 20 a 30 graus e retorna de frente, mantendo a frente da peça visível'
+    else:
+        rotation_motion = 'permanece de frente enquanto caminha dois passos curtos no próprio eixo; '
+        rotation_shot = 'caminha dois passos curtos de frente e mostra o caimento sem girar o corpo'
     # Cada fato confirmado ganha o gesto que o prova -- isso nunca e descartado.
     # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
     # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
     # gerador corta o final do prompt sozinho.
-    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4))
+    gestures = _proof_gestures(
+        _product_features(c, limit=2 if _limite_video(c) else 4),
+        turns=_body_turns(c))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 3s e 11s: '
         + '; '.join(gestures) + '.\n'
@@ -1557,21 +1650,20 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
         (0, proof_block),
         (0, "MOVIMENTO (é o conteúdo inteiro do vídeo, com calma e naturalidade, na ordem do SHOT LIST): a modelo puxa "
             f"{anchor} {forms['de']} {forms['piece']} DE LEVE, só o suficiente para o tecido mostrar como assenta, e solta — "
-            "a peça volta exatamente ao lugar; gira devagar de lado, mostrando o perfil; continua de costas e volta de frente; "
+            f"a peça volta exatamente ao lugar; {rotation_motion}"
             f"e ajusta {forms['art']} {forms['piece']} como quem arruma algo fora do lugar (alinhar a barra, subir o cós, "
             f"acertar uma alça, endireitar uma dobra).{extra_moves}{extras} "
             "Nunca esticar a peça com força para os lados: o tecido deforma e o vídeo fica falso. "),
         (0, "MÃOS: uma sempre em contato com a peça; as duas só ficam livres juntas num gesto que exija isso, "
             "por no máximo 1 segundo. "),
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
-        (0, "COSTAS: a rotação de costas é um giro contínuo, não uma pose — não manter as costas para a câmera nem o "
-            "olhar por cima do ombro parados por mais de 1 a 2 segundos.\n"),
+        (0, turn_direction + "\n"),
         (0, "SHOT LIST 15s — um único take contínuo ou cortes invisíveis, sem nenhuma fala:\n"
             "0–3s ABERTURA: plano médio frontal, a peça inteira visível no corpo; um ajuste curto e natural, como quem "
             "acabou de se arrumar; expressão tranquila.\n"
             "3–7s CAIMENTO: puxa a peça de leve com a ponta dos dedos e solta, deixando o tecido responder sozinho; "
             f"a câmera aproxima do detalhe que vende ({focus}) e volta.\n"
-            "7–11s VOLTA COMPLETA: gira devagar de lado, segue de costas e retorna de frente, em movimento contínuo.\n"
+            f"7–11s ORIENTAÇÃO: {rotation_shot}.\n"
             "11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento "
             "inicial e sustenta o olhar calmo na lente até o fim.\n"),
         (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, "
@@ -1616,7 +1708,9 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
     # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
     # gerador corta o final do prompt sozinho.
-    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4))
+    gestures = _proof_gestures(
+        _product_features(c, limit=2 if _limite_video(c) else 4),
+        turns=_body_turns(c))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s, sempre visto pelas mãos em primeira pessoa: '
         + '; '.join(gestures) + '.\n'
@@ -1693,7 +1787,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis da peça"
-    moves = _movement_plan(movements) or "movimentos naturais que mostrem o caimento"
+    moves = _configured_movement_plan(movements, c) or "movimentos frontais e naturais que mostrem o caimento"
+    turn_direction, _turn_action = _turn_direction(c)
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
@@ -1708,7 +1803,9 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
     # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
     # gerador corta o final do prompt sozinho.
-    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4))
+    gestures = _proof_gestures(
+        _product_features(c, limit=2 if _limite_video(c) else 4),
+        turns=_body_turns(c))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s: '
         + '; '.join(gestures) + '.\n'
@@ -1731,13 +1828,13 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             "Fundo, objetos e luz vêm só dessa foto; descrição genérica de nicho não autoriza substituir. "
             "Não trocar a locação nem desfocar o fundo; a câmera pode aproximar e acompanhar a modelo, "
             "voltando ao enquadramento do quadro inicial no encerramento. "),
-        (2, f"CÂMERA: {dirn['camera']}. "),
+        (0, f"CÂMERA: {dirn['camera']}. "),
         (0, f"DETALHE PRINCIPAL: {focus}. "),
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
         (3, f"EVITAR: {dirn['avoid']}; "),
-        (0, "EVITAR TAMBÉM: textos na tela; marcas inventadas; cortes que quebrem a continuidade; "
-            "pose de costas ou olhar por cima do ombro parados por mais de 1 a 2 segundos.\n"),
+        (0, "EVITAR TAMBÉM: textos na tela; marcas inventadas; cortes que quebrem a continuidade.\n"),
         (0, proof_block),
+        (0, turn_direction + "\n"),
         (0, "MÃOS: uma sempre em contato com a peça (cintura, cós ou barra) e a outra mostra os detalhes; "
             "as duas só ficam livres juntas num gesto que exija isso, por no máximo 1 segundo. "),
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
@@ -1756,7 +1853,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (3, f"   · 4–6s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
             f"as mãos tocam o produto com naturalidade.\n"
             f"   · 6–11s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
-            f"({benefit_l}) — caminhar, girar, sentar ou agachar conforme as ações. "
+            f"({benefit_l}) — caminhar, sentar ou agachar conforme as ações e a orientação autorizada. "
             f"Manter cor {color_l} e caimento fiéis.\n"),
         (4, "   · 11–12s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
         (0, f"12–15s CTA: manter a posição de encerramento, olhar firme na lente; o produto marcado é "

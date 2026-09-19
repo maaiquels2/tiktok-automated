@@ -35,6 +35,7 @@ SETTINGS_FILE = 'llm.json'
 PROVIDERS = ('openai', 'gemini')
 DEFAULT_MODELS = {'openai': 'gpt-4o-mini', 'gemini': 'gemini-2.0-flash'}
 TIMEOUT = 25
+BATCH_TIMEOUT = 45
 # Teto de tempo da etapa inteira de escrita. Duas tentativas de 25s somavam
 # quase um minuto; aqui a segunda so comeca se couber dentro do orcamento.
 BUDGET_SECONDS = 32
@@ -54,7 +55,7 @@ CLAIM_TERMS = (
 URGENCY_PATTERNS = (
     r'\búltim[ao]s?\s+(?:chance|unidades|peças|pecas)\b',
     r'\búltimas\b', r'\bultimas\b',
-    r'\bacab(?:a|ou|ando|ar)\b',
+    r'\bacab(?:a|e|em|ou|ando|ar)\b',
     r'\besgot\w*\b',
     r'\bs[óo]\s+hoje\b',
     r'\brel[âa]mpago\b',
@@ -84,6 +85,12 @@ GENERIC_HOOK_PATTERNS = (
     r'^olha\s+(?:só\s+)?ess[ae]\b', r'^essa\s+pe[çc]a\s+[ée]\b',
 )
 
+WEAK_CTA_PATTERNS = (
+    r'^\s*se\b', r'^\s*quer\b', r'^\s*gosta\b',
+    r'\bd[áa]\s+uma\s+(?:olhada|conferida)\b',
+    r'\bconfere\s+l[áa]\b', r'\bolha\s+l[áa]\b',
+)
+
 # Marcas de fala em primeira pessoa. A lista antiga deixava de fora formas
 # obviamente pessoais ("reparei", "gostei", "pra mim") e por isso reprovava
 # texto correto -- era parte do motivo de o gerador local nunca passar aqui.
@@ -109,12 +116,12 @@ OBJETIVO CRIATIVO
 ESTRUTURA (obrigatória)
 - hook (0–4s, 10 a 12 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
 - development (4–12s, 20 a 24 palavras): linguagem falada em primeira pessoa. Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
-- cta (12–15s, 7 a 9 palavras): uma ação só, no vocabulário real do TikTok Shop — "carrinho", "o link tá aqui embaixo", "garante a tua". Exemplos do tom certo: "Se você também gostou, dá uma conferida no carrinho." / "Corre garantir a tua, o link tá aqui embaixo." Nunca diga "produto marcado": isso é linguagem de painel, não de quem fala com a câmera.
+- cta (12–15s, 7 a 10 palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
 - caption: uma frase de gancho + o que é o produto, e no máximo 5 hashtags no fim.
 
 EXEMPLO DE TRANSFORMAÇÃO (aprenda o princípio, não copie as palavras)
-Fraco: "De perto, será que essa legging parece bonita?" / "Aproximo a câmera do acabamento." / "Confira a cor no carrinho."
-Forte: "Eu achei que ela ia parecer barata, até olhar de perto." / "O acabamento me surpreendeu e, quando vesti, o caimento ficou muito mais bonito do que eu esperava." / "Se você gostou, dá uma conferida no carrinho."
+Fraco: "De perto, será que essa legging parece bonita?" / "Aproximo a câmera do acabamento." / "Se gostou, confere no carrinho."
+Forte: "Eu achei que ela ia parecer barata, até olhar de perto." / "O acabamento me surpreendeu e, quando vesti, o caimento ficou muito mais bonito do que eu esperava." / "Corre pro carrinho laranja e confere os detalhes agora."
 
 REGRAS INEGOCIÁVEIS
 1. Só pode afirmar o que estiver em FATOS CONFIRMADOS. Nada de compressão, elasticidade, durabilidade, secagem, proteção ou qualquer desempenho que não esteja lá.
@@ -123,7 +130,7 @@ REGRAS INEGOCIÁVEIS
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
 6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Não afirme ter comprado, testado ou usado por um período (isso não está confirmado no briefing) e não narre gestos nem movimentos que o público já está vendo.
-7. "Corre", "garante a tua" e afins são entusiasmo e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "acaba hoje", "50% off", "promoção relâmpago".
+7. "Corre", "aproveita", "agora" e "garante a tua" criam impulso e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "antes que esgote", "acaba hoje", "esse preço vai sumir", "50% off", "promoção relâmpago". Só use essas alegações quando a OFERTA REAL confirmar exatamente isso.
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
@@ -398,6 +405,9 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
         if not any(re.search(padrao, f'{hook} {development}') for padrao in FIRST_PERSON_PATTERNS):
             problemas.append('hook e desenvolvimento não soam como experiência pessoal em primeira pessoa')
 
+        if any(re.search(padrao, cta) for padrao in WEAK_CTA_PATTERNS):
+            problemas.append('o CTA pede permissão ou termina fraco; use uma ação direta no carrinho laranja')
+
     if re.search(r'\b(?:mulheres|homens|pessoas)\s+(?:de\s+)?\d{2}\s*(?:a|-|–)\s*\d{2}\b', falado):
         problemas.append('a fala recita a faixa etária do público')
 
@@ -463,12 +473,17 @@ def _describe_error(status: int, corpo: str) -> ProviderError:
     return ProviderError(mensagem, status=status, param=param)
 
 
-def _post_json(url: str, payload: dict, headers: dict) -> dict:
+def _post_json(url: str, payload: dict, headers: dict, timeout: int = TIMEOUT) -> dict:
     data = json.dumps(payload).encode('utf-8')
     request = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json', **headers})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode('utf-8'))
+    except TimeoutError as exc:
+        raise ProviderError(
+            f'o provedor de IA não respondeu em {timeout} segundos. '
+            'Tente novamente; nenhuma fala foi alterada.'
+        ) from exc
     except urllib.error.HTTPError as exc:
         try:
             corpo = exc.read().decode('utf-8', 'ignore')
@@ -505,8 +520,17 @@ def _call_openai(settings: dict, system: str, user: str, images: list[tuple[byte
     }
     for _ in range(len(_OPTIONAL_OPENAI) + 1):
         try:
-            out = _post_json('https://api.openai.com/v1/chat/completions', body,
-                             {'Authorization': f"Bearer {settings['api_key']}"})
+            post_args=(
+                'https://api.openai.com/v1/chat/completions', body,
+                {'Authorization': f"Bearer {settings['api_key']}"},
+            )
+            if settings.get('_request_timeout'):
+                out = _post_json(
+                    *post_args, timeout=int(settings['_request_timeout']))
+            else:
+                # Mantém a assinatura de três argumentos usada também pelas
+                # integrações e testes antigos; _post_json aplica TIMEOUT.
+                out = _post_json(*post_args)
             return out['choices'][0]['message']['content']
         except ProviderError as exc:
             alvo = exc.param if exc.param in body else next(
@@ -534,7 +558,11 @@ def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[byte
     }
     for tentativa in range(3):
         try:
-            out = _post_json(url, body, {})
+            if settings.get('_request_timeout'):
+                out = _post_json(
+                    url, body, {}, timeout=int(settings['_request_timeout']))
+            else:
+                out = _post_json(url, body, {})
             return out['candidates'][0]['content']['parts'][0]['text']
         except ProviderError as exc:
             baixo = (exc.message or '').casefold()
@@ -557,6 +585,33 @@ CALLERS = {'openai': _call_openai, 'gemini': _call_gemini}
 
 def _clean_pack(dados: dict) -> dict:
     return {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+
+
+def _weak_cta(text: str) -> bool:
+    value=(text or '').strip().casefold()
+    return not value or any(re.search(pattern,value) for pattern in WEAK_CTA_PATTERNS)
+
+
+def _strong_cta(c: dict, index: int = 0) -> str:
+    """Close with action and ethical urgency, never invented scarcity."""
+    offer=_offer_text(c).casefold()
+    if offer:
+        offer_short=' '.join(offer.split()[:5]).rstrip('.,;:')
+        if re.search(r'últim|ultim|estoque|esgot|peças|pecas|unidades',offer):
+            pool=[f'Corre pro carrinho laranja: {offer_short}.']
+        else:
+            pool=[f'Aproveita {offer_short} no carrinho laranja.']
+    else:
+        pool=[
+            'Corre pro carrinho laranja e confere os detalhes agora.',
+            'Abre o carrinho laranja e escolhe a sua versão.',
+            'Aproveita e garante a sua versão no carrinho laranja.',
+            'Não deixa pra depois: confere no carrinho laranja agora.',
+            'Toca no carrinho laranja e vê todos os detalhes.',
+        ]
+        if len(color_variants(c.get('color'))) > 1:
+            pool.insert(0,'Escolhe a tua cor agora no carrinho laranja.')
+    return pool[int(index or 0)%len(pool)]
 
 
 def _parse_candidates(raw: str) -> list[dict]:
@@ -608,6 +663,7 @@ def _creative_score(pack: dict, c: dict) -> int:
     """Desempata candidatos validos pela naturalidade e especificidade."""
     hook = (pack.get('hook') or '').casefold()
     development = (pack.get('development') or '').casefold()
+    cta = (pack.get('cta') or '').casefold()
     score = 0
     if any(word in hook for word in ('achei', 'confesso', 'quase', 'medo', 'dúvida', 'duvida', 'surpreend', 'esperava', 'até ')):
         score += 4
@@ -621,6 +677,12 @@ def _creative_score(pack: dict, c: dict) -> int:
         score += 2
     repeated = set(re.findall(r'\b\w{5,}\b', hook)) & set(re.findall(r'\b\w{5,}\b', development))
     score -= len(repeated)
+    if 'carrinho laranja' in cta:
+        score += 3
+    if re.match(r'^(corre|abre|toca|escolhe|garante|aproveita|não deixa)',cta):
+        score += 2
+    if _weak_cta(cta):
+        score -= 5
     return score
 
 
@@ -694,7 +756,9 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
             continue
         approved = []
         rejected = []
-        for pack in candidates:
+        for candidate_index,pack in enumerate(candidates):
+            if _weak_cta(pack.get('cta')):
+                pack={**pack,'cta':_strong_cta(c,candidate_index)}
             problemas = audit(pack, c)
             if problemas:
                 rejected.extend(problemas)
@@ -754,7 +818,11 @@ def write_scripts(campaigns: list[dict], settings: dict,
         if tentativa and (time.monotonic() - comeco) + TIMEOUT > orcamento_s:
             return None, ultimo or 'sem tempo para uma nova tentativa'
         try:
-            bruto = caller(settings, BATCH_SYSTEM_PROMPT, user)
+            # Um lote com cinco cores produz muito mais JSON que uma única
+            # fala. Ele ganha uma janela própria, sem deixar os demais botões
+            # da interface presos por 45 segundos quando o provedor oscila.
+            batch_settings={**settings, '_request_timeout': BATCH_TIMEOUT}
+            bruto = caller(batch_settings, BATCH_SYSTEM_PROMPT, user)
             parsed = _parse_batch_candidates(bruto)
         except ProviderError as exc:
             if exc.status:
@@ -776,9 +844,11 @@ def write_scripts(campaigns: list[dict], settings: dict,
 
         approved_by_key: dict[str, list[dict]] = {}
         rejected: list[str] = []
-        for key, campaign in expected.items():
+        for key_index,(key, campaign) in enumerate(expected.items()):
             approved = []
-            for pack in parsed[key]:
+            for candidate_index,pack in enumerate(parsed[key]):
+                if _weak_cta(pack.get('cta')):
+                    pack={**pack,'cta':_strong_cta(campaign,key_index+candidate_index)}
                 # Em lote, estilo e comprimento minimo orientam o modelo, mas
                 # nao anulam todas as cores. A auditoria ainda bloqueia riscos
                 # concretos e o teto que precisa caber nos 15 segundos.
