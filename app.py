@@ -36,6 +36,19 @@ PROMPTS = ['image','video','hook','development','cta','caption']
 # geradas antes desta versao nao os possuem -- exigi-los travaria trabalho em
 # andamento.
 EXTRA_PROMPTS = ['cover_text','screen_text']
+
+# Colunas da tabela campaigns que o app espera encontrar, com a definicao usada
+# para cria-las quando faltarem. Fonte unica: o SQLite local e o Postgres da
+# nuvem passam pela MESMA lista. Foi a falta disso que derrubou a producao duas
+# vezes -- um campo novo entrava em FIELDS, o INSERT passava a cita-lo e o banco
+# da nuvem, que nao era migrado, respondia 'column does not exist'.
+CAMPAIGN_COLUMNS = {k: "TEXT NOT NULL DEFAULT ''" for k in
+                    ['audience','benefit','angle','tone','style','details','movements',
+                     'migration_note','niche','objection','offer','motor','video_mode']}
+CAMPAIGN_COLUMNS.update(version='INTEGER NOT NULL DEFAULT 1',
+                        layout="TEXT NOT NULL DEFAULT '{}'",
+                        checklist="TEXT NOT NULL DEFAULT '{}'",
+                        published_url="TEXT NOT NULL DEFAULT ''")
 NODE_IDS = ['model','look','image','image_approval','script','video','video_approval','studio','performance']
 
 try:
@@ -219,8 +232,31 @@ def create_app(config=None):
 
     def migrate():
         if cloud_mode:
-            # O schema do Postgres ja foi criado pela migracao do Supabase;
-            # as migracoes automaticas abaixo sao especificas do SQLite local.
+            # O schema do Postgres nasce da migracao do Supabase, rodada a mao.
+            # O que NAO pode acontecer e o codigo subir esperando uma coluna que
+            # ninguem criou la: o app responde 500 em toda criacao de campanha e
+            # o erro so aparece no traceback do psycopg2.
+            #
+            # Entao aqui a nuvem reconcilia sozinha as colunas simples de
+            # campaigns. Sao colunas opcionais, com valor padrao, adicionadas
+            # com IF NOT EXISTS -- operacao idempotente e sem risco para os
+            # dados. Criar tabela e indice continua sendo trabalho da migracao
+            # manual; isto cobre so a deriva de coluna nova.
+            try:
+                with closing(connect()) as conn:
+                    for name, definition in CAMPAIGN_COLUMNS.items():
+                        conn.execute(
+                            f'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS {name} {definition}')
+                    conn.commit()
+            except Exception as exc:
+                # Sem permissao de DDL (ou banco fora do ar) o app continua
+                # subindo: quem usa colunas antigas segue trabalhando, e o log
+                # diz exatamente o que rodar no Supabase.
+                app.logger.warning(
+                    'Nao foi possivel reconciliar as colunas de campaigns na nuvem (%s). '
+                    'Rode no SQL Editor do Supabase: %s', exc,
+                    ' '.join(f'alter table campaigns add column if not exists {n} '
+                             f'{d.lower()};' for n, d in CAMPAIGN_COLUMNS.items()))
             return
         with closing(connect()) as conn:
             version=conn.execute('PRAGMA user_version').fetchone()[0]
@@ -237,10 +273,7 @@ def create_app(config=None):
                 generator TEXT NOT NULL DEFAULT 'flow',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)''')
             columns={r['name'] for r in conn.execute('PRAGMA table_info(campaigns)')}
-            additions={k:"TEXT NOT NULL DEFAULT ''" for k in ['audience','benefit','angle','tone','style','details','movements','migration_note','niche','objection','offer','motor','video_mode']}
-            additions.update(version='INTEGER NOT NULL DEFAULT 1',layout="TEXT NOT NULL DEFAULT '{}'",
-                             checklist="TEXT NOT NULL DEFAULT '{}'",published_url="TEXT NOT NULL DEFAULT ''")
-            for name,definition in additions.items():
+            for name,definition in CAMPAIGN_COLUMNS.items():
                 if name not in columns:
                     conn.execute(f'ALTER TABLE campaigns ADD COLUMN {name} {definition}')
             conn.executescript('''

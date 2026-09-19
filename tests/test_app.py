@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import sqlite3
 import struct
 import tempfile
@@ -571,6 +572,81 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('ATRIBUTOS NÃO CONFIRMADOS',pov['video'])
         self.assertIn(f'"{pov["hook"]}"',pov['video'])
         self.assertIn(f'"{pov["cta"]}"',pov['video'])
+
+    def test_cloud_boot_adds_missing_campaign_columns_instead_of_failing_later(self):
+        # Regressao de producao: o codigo subiu com 'video_mode' em FIELDS, o
+        # Postgres do Supabase nao tinha a coluna e toda criacao de campanha
+        # respondia 500 (psycopg2 UndefinedColumn). Agora a nuvem reconcilia as
+        # colunas no boot, com IF NOT EXISTS.
+        import sys, types
+        import app as app_module
+        executadas = []
+
+        class FakeCursor:
+            def execute(self, text, params=()):
+                executadas.append(' '.join(str(text).split()))
+                return self
+            def fetchone(self):
+                return None
+            def fetchall(self):
+                return []
+            @property
+            def rowcount(self):
+                return 0
+
+        class FakePg:
+            def cursor(self):
+                return FakeCursor()
+            def commit(self):
+                pass
+            def rollback(self):
+                pass
+            def close(self):
+                pass
+
+        fake = types.ModuleType('psycopg2')
+        fake.connect = lambda *a, **k: FakePg()
+        extras = types.ModuleType('psycopg2.extras')
+        extras.RealDictCursor = object
+        fake.extras = extras
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        anterior = {k: sys.modules.get(k) for k in ('psycopg2', 'psycopg2.extras')}
+        sys.modules['psycopg2'] = fake
+        sys.modules['psycopg2.extras'] = extras
+        os.environ['FABRICA_DATABASE_URL'] = 'postgresql://fake/fake'
+        try:
+            try:
+                app_module.create_app(dict(TESTING=True, CLOUD_MODE=True,
+                                           DATA_DIR=root / 'data', MEDIA_DIR=root / 'media',
+                                           PROFILE_DIR=root / 'profiles'))
+            except Exception:
+                # O boot completo na nuvem depende de mais coisa que este teste
+                # nao simula; o que importa e o que migrate() emitiu.
+                pass
+        finally:
+            os.environ.pop('FABRICA_DATABASE_URL', None)
+            for nome, modulo in anterior.items():
+                if modulo is None:
+                    sys.modules.pop(nome, None)
+                else:
+                    sys.modules[nome] = modulo
+
+        alters = [q for q in executadas if q.upper().startswith('ALTER TABLE CAMPAIGNS ADD COLUMN')]
+        self.assertTrue(alters, executadas[:10])
+        for coluna in ('video_mode', 'motor', 'objection', 'offer', 'niche'):
+            self.assertTrue(any(f'ADD COLUMN IF NOT EXISTS {coluna} ' in q for q in alters),
+                            f'faltou reconciliar {coluna}: {alters}')
+
+    def test_campaign_columns_cover_every_field_the_insert_writes(self):
+        # A causa raiz: FIELDS (o que o INSERT escreve) e a lista de colunas
+        # migradas podiam divergir em silencio. Aqui elas nao podem mais.
+        from app import FIELDS, CAMPAIGN_COLUMNS
+        base = {'name', 'model_name', 'outfit', 'color', 'product', 'generator'}
+        faltando = [f for f in FIELDS if f not in base and f not in CAMPAIGN_COLUMNS]
+        self.assertEqual(faltando, [], f'campos sem migracao definida: {faltando}')
 
     def test_movement_mode_has_no_speech_and_keeps_the_fit_check_moves(self):
         # Terceiro formato: so movimento. Ninguem fala, a mensagem fica na
