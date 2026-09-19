@@ -4565,6 +4565,16 @@ button.linkish {
   flex: 0 0 auto;
   min-height: 42px;
 }
+.script-ai-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: row !important;
+  gap: 8px !important;
+}
+.script-ai-buttons button {
+  min-height: 42px;
+  white-space: nowrap;
+}
 .script-ai-action.is-off {
   border-style: dashed;
 }
@@ -4587,6 +4597,13 @@ button.linkish {
   }
   .script-ai-action .primary {
     width: 100%;
+  }
+  .script-ai-buttons {
+    width: 100%;
+  }
+  .script-ai-buttons button {
+    flex: 1 1 0;
+    white-space: normal;
   }
 }
 

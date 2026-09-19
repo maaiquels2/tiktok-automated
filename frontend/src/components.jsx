@@ -133,12 +133,6 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
         :'Abra cada cor para copiar os prompts e o roteiro correspondentes.';
   return <section className="variant-list"><div className="section-title"><h3>{title}</h3><span className="help">{variants.length} variações</span></div>
     <p>{help}</p>
-    {focus==='script'&&!immutable&&writer&&<section className={'script-ai-action script-ai-action-batch '+(writer.enabled?'is-ready':'is-off')}>
-      <div><span className="eyebrow">TODAS AS CORES · UMA SOLICITAÇÃO</span><strong>{writer.enabled?`Gerar ${variants.length} roteiros com ${writer.provider==='gemini'?'Gemini':'ChatGPT'}`:'ChatGPT ainda não está ativo'}</strong><small>{writer.enabled?'Cria hook, desenvolvimento e CTA próprios para cada cor e audita todos antes de salvar.':'Configure a chave para liberar a geração em lote.'}</small></div>
-      {writer.enabled
-        ?<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar todas as cores com {writer.provider==='gemini'?'Gemini':'ChatGPT'}</button>
-        :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
-    </section>}
     {variants.map((variant,idx)=>{
       const p=variant.prompts||{};
       const img=byImage[variant.color];
@@ -170,9 +164,12 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           </>}
           {focus==='script'&&<>
             {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
-              <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera e audita as três falas desta cor.':'Configure a chave para chamar a API nesta etapa.'}</small></div>
+              <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?`Escolha entre gerar somente ${variant.color} ou os roteiros das ${variants.length} cores em uma solicitação.`:'Configure a chave para chamar a API nesta etapa.'}</small></div>
               {writer?.enabled
-                ?<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar esta cor com {writer.provider==='gemini'?'Gemini':'ChatGPT'}</button>
+                ?<div className="script-ai-buttons">
+                  <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar esta cor</button>
+                  {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar todas as {variants.length} cores</button>}
+                </div>
                 :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
             </section>}
             <div className="variant-actions">
