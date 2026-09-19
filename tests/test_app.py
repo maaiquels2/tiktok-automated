@@ -1098,14 +1098,20 @@ class WorkflowTests(unittest.TestCase):
         before=changed.json
         variants=before['variants']
 
-        generated={}
-        for index,variant in enumerate(variants,1):
-            generated[str(variant['id'])]={
-                'hook':f'Hook exclusivo e completo para a cor número {index} nesta campanha',
-                'development':f'Desenvolvimento exclusivo da cor {index}, com uma história natural e uma prova concreta que cabe perfeitamente na fala do vídeo.',
-                'cta':f'Confira agora a opção número {index} no carrinho.',
-                'caption':f'Legenda da API que não deve substituir a atual {index}.',
-            }
+        copies=[
+            {'hook':'Eu quase descartei esse vestido até reparar melhor no acabamento',
+             'development':'A costura ficou bonita no corpo, e o tecido leve acompanhou meus passos sem tirar a aparência arrumada da produção.',
+             'cta':'Se gostou do acabamento, confere agora no carrinho.'},
+            {'hook':'Eu precisava de uma peça que acompanhasse dois momentos do dia',
+             'development':'Com esse caimento, montei uma produção para o trabalho e outra para sair, aproveitando o mesmo vestido de maneiras diferentes.',
+             'cta':'Veja no carrinho qual versão combina com você.'},
+            {'hook':'Eu me senti muito mais arrumada quando coloquei esse vestido',
+             'development':'O visual ganhou presença sem complicação, e eu gostei de como a peça acompanhou meu corpo enquanto caminhava pela cidade.',
+             'cta':'Se também curtiu o visual, olha no carrinho.'},
+        ]
+        generated={str(variant['id']):{**copies[index],
+                   'caption':f'Legenda da API que não deve substituir a atual {index+1}.'}
+                   for index,variant in enumerate(variants)}
         self.client.patch('/api/writer',json={
             'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
         before=self.get()
@@ -1129,22 +1135,51 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('DIREÇÃO MANUAL PRESERVADA',response.json['variants'][0]['prompts']['video'])
         self.assertEqual(response.json['checklist']['writer']['scope'],'all_colors')
 
+    def test_batch_refresh_rejects_repeated_scripts_without_changing_any_color(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        repeated={str(variant['id']):{
+            'hook':'Eu achei que esse vestido seria comum até observar melhor no corpo',
+            'development':'Quando vesti, o tecido leve acompanhou meu movimento e deixou a produção arrumada para trabalhar e também para sair.',
+            'cta':'Se gostou, dá uma conferida agora no carrinho.',
+        } for variant in before['variants']}
+        self.client.patch('/api/writer',json={
+            'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        before=self.get()
+        with patch('services.copywriter.write_scripts',return_value=(repeated,'')):
+            response=self.post('/variants/refresh-all',{
+                'fields':['hook','development','cta'],'writer_mode':'ai',
+                'version':before['version'],
+            })
+        self.assertEqual(response.status_code,422,response.json)
+        self.assertIn('repetiu o mesmo roteiro',response.json['error'])
+        after=self.get()
+        self.assertEqual(
+            [v['prompts'] for v in after['variants']],
+            [v['prompts'] for v in before['variants']])
+
     def test_batch_copywriter_calls_provider_once_for_every_color(self):
         from services import copywriter as cw
         campaigns=[
             {**self.brief,'color':'Azul','batch_key':'azul'},
             {**self.brief,'color':'Branco','batch_key':'branco'},
         ]
-        def pack(label):
-            return {
-                'hook':f'Eu achei que o vestido {label} seria comum, até olhar melhor',
-                'development':'Quando vesti, o tecido leve acompanhou meu corpo, e eu gostei do caimento no trabalho e também para sair.',
-                'cta':'Se gostou, dá uma conferida no carrinho aqui.',
-                'caption':f'Vestido {label} com tecido leve. #vestido',
-            }
+        azul={
+            'hook':'Eu achei que esse vestido seria comum, até olhar melhor no corpo',
+            'development':'Quando vesti, o tecido leve acompanhou meu corpo, e eu gostei do caimento arrumado para usar durante o trabalho.',
+            'cta':'Se gostou, dá uma conferida no carrinho aqui.',
+        }
+        branco={
+            'hook':'Eu queria uma produção simples que também funcionasse para sair depois',
+            'development':'A mesma peça ganhou outra cara quando mudei a combinação, e meu visual ficou pronto sem precisar pensar em muitos detalhes.',
+            'cta':'Olha no carrinho e escolha a sua versão.',
+        }
         raw=json.dumps({'scripts':[
-            {'key':'azul','options':[pack('azul')]},
-            {'key':'branco','options':[pack('branco')]},
+            {'key':'azul','options':[azul]},
+            {'key':'branco','options':[branco]},
         ]},ensure_ascii=False)
         caller=Mock(return_value=raw)
         with patch.dict(cw.CALLERS,{'openai':caller}):
@@ -1156,6 +1191,38 @@ class WorkflowTests(unittest.TestCase):
         sent=caller.call_args.args[2]
         self.assertIn('### CHAVE: azul',sent)
         self.assertIn('### CHAVE: branco',sent)
+        self.assertIn('EIXO NARRATIVO OBRIGATÓRIO: quebra de objeção',sent)
+        self.assertIn('EIXO NARRATIVO OBRIGATÓRIO: qualidade percebida',sent)
+
+    def test_batch_copywriter_uses_a_distinct_alternative_instead_of_color_swaps(self):
+        from services import copywriter as cw
+        campaigns=[
+            {**self.brief,'color':'Azul','batch_key':'azul'},
+            {**self.brief,'color':'Branco','batch_key':'branco'},
+        ]
+        repeated={
+            'hook':'Eu achei que esse vestido seria comum até observar melhor no corpo',
+            'development':'Quando vesti, o tecido leve acompanhou meu movimento e deixou a produção arrumada para trabalhar e também para sair.',
+            'cta':'Se gostou, dá uma conferida agora no carrinho.',
+        }
+        distinct={
+            'hook':'Eu precisava de uma peça simples para mudar totalmente a combinação',
+            'development':'Troquei os acessórios e meu visual ganhou outra proposta, aproveitando o vestido no trabalho e depois em um encontro com amigas.',
+            'cta':'Veja no carrinho qual versão combina com você.',
+        }
+        raw=json.dumps({'scripts':[
+            {'key':'azul','options':[repeated]},
+            {'key':'branco','options':[repeated,distinct]},
+        ]},ensure_ascii=False)
+        caller=Mock(return_value=raw)
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'},attempts=1)
+        self.assertEqual(reason,'')
+        self.assertEqual(result['branco']['hook'],distinct['hook'])
+        self.assertEqual(cw.batch_diversity_issues([
+            ('Azul',result['azul']),('Branco',result['branco'])]),[])
+        caller.assert_called_once()
 
     def test_audit_blocks_unconfirmed_claims_and_fake_urgency(self):
         from services.copywriter import audit

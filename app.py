@@ -2537,6 +2537,11 @@ def create_app(config=None):
             script=written.get(key)
             if not script or any(not str(script.get(field) or '').strip() for field in fields):
                 raise Invalid(f'O ChatGPT não devolveu o roteiro completo da cor {row["color"]}.',422)
+        diversity_issues=copywriter.batch_diversity_issues([
+            (row['color'],written[key]) for row,_,_,key in prepared])
+        if diversity_issues:
+            raise Invalid('O ChatGPT repetiu o mesmo roteiro entre as cores: '
+                          +'; '.join(diversity_issues)+'. Nenhuma cor foi alterada.',422)
 
         saved=[]
         for row,current,merged,key in prepared:

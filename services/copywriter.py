@@ -143,6 +143,9 @@ MODO LOTE — CORES DA MESMA CAMPANHA
 - Não misture cores, fatos, objeções ou benefícios entre os briefings.
 - Varie a ideia central entre as cores sempre que os fatos permitirem. Não
   entregue o mesmo roteiro trocando apenas o nome da cor.
+- Cada briefing contém um EIXO NARRATIVO OBRIGATÓRIO diferente. Esse eixo
+  determina a história e a abertura daquela cor; não é um rótulo para ser
+  pronunciado. Não use a estrutura, a tensão nem a conclusão de outro eixo.
 - A cor pode aparecer na fala quando for relevante, mas não precisa ser a
   ideia central de todas as versões.
 - Devolva todas as chaves recebidas exatamente uma vez.
@@ -151,6 +154,27 @@ MODO LOTE — CORES DA MESMA CAMPANHA
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"scripts": [{"key": "CHAVE_RECEBIDA", "options": [{"hook": "...", "development": "...", "cta": "..."}, {"hook": "...", "development": "...", "cta": "..."}, {"hook": "...", "development": "...", "cta": "..."}]}]}"""
+
+
+_BATCH_AXES = (
+    ('quebra de objeção', 'parta do principal receio e mostre a descoberta que o desfaz'),
+    ('qualidade percebida', 'comece por um detalhe visível de corte, acabamento ou modelagem'),
+    ('versatilidade', 'conecte a peça a ocasiões diferentes sem inventar característica técnica'),
+    ('autoestima', 'conte como o visual muda a confiança ou a vontade de se arrumar'),
+    ('praticidade', 'mostre como a peça simplifica a escolha ou a combinação do visual'),
+    ('prova em movimento', 'abra com uma dúvida de uso e resolva com o benefício demonstrável'),
+    ('cor e estilo', 'faça desta cor a razão visual da escolha, sem apenas repetir seu nome'),
+    ('descoberta inesperada', 'contraste a primeira impressão com um detalhe observado depois'),
+    ('detalhe de design', 'construa a história ao redor do fato confirmado mais específico'),
+)
+
+
+def _batch_axis(index: int, campaign: dict) -> tuple[str, str]:
+    """Assign a stable, safe creative lane to each color in the same request."""
+    axes=list(_BATCH_AXES)
+    if _offer_text(campaign):
+        axes.insert(5,('economia real', 'use somente a oferta confirmada para explicar o valor da escolha'))
+    return axes[index % len(axes)]
 
 
 # --------------------------------------------------------------------------- config
@@ -582,6 +606,37 @@ def _creative_score(pack: dict, c: dict) -> int:
     return score
 
 
+def _spoken_similarity(left: dict, right: dict) -> tuple[float, float, float]:
+    """Similarity of hook, development and their combined narrative.
+
+    CTA is intentionally excluded: the honest TikTok actions are limited and
+    two good scripts may legitimately close with the same short instruction.
+    """
+    def clean(value):
+        return re.sub(r'\W+', ' ', str(value or '').casefold()).strip()
+    left_hook, right_hook = clean(left.get('hook')), clean(right.get('hook'))
+    left_dev, right_dev = clean(left.get('development')), clean(right.get('development'))
+    hook = difflib.SequenceMatcher(None,left_hook,right_hook).ratio()
+    development = difflib.SequenceMatcher(None,left_dev,right_dev).ratio()
+    combined = difflib.SequenceMatcher(
+        None,f'{left_hook} {left_dev}',f'{right_hook} {right_dev}').ratio()
+    return hook,development,combined
+
+
+def batch_diversity_issues(items: list[tuple[str, dict]]) -> list[str]:
+    """Reject scripts that merely swap the color while keeping the same copy."""
+    issues=[]
+    for index,(left_label,left) in enumerate(items):
+        for right_label,right in items[index+1:]:
+            hook,development,combined=_spoken_similarity(left,right)
+            if (combined>=0.82 or (hook>=0.88 and development>=0.72)
+                    or (development>=0.90 and hook>=0.65)):
+                issues.append(
+                    f'{left_label} e {right_label} repetem a mesma estrutura '
+                    f'(similaridade {round(combined*100)}%)')
+    return issues
+
+
 def _parse(raw: str) -> dict:
     """Formato antigo usado por testes e integracoes locais."""
     return _parse_candidates(raw)[0]
@@ -662,8 +717,14 @@ def write_scripts(campaigns: list[dict], settings: dict,
         key = str(campaign.get('batch_key') or index)
         if key in expected:
             return None, f'chave repetida no lote: {key}'
+        axis_name,axis_direction=_batch_axis(index,campaign)
+        campaign={**campaign,'batch_axis':axis_name}
         expected[key] = campaign
-        briefs.append(f'### CHAVE: {key}\n{build_brief(campaign)}')
+        briefs.append(
+            f'### CHAVE: {key}\n'
+            f'EIXO NARRATIVO OBRIGATÓRIO: {axis_name} — {axis_direction}.\n'
+            f'PROIBIDO reutilizar este eixo, a estrutura do hook ou a sequência do desenvolvimento em outra chave.\n'
+            f'{build_brief(campaign)}')
     base_user = ('Gere os roteiros de TODAS as chaves abaixo. Cada bloco é um '
                  'vídeo separado; nunca combine cores no mesmo roteiro.\n\n'
                  + '\n\n'.join(briefs))
@@ -695,7 +756,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
                 ultimo += ('; ' if ultimo else '') + 'chaves desconhecidas: ' + ', '.join(extras)
             continue
 
-        selected: dict[str, dict] = {}
+        approved_by_key: dict[str, list[dict]] = {}
         rejected: list[str] = []
         for key, campaign in expected.items():
             approved = []
@@ -706,11 +767,36 @@ def write_scripts(campaigns: list[dict], settings: dict,
                 else:
                     approved.append(pack)
             if approved:
-                selected[key] = max(approved, key=lambda item: _creative_score(item, campaign))
+                approved_by_key[key]=sorted(
+                    approved,key=lambda item:_creative_score(item,campaign),reverse=True)
             else:
                 rejected.append(f'{campaign.get("color") or key}: nenhuma opção passou na auditoria')
-        if len(selected) == len(expected):
-            return selected, ''
+        if len(approved_by_key) == len(expected):
+            # Escolhe cada roteiro considerando os ja escolhidos. Antes, o
+            # ranking isolado selecionava o mesmo candidato "forte" para todas
+            # as cores, mesmo quando o modelo tinha devolvido alternativas.
+            selected: dict[str, dict] = {}
+            for key,campaign in expected.items():
+                choices=[]
+                for candidate in approved_by_key[key]:
+                    comparisons=[_spoken_similarity(candidate,other) for other in selected.values()]
+                    if any(combined>=0.82 or (hook>=0.88 and development>=0.72)
+                           or (development>=0.90 and hook>=0.65)
+                           for hook,development,combined in comparisons):
+                        continue
+                    max_similarity=max((combined for _h,_d,combined in comparisons),default=0.0)
+                    choices.append((_creative_score(candidate,campaign)-round(max_similarity*10),candidate))
+                if not choices:
+                    rejected.append(
+                        f'{campaign.get("color") or key}: as opções repetem o roteiro de outra cor')
+                    break
+                selected[key]=max(choices,key=lambda item:item[0])[1]
+            if len(selected)==len(expected):
+                diversity=batch_diversity_issues([
+                    (expected[key].get('color') or key,pack) for key,pack in selected.items()])
+                if not diversity:
+                    return selected, ''
+                rejected.extend(diversity)
 
         unique = []
         for item in rejected:
