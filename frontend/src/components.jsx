@@ -100,7 +100,7 @@ export function ProductGallery({photos=[]}){
   if(!photos.length)return null;
   return <section className="product-gallery"><h3>Fotos do produto</h3><p>Anexe estas fotos depois da referência fixa da modelo.</p><div className="product-photo-grid">{photos.map((photo,i)=><AssetView key={photo.id} asset={photo} title={`Produto · foto ${i+1}`} compact/>)}</div></section>;
 }
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onConfigureWriter,immutable}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onConfigureWriter,immutable}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -133,6 +133,12 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
         :'Abra cada cor para copiar os prompts e o roteiro correspondentes.';
   return <section className="variant-list"><div className="section-title"><h3>{title}</h3><span className="help">{variants.length} variações</span></div>
     <p>{help}</p>
+    {focus==='script'&&!immutable&&writer&&<section className={'script-ai-action script-ai-action-batch '+(writer.enabled?'is-ready':'is-off')}>
+      <div><span className="eyebrow">TODAS AS CORES · UMA SOLICITAÇÃO</span><strong>{writer.enabled?`Gerar ${variants.length} roteiros com ${writer.provider==='gemini'?'Gemini':'ChatGPT'}`:'ChatGPT ainda não está ativo'}</strong><small>{writer.enabled?'Cria hook, desenvolvimento e CTA próprios para cada cor e audita todos antes de salvar.':'Configure a chave para liberar a geração em lote.'}</small></div>
+      {writer.enabled
+        ?<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar todas as cores com {writer.provider==='gemini'?'Gemini':'ChatGPT'}</button>
+        :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
+    </section>}
     {variants.map((variant,idx)=>{
       const p=variant.prompts||{};
       const img=byImage[variant.color];
@@ -166,7 +172,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
             {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
               <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera e audita as três falas desta cor.':'Configure a chave para chamar a API nesta etapa.'}</small></div>
               {writer?.enabled
-                ?<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar esta cor com {writer.provider==='gemini'?'Gemini':'ChatGPT'}</button>
+                ?<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar esta cor com {writer.provider==='gemini'?'Gemini':'ChatGPT'}</button>
                 :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
             </section>}
             <div className="variant-actions">

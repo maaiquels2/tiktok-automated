@@ -23,7 +23,9 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
 from services.media import inspect_media
-from services.prompts import color_variants, generate, generate_variants, package_text, refresh_script_fields, build_caption
+from services.prompts import (color_variants, generate, generate_variants,
+                              package_text, refresh_script_fields, build_caption,
+                              sync_video_spoken_lines)
 from services import copywriter
 
 ROOT = Path(__file__).resolve().parent
@@ -2449,7 +2451,12 @@ def create_app(config=None):
             rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
             merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
             if set(fields)&{'hook','development','cta'}:
-                merged['video']=rewritten.get('video',merged.get('video'))
+                # A IA escreve as falas; direcao de camera/coreografia que o
+                # operador ja ajustou continua intacta.
+                patched=sync_video_spoken_lines(
+                    current.get('video'), merged.get('hook',''),
+                    merged.get('development',''), merged.get('cta',''))
+                merged['video']=patched or rewritten.get('video',merged.get('video'))
         db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(merged,ensure_ascii=False),vid))
         variants=detail(cid)['variants']
         if variants and variants[0]['id']==vid:
@@ -2464,6 +2471,106 @@ def create_app(config=None):
         elif only_caption:
             pass  # caption-only: stay on publish step
         touch(cid, c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
+    @app.post('/api/campaigns/<int:cid>/variants/refresh-all')
+    def refresh_all_variant_scripts(cid):
+        """Rewrite every color in one audited provider request.
+
+        Each color remains a separate script and video prompt. Nothing is
+        persisted until every color has an approved result, avoiding a half
+        updated campaign when the provider omits or fails one variation.
+        """
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        fields=data.get('fields') or ['hook','development','cta']
+        allowed={'hook','development','cta'}
+        if (not isinstance(fields,list) or not fields
+                or any(not isinstance(f,str) or f not in allowed for f in fields)):
+            raise Invalid('Escolha hook, desenvolvimento e/ou CTA para atualizar em todas as cores.')
+        if data.get('writer_mode','ai')!='ai':
+            raise Invalid('A geração de todas as cores usa o modo de escrita por IA.')
+        rows=db().execute(
+            'SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)
+        ).fetchall()
+        if len(rows)<2:
+            raise Invalid('Esta campanha não possui várias cores para gerar em lote.',409)
+
+        settings=copywriter.load_settings(
+            app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        if not settings.get('enabled'):
+            raise Invalid('Ative e teste o ChatGPT em Configurar escrita por IA antes de gerar os roteiros.',409)
+
+        campaign=with_learning(c)
+        prepared=[]
+        briefs=[]
+        for row in rows:
+            current=json.loads(row['prompts'])
+            try:
+                merged=refresh_script_fields(
+                    campaign,row['color'],current,fields=fields,bump=1)
+            except ValueError as exc:
+                raise Invalid(str(exc)) from exc
+            if current.get('image'):
+                merged['image']=current['image']
+            key=str(row['id'])
+            prepared.append((row,current,merged,key))
+            briefs.append({
+                **campaign,
+                'color':row['color'],
+                'batch_key':key,
+                'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')},
+            })
+
+        written,motivo=copywriter.write_scripts(briefs,settings)
+        if not written:
+            app.logger.info('Escrita em lote por IA recusada: %s',motivo)
+            raise Invalid('O ChatGPT não gerou todos os roteiros aprovados: '
+                          +(motivo or 'resposta inválida.'),422)
+
+        # Valide o retorno inteiro antes do primeiro UPDATE. Mesmo se uma
+        # integracao futura fornecer um dicionario incompleto, o lote continua
+        # sendo tudo-ou-nada.
+        for row,_,_,key in prepared:
+            script=written.get(key)
+            if not script or any(not str(script.get(field) or '').strip() for field in fields):
+                raise Invalid(f'O ChatGPT não devolveu o roteiro completo da cor {row["color"]}.',422)
+
+        saved=[]
+        for row,current,merged,key in prepared:
+            script=written.get(key)
+            merged={**merged,**{field:script[field] for field in fields}}
+            patched=sync_video_spoken_lines(
+                current.get('video'), merged.get('hook',''),
+                merged.get('development',''), merged.get('cta',''))
+            if patched is not None:
+                merged['video']=patched
+            else:
+                merged['video']=generate(
+                    {**campaign,'color':row['color']}, script=merged,
+                    variant_index=int(merged.get('variation_index') or 0))['video']
+            db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
+                         (json.dumps(merged,ensure_ascii=False),row['id']))
+            saved.append((row,merged))
+
+        # A campanha principal espelha a primeira cor, como nas demais rotas.
+        first=saved[0][1]
+        save_prompts(cid,{k:first[k] for k in PROMPTS+EXTRA_PROMPTS if k in first})
+        patch_checklist(cid,{'writer':{
+            'by':settings.get('provider') or 'ia',
+            'reason':'',
+            'scope':'all_colors',
+            'colors':[row['color'] for row,_ in saved],
+            'local_audit':[],
+        }})
+        if STATES.index(c['status'])>=2:
+            if c['status'] not in {'briefing','image_ready'}:
+                state(cid,'image_approved')
+            if STATES.index(c['status'])>=3:
+                clear_after(cid,['video'])
+        touch(cid,c['version'])
         db().commit()
         return jsonify(detail(cid))
 

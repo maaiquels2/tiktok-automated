@@ -1035,6 +1035,86 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(aprovado['cta'].rstrip('.'),changed['video'])
         self.assertEqual(response.json['checklist']['writer']['by'],'openai')
 
+    def test_explicit_ai_refresh_updates_all_colors_in_one_atomic_batch(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco, Preto'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        variants=before['variants']
+        captions={v['id']:v['prompts']['caption'] for v in variants}
+        images={v['id']:v['prompts']['image'] for v in variants}
+
+        # Simula uma direcao visual que o operador ajustou manualmente. A
+        # geracao das falas em lote nao pode reconstruir/perder esse trecho.
+        first=variants[0]
+        manual='DIREÇÃO MANUAL PRESERVADA.\n'+first['prompts']['video']
+        changed=self.client.patch(
+            f"/api/campaigns/{self.cid}/variants/{first['id']}/prompts",
+            json={'prompts':{'video':manual},'version':before['version']},headers=self.headers)
+        self.assertEqual(changed.status_code,200,changed.json)
+        before=changed.json
+        variants=before['variants']
+
+        generated={}
+        for index,variant in enumerate(variants,1):
+            generated[str(variant['id'])]={
+                'hook':f'Hook exclusivo e completo para a cor número {index} nesta campanha',
+                'development':f'Desenvolvimento exclusivo da cor {index}, com uma história natural e uma prova concreta que cabe perfeitamente na fala do vídeo.',
+                'cta':f'Confira agora a opção número {index} no carrinho.',
+                'caption':f'Legenda da API que não deve substituir a atual {index}.',
+            }
+        self.client.patch('/api/writer',json={
+            'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        before=self.get()
+        with patch('services.copywriter.write_scripts',return_value=(generated,'')) as batch:
+            response=self.post('/variants/refresh-all',{
+                'fields':['hook','development','cta'],
+                'writer_mode':'ai','version':before['version'],
+            })
+        self.assertEqual(response.status_code,200,response.json)
+        batch.assert_called_once()
+        self.assertEqual(len(batch.call_args.args[0]),3)
+        self.assertEqual({c['color'] for c in batch.call_args.args[0]}, {'Azul','Branco','Preto'})
+        for variant in response.json['variants']:
+            script=generated[str(variant['id'])]
+            self.assertEqual(variant['prompts']['hook'],script['hook'])
+            self.assertEqual(variant['prompts']['development'],script['development'])
+            self.assertEqual(variant['prompts']['cta'],script['cta'])
+            self.assertEqual(variant['prompts']['caption'],captions[variant['id']])
+            self.assertEqual(variant['prompts']['image'],images[variant['id']])
+            self.assertIn(script['cta'],variant['prompts']['video'])
+        self.assertIn('DIREÇÃO MANUAL PRESERVADA',response.json['variants'][0]['prompts']['video'])
+        self.assertEqual(response.json['checklist']['writer']['scope'],'all_colors')
+
+    def test_batch_copywriter_calls_provider_once_for_every_color(self):
+        from services import copywriter as cw
+        campaigns=[
+            {**self.brief,'color':'Azul','batch_key':'azul'},
+            {**self.brief,'color':'Branco','batch_key':'branco'},
+        ]
+        def pack(label):
+            return {
+                'hook':f'Eu achei que o vestido {label} seria comum, até olhar melhor',
+                'development':'Quando vesti, o tecido leve acompanhou meu corpo, e eu gostei do caimento no trabalho e também para sair.',
+                'cta':'Se gostou, dá uma conferida no carrinho aqui.',
+                'caption':f'Vestido {label} com tecido leve. #vestido',
+            }
+        raw=json.dumps({'scripts':[
+            {'key':'azul','options':[pack('azul')]},
+            {'key':'branco','options':[pack('branco')]},
+        ]},ensure_ascii=False)
+        caller=Mock(return_value=raw)
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'},attempts=1)
+        self.assertEqual(reason,'')
+        self.assertEqual(set(result),{'azul','branco'})
+        caller.assert_called_once()
+        sent=caller.call_args.args[2]
+        self.assertIn('### CHAVE: azul',sent)
+        self.assertIn('### CHAVE: branco',sent)
+
     def test_audit_blocks_unconfirmed_claims_and_fake_urgency(self):
         from services.copywriter import audit
         brief=dict(product='Legging cintura alta',outfit='legging',benefit='tem cós largo',

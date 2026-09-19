@@ -130,6 +130,29 @@ Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"options": [{"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}]}"""
 
 
+# Reaproveita todas as regras editoriais acima, trocando apenas o contrato de
+# resposta. Assim uma campanha com cinco cores custa uma solicitacao ao
+# provedor, mas cada cor continua recebendo um roteiro independente.
+_SYSTEM_RULES = SYSTEM_PROMPT.rsplit('\n\nResponda SOMENTE', 1)[0]
+_BATCH_SYSTEM_RULES = re.sub(r'\n- caption:.*', '', _SYSTEM_RULES)
+BATCH_SYSTEM_PROMPT = _BATCH_SYSTEM_RULES + """
+
+MODO LOTE — CORES DA MESMA CAMPANHA
+- Você receberá vários briefings, cada um com uma CHAVE única.
+- Escreva três opções completas e independentes para CADA chave.
+- Não misture cores, fatos, objeções ou benefícios entre os briefings.
+- Varie a ideia central entre as cores sempre que os fatos permitirem. Não
+  entregue o mesmo roteiro trocando apenas o nome da cor.
+- A cor pode aparecer na fala quando for relevante, mas não precisa ser a
+  ideia central de todas as versões.
+- Devolva todas as chaves recebidas exatamente uma vez.
+- Gere somente hook, development e cta. A legenda pertence à etapa de
+  publicação e não faz parte desta solicitação.
+
+Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
+{"scripts": [{"key": "CHAVE_RECEBIDA", "options": [{"hook": "...", "development": "...", "cta": "..."}, {"hook": "...", "development": "...", "cta": "..."}, {"hook": "...", "development": "...", "cta": "..."}]}]}"""
+
+
 # --------------------------------------------------------------------------- config
 STORAGE_KEY = 'app-settings/llm.json'
 
@@ -284,7 +307,7 @@ def _learning_lines(learning: dict | None) -> list[str]:
 
 
 # --------------------------------------------------------------------------- auditoria
-def audit(pack: dict, c: dict) -> list[str]:
+def audit(pack: dict, c: dict, require_caption: bool = True) -> list[str]:
     """Devolve a lista de violacoes. Lista vazia = texto aprovado."""
     problemas = []
     for campo, (low, high) in BUDGET.items():
@@ -301,7 +324,8 @@ def audit(pack: dict, c: dict) -> list[str]:
     if total > TOTAL_MAX:
         problemas.append(f'as três falas somam {total} palavras; o teto para 15 segundos é {TOTAL_MAX}')
 
-    falado = ' '.join((pack.get(k) or '') for k in ('hook', 'development', 'cta', 'caption')).casefold()
+    checked_fields = ('hook', 'development', 'cta', 'caption') if require_caption else ('hook', 'development', 'cta')
+    falado = ' '.join((pack.get(k) or '') for k in checked_fields).casefold()
     hook = (pack.get('hook') or '').strip().casefold()
     development = (pack.get('development') or '').strip().casefold()
     cta = (pack.get('cta') or '').strip().casefold()
@@ -349,10 +373,11 @@ def audit(pack: dict, c: dict) -> list[str]:
                 problemas.append(f'{field} repete quase literalmente o roteiro atual (poucas palavras trocadas)')
 
     caption = (pack.get('caption') or '')
-    if not caption.strip():
-        problemas.append('caption veio vazia')
-    elif len(re.findall(r'#\w+', caption)) > 5:
-        problemas.append('a legenda passou de 5 hashtags')
+    if require_caption:
+        if not caption.strip():
+            problemas.append('caption veio vazia')
+        elif len(re.findall(r'#\w+', caption)) > 5:
+            problemas.append('a legenda passou de 5 hashtags')
 
     if re.search(r'\[[^\]]+\]|\{\{|\bXXX\b', ' '.join(str(v) for v in pack.values())):
         problemas.append('o texto ficou com um espaço reservado por preencher')
@@ -511,6 +536,32 @@ def _parse_candidates(raw: str) -> list[dict]:
     return [_clean_pack(dados)]
 
 
+def _parse_batch_candidates(raw: str) -> dict[str, list[dict]]:
+    """Parse the keyed batch format without allowing duplicate colors/keys."""
+    texto = (raw or '').strip()
+    texto = re.sub(r'^```(?:json)?|```$', '', texto, flags=re.M).strip()
+    inicio, fim = texto.find('{'), texto.rfind('}')
+    if inicio >= 0 and fim > inicio:
+        texto = texto[inicio:fim + 1]
+    dados = json.loads(texto)
+    scripts = dados.get('scripts') if isinstance(dados, dict) else None
+    if not isinstance(scripts, list):
+        raise ValueError('resposta em lote não contém scripts')
+    parsed: dict[str, list[dict]] = {}
+    for item in scripts:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get('key') or '').strip()
+        options = item.get('options')
+        if not key or key in parsed or not isinstance(options, list):
+            raise ValueError('chave ausente ou repetida na resposta em lote')
+        packs = [_clean_pack(option) for option in options if isinstance(option, dict)]
+        if not packs:
+            raise ValueError(f'nenhuma opção recebida para a chave {key}')
+        parsed[key] = packs[:5]
+    return parsed
+
+
 def _creative_score(pack: dict, c: dict) -> int:
     """Desempata candidatos validos pela naturalidade e especificidade."""
     hook = (pack.get('hook') or '').casefold()
@@ -588,6 +639,87 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
         user = (build_brief(c) + '\n\nA tentativa anterior foi recusada pela auditoria:\n- '
                 + '\n- '.join(unique[:8]) + '\nReescreva as três opções corrigindo exatamente esses pontos.')
     return None, ultimo or 'o texto nao passou na auditoria'
+
+
+def write_scripts(campaigns: list[dict], settings: dict,
+                  attempts: int = 1,
+                  orcamento_s: float = BUDGET_SECONDS) -> tuple[dict[str, dict] | None, str]:
+    """Write and audit several color scripts in one provider request.
+
+    The result is keyed by ``batch_key`` so a provider cannot silently reorder
+    colors. The operation succeeds only when every requested color has an
+    audited script; callers can therefore persist the batch atomically.
+    """
+    caller = CALLERS.get(settings.get('provider'))
+    if not caller or not settings.get('api_key'):
+        return None, 'sem provedor configurado'
+    if not campaigns:
+        return None, 'nenhuma cor recebida'
+
+    briefs = []
+    expected: dict[str, dict] = {}
+    for index, campaign in enumerate(campaigns):
+        key = str(campaign.get('batch_key') or index)
+        if key in expected:
+            return None, f'chave repetida no lote: {key}'
+        expected[key] = campaign
+        briefs.append(f'### CHAVE: {key}\n{build_brief(campaign)}')
+    base_user = ('Gere os roteiros de TODAS as chaves abaixo. Cada bloco é um '
+                 'vídeo separado; nunca combine cores no mesmo roteiro.\n\n'
+                 + '\n\n'.join(briefs))
+    user = base_user
+    ultimo = ''
+    comeco = time.monotonic()
+
+    for tentativa in range(max(1, attempts)):
+        if tentativa and (time.monotonic() - comeco) + TIMEOUT > orcamento_s:
+            return None, ultimo or 'sem tempo para uma nova tentativa'
+        try:
+            bruto = caller(settings, BATCH_SYSTEM_PROMPT, user)
+            parsed = _parse_batch_candidates(bruto)
+        except ProviderError as exc:
+            if exc.status:
+                return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
+            return None, exc.message[:400]
+        except urllib.error.URLError as exc:
+            return None, f'nao foi possivel falar com o provedor ({exc.reason})'
+        except (ValueError, KeyError, IndexError) as exc:
+            ultimo = f'resposta em lote ilegível ({exc})'
+            continue
+
+        missing = [key for key in expected if key not in parsed]
+        extras = [key for key in parsed if key not in expected]
+        if missing or extras:
+            ultimo = ('chaves ausentes: ' + ', '.join(missing) if missing else '')
+            if extras:
+                ultimo += ('; ' if ultimo else '') + 'chaves desconhecidas: ' + ', '.join(extras)
+            continue
+
+        selected: dict[str, dict] = {}
+        rejected: list[str] = []
+        for key, campaign in expected.items():
+            approved = []
+            for pack in parsed[key]:
+                problemas = audit(pack, campaign, require_caption=False)
+                if problemas:
+                    rejected.extend(f'{campaign.get("color") or key}: {item}' for item in problemas)
+                else:
+                    approved.append(pack)
+            if approved:
+                selected[key] = max(approved, key=lambda item: _creative_score(item, campaign))
+            else:
+                rejected.append(f'{campaign.get("color") or key}: nenhuma opção passou na auditoria')
+        if len(selected) == len(expected):
+            return selected, ''
+
+        unique = []
+        for item in rejected:
+            if item not in unique:
+                unique.append(item)
+        ultimo = '; '.join(unique[:12])
+        user = (base_user + '\n\nA tentativa anterior foi recusada pela auditoria:\n- '
+                + '\n- '.join(unique[:12]) + '\nReescreva todas as chaves corrigindo esses pontos.')
+    return None, ultimo or 'os textos do lote não passaram na auditoria'
 
 
 # --------------------------------------------------------------------------- visao (analise de produto)

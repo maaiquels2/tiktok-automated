@@ -1340,6 +1340,16 @@ def _replace_spoken_lines(video_text, hook, development, cta):
     return _WORD_COUNT_RE.sub(rf'\g<1>{total}\g<2>', updated)
 
 
+def sync_video_spoken_lines(video_text, hook, development, cta):
+    """Public entry point for updating only the spoken copy in a video prompt.
+
+    API-written scripts must not discard camera, choreography or ending edits
+    that the operator already reviewed.  ``None`` means the prompt does not
+    contain the three safe markers and the caller should rebuild it.
+    """
+    return _replace_spoken_lines(video_text, hook, development, cta)
+
+
 def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
     """Cycle script variation for selected fields (hook/caption/etc.)."""
     fields = fields or ['hook', 'development', 'cta', 'caption']
