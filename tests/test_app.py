@@ -2177,11 +2177,11 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def send(self,model,niche):
+    def send(self,model,niche,contents=None):
         r=self.client.post('/api/model-library/upload-url',json={'model_name':model,'niche':niche,'filename':'foto.jpg'},headers=self.headers)
         self.assertEqual(r.status_code,200,r.json)
         path=r.json['path']
-        self.objects[path]=image_bytes()  # o navegador manda os bytes direto pro Storage
+        self.objects[path]=contents or image_bytes()  # o navegador manda os bytes direto pro Storage
         r=self.client.post('/api/model-library/confirm',json={'model_name':model,'niche':niche,'path':path,'original_name':'foto.jpg'},headers=self.headers)
         self.assertEqual(r.status_code,200,r.json)
         return path
@@ -2203,3 +2203,13 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
         path=self.send('Dieni','praia')
         self.assertTrue(path.startswith('model-library/Dieni/praia/'),path)
         self.assertEqual(self.deleted,[])
+
+    def test_iphone_gallery_photo_is_accepted(self):
+        # Foto da galeria do iPhone: JPEG com imagem extra embutida, que o
+        # Pillow le como "MPO". Era recusada com "Use JPG, PNG ou WebP".
+        stream=io.BytesIO()
+        Image.new('RGB',(90,160),'red').save(stream,'MPO',save_all=True,append_images=[Image.new('RGB',(45,80),'blue')])
+        self.send('Dieni','praia',stream.getvalue())
+        listed=self.client.get('/api/model-library?model_name=Dieni',headers=self.headers).json
+        praia=[n for n in listed['niches'] if n['niche']=='praia'][0]
+        self.assertTrue(praia['has_photo'])
