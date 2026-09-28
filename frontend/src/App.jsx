@@ -1,7 +1,7 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools} from './components';
@@ -26,6 +26,7 @@ export default function App(){
   const [selected,setSelected]=useState('model'),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false);
   const [studioAuditReport,setStudioAuditReport]=useState(null);
   const [mode,setMode]=useState('home'); // home | produce | results
+  const [homeView,setHomeView]=useState('ativas'); // ativas | publicadas (so no Inicio)
   const [resultsTab,setResultsTab]=useState('agora'); // agora | studio | lote | playbook | historico | campanha
   const bootHash=useRef(true);
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
@@ -69,6 +70,7 @@ export default function App(){
           else setSelected(nextStage(camp)==='performance'?'studio':(nextStage(camp)||'model'));
         }
         setMode(notFound?'home':route.mode);
+        setHomeView(route.homeView||'ativas');
         setResultsTab(route.resultsTab||'studio');
         if(location.pathname==='/creator')setModal({type:'create'});
         if(notFound){
@@ -97,14 +99,16 @@ export default function App(){
       const cid=parts[2]&&/^\d+$/.test(parts[2])?Number(parts[2]):null;
       return {mode:'results', resultsTab:allowed.has(tab)?tab:'agora', campaignId:cid, stage:null};
     }
-    return {mode:'home', resultsTab:'studio', campaignId:null, stage:null};
+    // #/publicadas: pagina so com as campanhas ja publicadas, para o Inicio
+    // mostrar apenas o que ainda esta em andamento.
+    return {mode:'home', homeView:top==='publicadas'?'publicadas':'ativas', resultsTab:'studio', campaignId:null, stage:null};
   }
   function syncHash(next={}){
     const m=next.mode??mode;
     const tab=next.resultsTab??resultsTab;
     const cid=next.campaignId!==undefined?next.campaignId:(c?.id||null);
     const stage=next.stage!==undefined?next.stage:selected;
-    let path='#/inicio';
+    let path=(next.homeView??homeView)==='publicadas'?'#/publicadas':'#/inicio';
     if(m==='produce'){
       path='#/produzir'+(cid?`/${cid}`:'')+(cid&&stage&&stage!=='performance'?`/${stage}`:'');
     }else if(m==='results'){
@@ -128,16 +132,24 @@ export default function App(){
       if(selected==='performance')setSelected(nextStage(c)==='performance'?'studio':(nextStage(c)||'studio'));
       syncHash({mode:'produce', campaignId:c?.id||null, stage:selected});
     }else{
-      syncHash({mode:'home'});
+      // O botao Inicio do topo sempre volta para as campanhas em andamento.
+      setHomeView('ativas');
+      syncHash({mode:'home',homeView:'ativas'});
     }
     setError('');
+  }
+  function goHomeView(view){
+    if(busy||!discard())return;
+    setMode('home');setHomeView(view);setError('');
+    syncHash({mode:'home',homeView:view});
+    window.scrollTo(0,0);
   }
 
   
   useEffect(()=>{
     if(loading||bootHash.current)return;
     syncHash({});
-  },[mode,resultsTab,c?.id,selected,loading]);
+  },[mode,homeView,resultsTab,c?.id,selected,loading]);
   // Rede de seguranca: se por algum motivo "selected" ficar com um valor que
   // nao existe em stageInfo (ex: link direto com etapa invalida, ou estado
   // que sobrou de outra campanha), a tela de Produzir travava em branco ao
@@ -153,6 +165,7 @@ export default function App(){
       if(busy||!discard()) { syncHash({}); return; }
       const route=parseRoute();
       setMode(route.mode);
+      setHomeView(route.homeView||'ativas');
       setResultsTab(route.resultsTab||'studio');
       if(route.mode==='produce'&&route.stage&&produceStages.some(s=>s.id===route.stage)) setSelected(route.stage);
       if(route.campaignId&&c?.id!==route.campaignId){
@@ -530,6 +543,26 @@ export default function App(){
   const device=getDeviceInfo();
   const DeviceIcon=device.type==='phone'?Smartphone:device.type==='tablet'?Tablet:Monitor;
   const current=c?stageInfo.find(s=>s.id===nextStage(c)):null;
+  const activeCampaigns=campaigns.filter(x=>x.status!=='published');
+  const publishedCampaigns=campaigns.filter(x=>x.status==='published');
+  // Cartao de campanha do Inicio. Na campanha publicada o botao principal e
+  // Resultados (lancar metricas), porque a producao dela ja terminou.
+  const homeCard=item=>{
+    const done=item.status==='published';
+    return <article className={'home-card'+(c?.id===item.id?' active':'')} key={item.id}>
+      <span className="campaign-id">CAMPANHA {String(item.id).padStart(4,'0')}</span>
+      <strong>{item.name}</strong>
+      <small>{item.product||item.model_name}</small>
+      <span className={'status-pill '+(done?'success':'')}>{statusLabels[item.status]}</span>
+      <div className="home-card-actions">
+        <button type="button" className={done?'button':'primary'} disabled={busy} onClick={()=>chooseCampaign(item.id)}>Produzir</button>
+        <button type="button" className={done?'primary':'button'} disabled={busy} onClick={()=>chooseCampaign(item.id,{openResults:true})}>Resultados</button>
+        <button type="button" className="icon-button" title="Editar" aria-label={`Editar ${item.name}`} disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button>
+        <button type="button" className="icon-button" title="Copiar" aria-label={`Copiar ${item.name}`} disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button>
+        <button type="button" className="icon-button danger-action" title="Excluir" aria-label={`Excluir ${item.name}`} disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button>
+      </div>
+    </article>;
+  };
   const stage=stageInfo.find(s=>s.id===selected);
   return <><header className="header"><div className="brand"><span className="logo" aria-hidden="true"><Clapperboard size={18}/></span><span>Fábrica TikTok</span><span className="brand-divider"/><span className="workspace-name">{identity?.studio_name||'Estúdio'}</span></div>
     <nav className="mode-nav" aria-label="Navegação principal">
@@ -550,7 +583,7 @@ export default function App(){
       {auth?.authenticated&&<button type="button" className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17}/></button>}
     </div></header>
     
-    {mode==='home' && (
+    {mode==='home' && homeView==='ativas' && (
     <main className="workspace home-workspace" aria-busy={loading}>
       <section className="home-panel">
         <div className="home-hero">
@@ -581,32 +614,44 @@ export default function App(){
           </div>
           <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':(isCloudMode()?'TikTok Studio e TikTok abrem em novas abas deste navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.')}</small>
         </div>
-        {/* As campanhas vêm antes da biblioteca de fotos: é o que se abre o
-            app para fazer. Antes ficavam no fim da página, e no celular era
-            preciso rolar seis cartões de fotos até achar a campanha. */}
-        {!loading && campaigns.length>0 && <div className="home-section-title"><h2>Suas campanhas <span className="count">{campaigns.length}</span></h2></div>}
+        {/* No Inicio ficam so as campanhas em andamento (qualquer status que
+            nao seja "Publicada"). As publicadas vao para #/publicadas, senao a
+            lista cresce a cada video e a pagina fica enorme no celular. */}
+        {!loading && campaigns.length>0 && <div className="home-section-title">
+          <h2>Em andamento <span className="count">{activeCampaigns.length}</span></h2>
+          {publishedCampaigns.length>0&&<button type="button" className="button" disabled={busy} onClick={()=>goHomeView('publicadas')}>Publicadas ({publishedCampaigns.length}) <ArrowRight size={14}/></button>}
+        </div>}
         <div className="home-grid">
           {loading && <div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando campanhas…</h1></div>}
           {!loading && !campaigns.length && (
             <div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><h1>Crie sua primeira campanha</h1><p>Do briefing à publicação, depois analise em Resultados.</p><button className="primary" onClick={()=>setModal({type:'create'})}><Plus size={17}/> Nova campanha</button></div>
           )}
-          {!loading && campaigns.map(item=>(
-            <article className={'home-card'+(c?.id===item.id?' active':'')} key={item.id}>
-              <span className="campaign-id">CAMPANHA {String(item.id).padStart(4,'0')}</span>
-              <strong>{item.name}</strong>
-              <small>{item.product||item.model_name}</small>
-              <span className={'status-pill '+(item.status==='published'?'success':'')}>{statusLabels[item.status]}</span>
-              <div className="home-card-actions">
-                <button type="button" className="primary" disabled={busy} onClick={()=>chooseCampaign(item.id)}>Produzir</button>
-                <button type="button" className="button" disabled={busy} onClick={()=>chooseCampaign(item.id,{openResults:true})}>Resultados</button>
-                <button type="button" className="icon-button" title="Editar" aria-label={`Editar ${item.name}`} disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button>
-                <button type="button" className="icon-button" title="Copiar" aria-label={`Copiar ${item.name}`} disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button>
-                <button type="button" className="icon-button danger-action" title="Excluir" aria-label={`Excluir ${item.name}`} disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button>
-              </div>
-            </article>
-          ))}
+          {!loading && campaigns.length>0 && !activeCampaigns.length && (
+            <div className="notice home-empty-active">Nenhuma campanha em andamento. Todas já foram publicadas. Crie uma nova campanha ou veja as publicadas.</div>
+          )}
+          {!loading && activeCampaigns.map(homeCard)}
         </div>
         <ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
+      </section>
+    </main>
+    )}
+
+    {mode==='home' && homeView==='publicadas' && (
+    <main className="workspace home-workspace" aria-busy={loading}>
+      <section className="home-panel">
+        <button type="button" className="button home-back" disabled={busy} onClick={()=>goHomeView('ativas')}><ArrowLeft size={14}/> Início</button>
+        <div className="home-hero">
+          <div>
+            <span className="eyebrow">CAMPANHAS</span>
+            <h1>Publicadas <span className="count">{publishedCampaigns.length}</span></h1>
+            <p className="home-hero-sub">Campanhas que já foram ao ar. Abra Resultados para lançar as métricas, ou copie uma para fazer uma nova versão.</p>
+          </div>
+        </div>
+        <div className="home-grid">
+          {loading && <div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando campanhas…</h1></div>}
+          {!loading && !publishedCampaigns.length && <div className="notice">Nenhuma campanha publicada ainda.</div>}
+          {!loading && publishedCampaigns.map(homeCard)}
+        </div>
       </section>
     </main>
     )}
