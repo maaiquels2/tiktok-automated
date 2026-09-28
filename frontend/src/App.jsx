@@ -45,11 +45,15 @@ export default function App(){
       if(ident) setIdentity(ident);
       if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
       setCloudMode(h?.cloud===true);
-      api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
-      const first=list[0]?await api('/campaigns/'+list[0].id):null;
+      // O PIN da rede local so existe na versao do computador; na nuvem o
+      // pedido sempre falharia e so atrasaria a abertura.
+      if(h?.cloud!==true) api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
+      const route=parseRoute();
+      // Quando o endereco ja aponta uma campanha, abre so ela (antes a primeira
+      // da lista era baixada e descartada logo em seguida).
+      const first=!route.campaignId&&list[0]?await api('/campaigns/'+list[0].id):null;
       if(active){
         setCampaigns(list);setReferences(refs);
-        const route=parseRoute();
         let camp=first;
         let notFound=false;
         if(route.campaignId){
@@ -804,9 +808,9 @@ function AuthScreen({setup,onDone}){
     <h1>{setup?'Crie o acesso principal':'Entre no estúdio'}</h1>
     <p>{setup?'Este usuário poderá criar o segundo acesso para sua parceira.':'Campanhas, prompts e aprovações ficam no mesmo espaço compartilhado.'}</p>
     <form onSubmit={submit} className="auth-form">
-      {setup&&<label>Nome exibido<input required maxLength={80} autoComplete="name" value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>}
-      <label>Usuário ou e-mail<input required maxLength={80} autoCapitalize="none" autoComplete="username" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
-      <label>Senha<input required minLength={8} type="password" autoComplete={setup?'new-password':'current-password'} value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
+      {setup&&<label>Nome exibido<input name="display_name" required maxLength={80} autoComplete="name" value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>}
+      <label>Usuário ou e-mail<input name="username" required maxLength={80} autoCapitalize="none" autoComplete="username" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
+      <label>Senha<input name="password" required minLength={8} type="password" autoComplete={setup?'new-password':'current-password'} value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
       {error&&<p className="inline-error" role="alert">{error}</p>}
       <button className="primary full" disabled={busy}>{busy?'Aguarde…':setup?'Criar estúdio':'Entrar'}</button>
     </form>
@@ -848,7 +852,7 @@ function UserAccessPanel({auth,onError,onFlash}){
     </div>)}</div>
     {resetTarget&&<form className="auth-form" onSubmit={resetPassword}>
       <h3><KeyRound size={17}/> Nova senha de {resetTarget.display_name}</h3>
-      <label><input autoFocus required minLength={8} type="password" placeholder="Mínimo 8 caracteres" value={resetDraft} onChange={e=>setResetDraft(e.target.value)}/></label>
+      <label><input name="new_password" autoFocus required minLength={8} type="password" autoComplete="new-password" placeholder="Mínimo 8 caracteres" value={resetDraft} onChange={e=>setResetDraft(e.target.value)}/></label>
       <div style={{display:'flex',gap:8}}>
         <button className="primary" disabled={resetSaving}>{resetSaving?'Salvando…':'Salvar'}</button>
         <button type="button" disabled={resetSaving} onClick={()=>{setResetTarget(null);setResetDraft('')}}>Cancelar</button>
@@ -856,9 +860,9 @@ function UserAccessPanel({auth,onError,onFlash}){
     </form>}
     {auth?.user?.role==='owner'&&users.length<2&&<form className="auth-form" onSubmit={add}>
       <h3><UserPlus size={18}/> Criar segundo acesso</h3>
-      <label><input required maxLength={80} placeholder="Nome (ex.: Ana)" value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>
-      <label><input required maxLength={80} autoCapitalize="none" placeholder="Usuário ou e-mail" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
-      <label><input required minLength={8} type="password" placeholder="Senha inicial (mín. 8 caracteres)" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
+      <label><input name="new_display_name" required maxLength={80} placeholder="Nome (ex.: Ana)" value={form.display_name} onChange={e=>setForm(v=>({...v,display_name:e.target.value}))}/></label>
+      <label><input name="new_username" required maxLength={80} autoCapitalize="none" autoComplete="off" placeholder="Usuário ou e-mail" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))}/></label>
+      <label><input name="new_user_password" required minLength={8} type="password" autoComplete="new-password" placeholder="Senha inicial (mín. 8 caracteres)" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))}/></label>
       <button className="primary" disabled={saving}>{saving?'Criando…':'Criar acesso'}</button>
     </form>}
     {users.length>=2&&<div className="notice success"><Check size={16}/> Acessos configurados.</div>}

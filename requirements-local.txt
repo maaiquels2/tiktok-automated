@@ -1,0 +1,3 @@
+# Versao do PC: tudo da nuvem + automacao do Chrome.
+-r requirements.txt
+playwright>=1.55,<2

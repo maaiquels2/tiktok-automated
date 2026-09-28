@@ -1,6 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "flask",
+  "regions": [
+    "pdx1"
+  ],
   "buildCommand": "cd frontend && npm ci && npm run build",
   "functions": {
     "wsgi.py": {

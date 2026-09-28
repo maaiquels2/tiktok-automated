@@ -640,6 +640,72 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any(f'ADD COLUMN IF NOT EXISTS {coluna} ' in q for q in alters),
                             f'faltou reconciliar {coluna}: {alters}')
 
+    def test_cloud_boot_skips_alter_table_when_columns_already_exist(self):
+        # Cada vez que o servidor da Vercel acorda, migrate() roda. ALTER TABLE
+        # trava a tabela inteira mesmo com IF NOT EXISTS, entao com o banco ja
+        # em dia o boot deve so consultar as colunas, sem nenhum ALTER.
+        import sys, types
+        import app as app_module
+        from app import CAMPAIGN_COLUMNS
+        executadas = []
+
+        class FakeCursor:
+            def execute(self, text, params=()):
+                self.last = ' '.join(str(text).split())
+                executadas.append(self.last)
+                return self
+            def fetchone(self):
+                return None
+            def fetchall(self):
+                if 'information_schema.columns' in self.last:
+                    return [{'column_name': n} for n in CAMPAIGN_COLUMNS]
+                return []
+            @property
+            def rowcount(self):
+                return 0
+
+        class FakePg:
+            def cursor(self):
+                return FakeCursor()
+            def commit(self):
+                pass
+            def rollback(self):
+                pass
+            def close(self):
+                pass
+
+        fake = types.ModuleType('psycopg2')
+        fake.connect = lambda *a, **k: FakePg()
+        extras = types.ModuleType('psycopg2.extras')
+        extras.RealDictCursor = object
+        fake.extras = extras
+
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root = Path(temp.name)
+        anterior = {k: sys.modules.get(k) for k in ('psycopg2', 'psycopg2.extras')}
+        sys.modules['psycopg2'] = fake
+        sys.modules['psycopg2.extras'] = extras
+        os.environ['FABRICA_DATABASE_URL'] = 'postgresql://fake/fake'
+        try:
+            try:
+                app_module.create_app(dict(TESTING=True, CLOUD_MODE=True,
+                                           DATA_DIR=root / 'data', MEDIA_DIR=root / 'media',
+                                           PROFILE_DIR=root / 'profiles'))
+            except Exception:
+                pass
+        finally:
+            os.environ.pop('FABRICA_DATABASE_URL', None)
+            for nome, modulo in anterior.items():
+                if modulo is None:
+                    sys.modules.pop(nome, None)
+                else:
+                    sys.modules[nome] = modulo
+
+        self.assertTrue(any('information_schema.columns' in q for q in executadas), executadas[:10])
+        alters = [q for q in executadas if q.upper().startswith('ALTER TABLE')]
+        self.assertEqual(alters, [])
+
     def test_campaign_columns_cover_every_field_the_insert_writes(self):
         # A causa raiz: FIELDS (o que o INSERT escreve) e a lista de colunas
         # migradas podiam divergir em silencio. Aqui elas nao podem mais.

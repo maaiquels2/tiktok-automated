@@ -189,7 +189,8 @@ Em ambos os casos, e ao lado, os serviços externos que **você** opera manualme
 | `iniciar.vbs` | Duplo clique para subir tudo sem janela preta de terminal (versão local). |
 | `reiniciar-fabrica.bat` | Encerra o processo `pythonw.exe` daquele diretório e sobe de novo (versão local). |
 | `instalar.ps1` | Instala dependências Python e Node e compila a interface (versão local). |
-| `requirements.txt` | Lista de bibliotecas Python, incluindo `psycopg2-binary` (driver do Postgres, usado só quando `FABRICA_CLOUD=1`). |
+| `requirements.txt` | Lista de bibliotecas Python do servidor (usada pela Vercel), incluindo `psycopg2-binary` (driver do Postgres, usado só quando `FABRICA_CLOUD=1`). |
+| `requirements-local.txt` | Versão do PC: inclui `requirements.txt` e acrescenta o Playwright (automação do Chrome), que não é usado na nuvem. |
 | `studio_identity.example.json` | Modelo do arquivo de identidade por PC, usado só na versão local (o real fica em `data/`, fora do Git). |
 | `.gitignore` | Impede que dados, mídia, perfis de navegador, `.venv` e segredos vão parar no GitHub. |
 | `README.md` | Visão geral e instruções de uso das duas versões. |

@@ -246,10 +246,18 @@ def create_app(config=None):
             # manual; isto cobre so a deriva de coluna nova.
             try:
                 with closing(connect()) as conn:
-                    for name, definition in CAMPAIGN_COLUMNS.items():
+                    # Uma consulta so para saber o que ja existe. ALTER TABLE
+                    # trava a tabela inteira mesmo quando a coluna ja existe,
+                    # e isto roda a cada vez que o servidor da Vercel acorda.
+                    existing={r['column_name'] for r in conn.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema=current_schema() AND table_name='campaigns'").fetchall()}
+                    missing={n: d for n, d in CAMPAIGN_COLUMNS.items() if n not in existing}
+                    for name, definition in missing.items():
                         conn.execute(
                             f'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS {name} {definition}')
-                    conn.commit()
+                    if missing:
+                        conn.commit()
             except Exception as exc:
                 # Sem permissao de DDL (ou banco fora do ar) o app continua
                 # subindo: quem usa colunas antigas segue trabalhando, e o log
@@ -839,6 +847,15 @@ def create_app(config=None):
             yield tmp
         finally:
             tmp.unlink(missing_ok=True)
+
+    def signed_redirect(key,download_name=None,expires_in=3600):
+        """Manda o navegador para o link assinado do Storage e deixa ele
+        guardar esse redirecionamento um pouco menos que a validade do link.
+        Sem isso cada foto/video era pedido de novo a cada tela aberta: o
+        servidor acordava, consultava o banco e assinava um link novo."""
+        resp=redirect(_storage_sign(key,expires_in=expires_in,download_name=download_name))
+        resp.headers['Cache-Control']=f'private, max-age={expires_in-300}'
+        return resp
 
     def path_for(row):
         base=app.config['MEDIA_DIR'].resolve()
@@ -1468,7 +1485,7 @@ def create_app(config=None):
             raise Invalid('Foto do produto não encontrada.',404)
         if cloud_mode:
             download_name=row['original_name'] if request.args.get('download')=='1' else None
-            return redirect(_storage_sign(row['path'],download_name=download_name))
+            return signed_redirect(row['path'],download_name=download_name)
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
     @app.patch('/api/campaigns/<int:cid>/layout')
@@ -2086,13 +2103,10 @@ def create_app(config=None):
             entry = ml.get_entry(app.config['DATA_DIR'], model_name, niche, storage_get=_storage_get)
             if not entry or not entry.get('path'):
                 raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
-            sign_ttl = 3600
-            resp = redirect(_storage_sign(entry['path'], expires_in=sign_ttl))
             # max-age um pouco menor que a validade do link assinado, pra
             # nunca servir do cache um redirecionamento pra um link ja
             # expirado no Storage.
-            resp.headers['Cache-Control'] = f'private, max-age={sign_ttl-300}'
-            return resp
+            return signed_redirect(entry['path'])
         path = ml.get_file(app.config['DATA_DIR'], app.config['MEDIA_DIR'], model_name, niche)
         if not path:
             raise Invalid('Foto padrao deste nicho nao encontrada.', 404)
@@ -2391,7 +2405,7 @@ def create_app(config=None):
             raise Invalid('Mídia não encontrada.',404)
         if cloud_mode:
             download_name=row['original_name'] if request.args.get('download')=='1' else None
-            return redirect(_storage_sign(row['path'],download_name=download_name))
+            return signed_redirect(row['path'],download_name=download_name)
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
 

@@ -3,7 +3,7 @@
 > **Alternativa mais rápida:** hoje existe uma **versão em nuvem** (Vercel + Supabase) — basta a segunda pessoa abrir a URL do deploy e entrar com uma conta de editor, sem instalar nada no PC dela. Este guia continua valendo para quem quer a instalação local completa (necessária para usar Grok/Flow com perfil de Chrome dedicado, misturar vídeos ou coletar métricas automaticamente do Studio — recursos que só existem na versão local; ver `DOCUMENTACAO-PROJETO.md`, seção 3.2). A conta de editor é criada pela responsável (owner) pelo ícone **Acessos do estúdio** no cabeçalho da versão em nuvem.
 
 ## Compartilhar (GitHub)
-- Código, `instalar.ps1`, `iniciar.vbs`, `requirements.txt`, este guia
+- Código, `instalar.ps1`, `iniciar.vbs`, `requirements.txt`, `requirements-local.txt`, este guia
 
 ## Nunca copiar da Micaela
 - `browser_profiles/` (sessão Chrome errada)
