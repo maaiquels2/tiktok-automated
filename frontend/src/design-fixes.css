@@ -136,3 +136,74 @@
     align-items: stretch;
   }
 }
+
+/* Telas menores: o aviso "Dados salvos" sumia por completo. Agora fica so o
+   escudo verde (o texto aparece ao parar o mouse ou para leitor de tela). */
+@media (max-width: 1100px) {
+  .header .local-badge {
+    display: inline-flex;
+    padding: 6px;
+  }
+  .header .local-badge-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* Fotos padrao sem foto: eram 6 cartoes cinza enormes (formato de foto em pe)
+   so para dizer "Sem foto ainda". Agora o cartao vazio e claro, com borda
+   tracejada, e o espaco da foto fica baixinho ate existir uma foto. */
+.model-niche-card:not(.has-photo) {
+  background: var(--surface-1);
+  border: 1px dashed var(--line-27);
+}
+.model-niche-card:not(.has-photo) .model-niche-preview {
+  aspect-ratio: auto;
+  min-height: 56px;
+  background: var(--surface-12);
+}
+
+/* Formulario da campanha: "Mais opcoes do video" recolhido. */
+.more-options {
+  margin: 4px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+.more-options > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.more-options > summary::-webkit-details-marker {
+  display: none;
+}
+.more-options > summary::before {
+  content: '▸';
+  color: var(--purple);
+}
+.more-options[open] > summary::before {
+  content: '▾';
+}
+.more-options > summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.more-options[open] > summary {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+.more-options > label {
+  padding: 0 14px;
+}
+.more-options > summary strong {
+  font-size: 14px;
+}

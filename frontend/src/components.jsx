@@ -591,8 +591,16 @@ export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
 // a chave tecnica, que aparecia crua na tela, ex.: "search").
 const IMPROVE_KIND_LABELS={evitar:'Evitar',retencao:'Retenção',watch_pct:'% assistido',search:'Busca'};
 export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onSaveExperiment,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport,onSavePublishedLink}){
-  const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
+  // Sem variacoes geradas ainda, uma campanha "Rosa, Azul, Branco" aparecia
+  // como uma aba so com as tres cores juntas. Agora vira uma aba por cor. Se
+  // ja existir metrica salva com o nome junto (versao antiga), mantem a aba
+  // antiga para nao esconder o que foi lancado.
+  const colorList=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
+  const variants=c.variants?.length?c.variants
+    :(colorList.length>1&&!perfMap[c.color]&&!(c.checklist?.insights||{})[c.color])
+      ?colorList.map(color=>({color,prompts:c.prompts,id:'main-'+color}))
+      :[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const insightsMap=(c.checklist&&c.checklist.insights)||{};
   const videos=c.assets.filter(a=>a.kind==='video');
   const hasUrl=videos.some(v=>v.url||v.href||v.id);
@@ -848,6 +856,9 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
     {error&&<p className="inline-error" role="alert">{error}</p>}
   </section>;
 }
+const MOTOR_LABELS={'':'Motor automático',necessidade:'Necessidade',escassez:'Escassez',desejo_posse:'Desejo de posse'};
+const VIDEO_MODE_LABELS={'':'UGC com modelo',pov:'POV do produto',movimento:'Só movimento'};
+const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',costas:'De costas'};
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [nicheOptions,setNicheOptions]=useState(NICHES);
@@ -855,6 +866,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
+  const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.video_mode||campaign?.body_turns));
   const published=campaign?.status==='published';
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
   const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
@@ -929,6 +941,11 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
         </label>
+        {/* Motor, formato e orientacao ocupavam boa parte do formulario, cada um
+            com um paragrafo de ajuda. Ficam recolhidos, com a escolha atual no
+            titulo; abrem sozinhos se ja tiver algo diferente do padrao. */}
+        <details className="more-options" open={moreOpen} onToggle={e=>setMoreOpen(e.currentTarget.open)}>
+        <summary><strong>Mais opções do vídeo</strong><small>{MOTOR_LABELS[draft.motor||'']} · {VIDEO_MODE_LABELS[draft.video_mode||'']} · {BODY_TURN_LABELS[draft.body_turns||'']}</small></summary>
         <label>Motor de persuasão
           <div className="generator-options motor-options" role="radiogroup" aria-label="Motor de persuasão do roteiro">
             <label className={'generator-option '+((!draft.motor)?'selected':'')}>
@@ -989,6 +1006,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           </div>
           <small className="help">Essa escolha tem prioridade sobre os movimentos automáticos do nicho. “De frente” impede giros inesperados; costas só aparecem quando você autorizar.</small>
         </label>
+        </details>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">
         <div className="section-title"><h3>Gerador</h3><span className="help">Escolha como criar imagem e vídeo</span></div>
@@ -1349,13 +1367,14 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     finally{setSheetBusy(false)}
   }
   const selected=items.find(x=>x.niche===selectedNiche);
+  const anyPhoto=items.some(x=>x.has_photo);
   return (
     <section className="model-library">
       <div className="home-hero" style={{marginBottom:12}}>
         <div>
           <span className="eyebrow">MODELO FIXA · {(items.filter(x=>x.has_photo).length)}/{(items.length||6)} nichos</span>
           <h2>Fotos padrão — {activeModel}</h2>
-          <p className="help">Toque na foto pra ampliar.</p>
+          <p className="help">{anyPhoto?'Toque na foto pra ampliar.':'Envie uma foto da modelo para cada estilo. Ela vira a referência fixa das campanhas desse nicho.'}</p>
         </div>
       </div>
       <div className="model-picker-row" style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
@@ -1433,7 +1452,9 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
           </article>
         ))}
       </div>
-      <div className="character-sheet-box">
+      {/* A ficha de consistencia precisa de uma foto: sem nenhuma, o bloco so
+          mostrava dois botoes desativados. */}
+      {anyPhoto&&<div className="character-sheet-box">
         <div>
           <strong>Gerar ficha de consistência</strong>
           <p className="help">
@@ -1450,7 +1471,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
             {isMobileDevice()?'Abrir Grok no celular':'Abrir no Grok'}
           </ServiceLaunch>
         </div>
-      </div>
+      </div>}
       {lightbox && (
         <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label={lightbox.label} onClick={()=>setLightbox(null)}>
           <div className="photo-lightbox-inner" onClick={e=>e.stopPropagation()}>
