@@ -207,3 +207,30 @@
 .more-options > summary strong {
   font-size: 14px;
 }
+
+/* Inicio: titulo "Em andamento" com o atalho para as publicadas ao lado. */
+.home-section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+.home-section-title h2 {
+  margin: 0;
+}
+.home-section-title .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.home-empty-active {
+  grid-column: 1 / -1;
+}
+.home-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
