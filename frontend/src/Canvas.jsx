@@ -1,4 +1,4 @@
-import { UserRound, Shirt, Image, Check, Clapperboard, Type, Upload, Sparkles, Wand2 } from 'lucide-react';
+import { UserRound, Shirt, Image, Check, Clapperboard, Type, Upload } from 'lucide-react';
 import { nextStage, stageInfo } from './api';
 
 const icons = {
@@ -16,15 +16,17 @@ export default function Canvas({ campaign, selected, onSelect, busy, stages = st
   const published = campaign?.status === 'published';
 
   return (
-    <div className="stage-stepper" role="list" aria-label="Etapas da producao">
+    <nav className="stage-stepper" aria-label="Etapas da produção">
       {stages.map((s, i) => {
-        const Icon = icons[s.icon] || Image;
         const state = published || i < currentIdx ? 'done' : i === currentIdx ? 'current' : 'waiting';
+        // Etapa concluida mostra um visto: antes o icone era o mesmo e so a
+        // cor de fundo mudava, dificil de perceber o que ja foi feito.
+        const Icon = state === 'done' ? Check : icons[s.icon] || Image;
         const active = selected === s.id;
         const gen = s.id === 'image' || s.id === 'video'
           ? (campaign.generator === 'flow' ? 'Flow' : 'Grok')
           : s.id.includes('approval')
-            ? 'Voce'
+            ? 'Você'
             : s.id === 'studio'
               ? 'Studio'
               : null;
@@ -32,22 +34,22 @@ export default function Canvas({ campaign, selected, onSelect, busy, stages = st
           <button
             key={s.id}
             type="button"
-            role="listitem"
             className={`stage-step ${state}${active ? ' selected' : ''}`}
             disabled={busy}
-            aria-pressed={active}
+            aria-current={active ? 'step' : undefined}
+            title={s.title}
             onClick={() => onSelect(s.id)}
           >
             <span className="stage-step-index">{String(i + 1).padStart(2, '0')}</span>
             <span className="stage-step-icon"><Icon size={16} /></span>
             <span className="stage-step-body">
               <strong>{s.title}</strong>
-              <small>{state === 'done' ? 'Concluido' : state === 'current' ? 'Agora' : 'A seguir'}{gen ? ` · ${gen}` : ''}</small>
+              <small>{state === 'done' ? 'Concluído' : state === 'current' ? 'Agora' : 'A seguir'}{gen ? ` · ${gen}` : ''}</small>
             </span>
             {i < stages.length - 1 && <span className="stage-step-rail" aria-hidden="true" />}
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }

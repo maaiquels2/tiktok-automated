@@ -1,7 +1,7 @@
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -587,9 +587,20 @@ export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
 }
 
 
+// Nomes em portugues para o tipo de cada ponto a melhorar (o servidor manda
+// a chave tecnica, que aparecia crua na tela, ex.: "search").
+const IMPROVE_KIND_LABELS={evitar:'Evitar',retencao:'Retenção',watch_pct:'% assistido',search:'Busca'};
 export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onSaveExperiment,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport,onSavePublishedLink}){
-  const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
+  // Sem variacoes geradas ainda, uma campanha "Rosa, Azul, Branco" aparecia
+  // como uma aba so com as tres cores juntas. Agora vira uma aba por cor. Se
+  // ja existir metrica salva com o nome junto (versao antiga), mantem a aba
+  // antiga para nao esconder o que foi lancado.
+  const colorList=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
+  const variants=c.variants?.length?c.variants
+    :(colorList.length>1&&!perfMap[c.color]&&!(c.checklist?.insights||{})[c.color])
+      ?colorList.map(color=>({color,prompts:c.prompts,id:'main-'+color}))
+      :[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const insightsMap=(c.checklist&&c.checklist.insights)||{};
   const videos=c.assets.filter(a=>a.kind==='video');
   const hasUrl=videos.some(v=>v.url||v.href||v.id);
@@ -622,7 +633,9 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
   const key=variant?.color||'default';
   const card=insightsMap[key]||insightsMap['default'];
   const video=videos.find(v=>(v.slot||v.metadata?.color)===variant?.color)||videos[0];
-  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} step={step} value={metrics[name]??''} disabled={busy}
+  // inputMode abre o teclado numerico no celular (type=number sozinho abre o
+  // teclado completo em varios Android).
+  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} inputMode={name==='notes'?undefined:(step==='1'?'numeric':'decimal')} min={name==='notes'?undefined:'0'} step={step} value={metrics[name]??''} disabled={busy}
     onChange={e=>setMetrics(m=>({...m,[name]:e.target.value}))}/></label>;
   const num=v=>v===''||v==null?undefined:Number(v);
   const save=()=>onSavePerformance&&onSavePerformance({color:variant?.color,metrics:{
@@ -644,8 +657,8 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
       return <div className="revenue-pill"><span>R$ por mil views</span><strong>{`R$ ${Number(rpm).toFixed(2)}`}</strong></div>;
     })()}
     <div className="metric-form">
-      {field('views_24h','Views 24h')}{field('views_7d','Views 7d')}{field('watch_pct','Watch %','0.1')}
-      {field('likes','Likes')}{field('comments','Comentários')}{field('saves','Saves')}{field('shares','Shares')}
+      {field('views_24h','Visualizações 24h')}{field('views_7d','Visualizações 7 dias')}{field('watch_pct','% assistido','0.1')}
+      {field('likes','Curtidas')}{field('comments','Comentários')}{field('saves','Salvamentos')}{field('shares','Compartilhamentos')}
       {field('product_clicks','Cliques no produto')}{field('orders','Pedidos')}{field('revenue','Comissão R$','0.01')}
       {field('notes','Notas')}
       <button type="button" className="primary" disabled={busy||!onSavePerformance} onClick={save}>Salvar métricas</button>
@@ -843,6 +856,9 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
     {error&&<p className="inline-error" role="alert">{error}</p>}
   </section>;
 }
+const MOTOR_LABELS={'':'Motor automático',necessidade:'Necessidade',escassez:'Escassez',desejo_posse:'Desejo de posse'};
+const VIDEO_MODE_LABELS={'':'UGC com modelo',pov:'POV do produto',movimento:'Só movimento'};
+const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',costas:'De costas'};
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [nicheOptions,setNicheOptions]=useState(NICHES);
@@ -850,6 +866,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
+  const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.video_mode||campaign?.body_turns));
   const published=campaign?.status==='published';
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
   const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
@@ -924,6 +941,11 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
         </label>
+        {/* Motor, formato e orientacao ocupavam boa parte do formulario, cada um
+            com um paragrafo de ajuda. Ficam recolhidos, com a escolha atual no
+            titulo; abrem sozinhos se ja tiver algo diferente do padrao. */}
+        <details className="more-options" open={moreOpen} onToggle={e=>setMoreOpen(e.currentTarget.open)}>
+        <summary><strong>Mais opções do vídeo</strong><small>{MOTOR_LABELS[draft.motor||'']} · {VIDEO_MODE_LABELS[draft.video_mode||'']} · {BODY_TURN_LABELS[draft.body_turns||'']}</small></summary>
         <label>Motor de persuasão
           <div className="generator-options motor-options" role="radiogroup" aria-label="Motor de persuasão do roteiro">
             <label className={'generator-option '+((!draft.motor)?'selected':'')}>
@@ -984,6 +1006,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           </div>
           <small className="help">Essa escolha tem prioridade sobre os movimentos automáticos do nicho. “De frente” impede giros inesperados; costas só aparecem quando você autorizar.</small>
         </label>
+        </details>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">
         <div className="section-title"><h3>Gerador</h3><span className="help">Escolha como criar imagem e vídeo</span></div>
@@ -1016,7 +1039,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
     </fieldset>
     <div className="form-actions">
       {onCancel&&<button type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
-      <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?'Salvar':'Criar campanha'}</button>
+      <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?.id?'Salvar':'Criar campanha'}</button>
     </div>
   </form>;
 }
@@ -1188,7 +1211,7 @@ export function DailyQueueCard({busy,onError,onFlash,onCreate}){
       <div className="daily-head">
         <div>
           <span className="eyebrow">FILA DE HOJE</span>
-          <h2>5 posts · {prog.in_flight||0} em producao · faltam ~{prog.remaining??5}</h2>
+          <h2>5 posts · {prog.in_flight||0} em produção · faltam ~{prog.remaining??5}</h2>
           <p className="help">Do playbook. Crie a campanha e siga no Produzir.</p>
         </div>
       </div>
@@ -1344,13 +1367,14 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     finally{setSheetBusy(false)}
   }
   const selected=items.find(x=>x.niche===selectedNiche);
+  const anyPhoto=items.some(x=>x.has_photo);
   return (
     <section className="model-library">
       <div className="home-hero" style={{marginBottom:12}}>
         <div>
           <span className="eyebrow">MODELO FIXA · {(items.filter(x=>x.has_photo).length)}/{(items.length||6)} nichos</span>
           <h2>Fotos padrão — {activeModel}</h2>
-          <p className="help">Toque na foto pra ampliar.</p>
+          <p className="help">{anyPhoto?'Toque na foto pra ampliar.':'Envie uma foto da modelo para cada estilo. Ela vira a referência fixa das campanhas desse nicho.'}</p>
         </div>
       </div>
       <div className="model-picker-row" style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',marginBottom:16}}>
@@ -1428,7 +1452,9 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
           </article>
         ))}
       </div>
-      <div className="character-sheet-box">
+      {/* A ficha de consistencia precisa de uma foto: sem nenhuma, o bloco so
+          mostrava dois botoes desativados. */}
+      {anyPhoto&&<div className="character-sheet-box">
         <div>
           <strong>Gerar ficha de consistência</strong>
           <p className="help">
@@ -1445,7 +1471,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
             {isMobileDevice()?'Abrir Grok no celular':'Abrir no Grok'}
           </ServiceLaunch>
         </div>
-      </div>
+      </div>}
       {lightbox && (
         <div className="photo-lightbox" role="dialog" aria-modal="true" aria-label={lightbox.label} onClick={()=>setLightbox(null)}>
           <div className="photo-lightbox-inner" onClick={e=>e.stopPropagation()}>
@@ -1705,11 +1731,11 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       <div className={'collapse-block'+(open?' open':'')}>
         <div className="collapse-head">
           <button type="button" className="collapse-toggle" onClick={toggle} aria-expanded={open}>
-            <span className="collapse-chevron">{open?'▾':'▸'}</span>
+            <span className="collapse-chevron" aria-hidden="true">{open?'▾':'▸'}</span>
             <strong>{title}</strong>
             {badge!=null?<span className="count">{badge}</span>:null}
           </button>
-          <button type="button" className="button analysis-action collapse-btn" onClick={toggle}>{open?'Comprimir':'Expandir'}</button>
+          <button type="button" className="button analysis-action collapse-btn" onClick={toggle}>{open?'Recolher':'Expandir'}</button>
         </div>
         {open && <div className="collapse-body">{children}</div>}
       </div>
@@ -1732,14 +1758,14 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
           {!queue && <p className="help">Carregando fila… Rode um lote e gere o playbook se estiver vazio.</p>}
           {queue && (
             <>
-              <Collapse id="prod-continue" title={`Continuar producao (${(queue.continue||[]).length})`} defaultOpen={true} badge={(queue.continue||[]).length}>
+              <Collapse id="prod-continue" title="Continuar produção" defaultOpen={true} badge={(queue.continue||[]).length}>
                 {(queue.continue||[]).length===0 && <p className="help">Nenhuma campanha em andamento. Crie uma do playbook abaixo.</p>}
                 <ul className="prod-list">
                   {(queue.continue||[]).map((c,i)=>(
                     <li key={c.campaign_id||i} className="prod-card">
                       <div>
                         <strong>{c.name}</strong>
-                        <div className="help">{c.label} · {c.status}{c.niche?` · ${c.niche}`:''}</div>
+                        <div className="help">{c.label} · {statusLabels[c.status]||c.status}{c.niche?` · ${c.niche}`:''}</div>
                         <div className="help"><em>Como:</em> {c.how}</div>
                       </div>
                       <button type="button" className="primary" disabled={busy} onClick={()=>onOpenProduce?.(c.campaign_id)}>Abrir Produzir</button>
@@ -1747,8 +1773,8 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                   ))}
                 </ul>
               </Collapse>
-              <Collapse id="prod-next" title={`Criar do playbook (${(queue.produce_next||[]).length})`} defaultOpen={true} badge={(queue.produce_next||[]).length}>
-                {(queue.produce_next||[]).length===0 && <p className="help">Sem briefs. Va em Playbook → Atualizar, ou rode o lote 30d.</p>}
+              <Collapse id="prod-next" title="Criar do playbook" defaultOpen={true} badge={(queue.produce_next||[]).length}>
+                {(queue.produce_next||[]).length===0 && <p className="help">Nenhuma sugestão ainda. Vá em Playbook e toque em Atualizar, ou rode o lote de 30 dias.</p>}
                 <ul className="prod-list">
                   {(queue.produce_next||[]).map((v,i)=>(
                     <li key={i} className="prod-card">
@@ -1765,14 +1791,14 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                   ))}
                 </ul>
               </Collapse>
-              <Collapse id="prod-improve" title={`Espaco para melhorar (${(queue.improve||[]).length})`} defaultOpen={true} badge={(queue.improve||[]).length}>
+              <Collapse id="prod-improve" title="Espaço para melhorar" defaultOpen={true} badge={(queue.improve||[]).length}>
                 <ul className="prod-list improve">
                   {(queue.improve||[]).map((x,i)=>(
                     <li key={i} className="prod-card">
                       <div>
-                        <span className={'chip tone-'+(x.kind==='evitar'?'pink':'purple')}>{x.kind}</span>
+                        <span className={'chip tone-'+(x.kind==='evitar'?'pink':'purple')}>{IMPROVE_KIND_LABELS[x.kind]||x.kind}</span>
                         <strong> {x.title}</strong>
-                        <div className="help"><em>Acao:</em> {x.action}</div>
+                        <div className="help"><em>O que fazer:</em> {x.action}</div>
                       </div>
                     </li>
                   ))}
@@ -1949,7 +1975,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       {activeTab==='historico' && (
         <div className="link-analysis-list">
           <div className="section-title">
-            <h3>Historico de links</h3>
+            <h3>Histórico de links</h3>
             <span className="count">{items.length}</span>
           </div>
           {items.length===0 && <p className="help">Nenhum link analisado ainda. Use Studio / link ou rode um lote.</p>}
@@ -1969,7 +1995,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                     {lab}{sortMark(histSort,k)}
                   </button>
                 ))}
-                <button type="button" className="button analysis-action" onClick={()=>setOpenId(null)}>Comprimir todos</button>
+                <button type="button" className="button analysis-action" onClick={()=>setOpenId(null)}>Recolher todos</button>
               </div>
               <ul>
                 {histRows.map(item=>{
@@ -1986,7 +2012,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                         {item.tiktok_video_id?<strong className="analysis-note">{item.tiktok_video_id}</strong>:null}
                         <StatPills item={item}/>
                         <div className="analysis-actions-row">
-                          <button type="button" className="button analysis-action" onClick={()=>setOpenId(open?null:id)}>{open?'Comprimir':'Expandir detalhes'}</button>
+                          <button type="button" className="button analysis-action" onClick={()=>setOpenId(open?null:id)}>{open?'Recolher':'Expandir detalhes'}</button>
                           <button type="button" className="button analysis-action" disabled={busy||loading} onClick={()=>reanalyze(item)}>{loading?'Coletando…':'Analisar de novo'}</button>
                         </div>
                       </div>

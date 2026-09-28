@@ -1,7 +1,7 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools} from './components';
@@ -9,9 +9,11 @@ import { NICHE_DEFAULTS } from './nicheDefaults';
 
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
-  const labsSrc = "data:image/png;base64,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";
-  const grokDark = "data:image/png;base64,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";
-  const grokLight = "data:image/png;base64,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";
+  // Os logos ficam em public/brand (os mesmos arquivos que antes vinham
+  // escritos por extenso aqui dentro, pesando ~15 KB a mais no app).
+  const labsSrc = '/brand/labs.png';
+  const grokDark = '/brand/grok-mark.png';
+  const grokLight = '/brand/grok-mark-white.png';
   if(kind==='labs'||kind==='flow'){
     return <img className="brand-mark brand-labs" src={labsSrc} alt="" width={size} height={size} draggable={false}/>;
   }
@@ -445,7 +447,7 @@ export default function App(){
     return run(()=>api(`/campaigns/${c.id}/videos/mix`,{method:'POST',body:{...payload,version:c.version}}),'Mix gerado. Revise o MP4 no slot escolhido.','video');
   }
   function savePerformance(payload){
-    return run(()=>api(`/campaigns/${c.id}/performance`,{method:'POST',body:{...payload,version:c.version}}),'Metricas salvas.','studio');
+    return run(()=>api(`/campaigns/${c.id}/performance`,{method:'POST',body:{...payload,version:c.version}}),'Métricas salvas.','studio');
   }
   function saveExperiment(experiment){
     return run(()=>api(`/campaigns/${c.id}/experiment`,{method:'POST',body:{experiment,version:c.version}}),'Teste marcado.','performance');
@@ -467,20 +469,20 @@ export default function App(){
     finally{lock.current=false;setBusy(false)}
   }
   function applyLibraryReference(niche){
-    return run(()=>api(`/campaigns/${c.id}/reference-from-library`,{method:'POST',body:{niche,version:c.version}}),'Foto padrao do nicho aplicada.','model');
+    return run(()=>api(`/campaigns/${c.id}/reference-from-library`,{method:'POST',body:{niche,version:c.version}}),'Foto padrão do nicho aplicada.','model');
   }
   function saveNichePhoto(niche,file){
     if(!file)return;
     const modelName=c.model_name||identity?.model_name||'Micaela';
-    if(isCloudMode())return run(()=>uploadModelLibraryPhotoDirect(modelName,niche,file),'Foto padrao do nicho salva.');
+    if(isCloudMode())return run(()=>uploadModelLibraryPhotoDirect(modelName,niche,file),'Foto padrão do nicho salva.');
     const form=new FormData();form.set('model_name',modelName);form.set('niche',niche);form.set('file',file);
-    return run(()=>api('/model-library',{method:'POST',body:form}),'Foto padrao do nicho salva.');
+    return run(()=>api('/model-library',{method:'POST',body:form}),'Foto padrão do nicho salva.');
   }
     function savePublishedLink(payload){
     return run(()=>api(`/campaigns/${c.id}/published-link`,{method:'POST',body:{...payload,version:c.version}}),'Link do TikTok salvo.','performance');
   }
     function fetchStudioMetrics(color){
-    return run(()=>api(`/campaigns/${c.id}/performance/fetch`,{method:'POST',body:{color,version:c.version}}),'Metricas coletadas do Studio.','performance');
+    return run(()=>api(`/campaigns/${c.id}/performance/fetch`,{method:'POST',body:{color,version:c.version}}),'Métricas coletadas do Studio.','performance');
   }
 
   function publishSlot(payload){
@@ -529,20 +531,20 @@ export default function App(){
   const DeviceIcon=device.type==='phone'?Smartphone:device.type==='tablet'?Tablet:Monitor;
   const current=c?stageInfo.find(s=>s.id===nextStage(c)):null;
   const stage=stageInfo.find(s=>s.id===selected);
-  return <><header className="header"><div className="brand"><span className="logo">?</span><span>Fábrica TikTok</span><span className="brand-divider"/><span className="workspace-name">{identity?.studio_name||'Estúdio'}</span></div>
+  return <><header className="header"><div className="brand"><span className="logo" aria-hidden="true"><Clapperboard size={18}/></span><span>Fábrica TikTok</span><span className="brand-divider"/><span className="workspace-name">{identity?.studio_name||'Estúdio'}</span></div>
     <nav className="mode-nav" aria-label="Navegação principal">
       <button type="button" className={mode==='home'?'active':''} disabled={busy} onClick={()=>goMode('home')}>Início</button>
       <button type="button" className={mode==='produce'?'active':''} disabled={busy||!c} onClick={()=>goMode('produce')}>Produzir</button>
       <button type="button" className={mode==='results'?'active':''} disabled={busy} onClick={()=>goMode('results','agora')}>Resultados</button>
     </nav>
     <div className="header-right">
-      {auth?.authenticated&&<button type="button" className="identity-icon-btn" title="Acessos do estúdio" onClick={()=>setModal({type:'users',title:'Acessos do estúdio'})}><UserCog size={17}/><span className="identity-icon-label">{auth.user.display_name}</span></button>}
+      {auth?.authenticated&&<button type="button" className="identity-icon-btn" title="Acessos do estúdio" aria-label="Acessos do estúdio" onClick={()=>setModal({type:'users',title:'Acessos do estúdio'})}><Users size={17}/><span className="identity-icon-label">{auth.user.display_name}</span></button>}
       <span className="device-badge" aria-label={`Dispositivo de acesso: ${device.label}`} title={isCloudMode()?`Acessando por ${device.label}. Os dados ficam salvos na nuvem (Supabase).`:`Acessando por ${device.label}. Os dados ficam no computador que executa a fábrica.`}><DeviceIcon size={15} aria-hidden="true"/><span>{device.label}</span></span>
-      <button type="button" className="identity-icon-btn" title="Identidade do estudio" aria-label="Identidade do estudio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estudio'})}}>
+      <button type="button" className="identity-icon-btn" title="Identidade do estúdio" aria-label="Identidade do estúdio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estúdio'})}}>
         <UserCog size={18}/>
         <span className="identity-icon-label">{identity?.model_name||'Identidade'}</span>
       </button>
-      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':(isCloudMode()?'Dados salvos na nuvem':'Dados no computador')}</span>
+      <span className="local-badge" title={busy?'Salvando…':(isCloudMode()?'Dados salvos na nuvem':'Dados no computador')}><ShieldCheck size={15} aria-hidden="true"/> <span className="local-badge-text">{busy?'Salvando…':(isCloudMode()?'Dados salvos na nuvem':'Dados no computador')}</span></span>
       {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash(lanPin?`Link copiado. No celular, o PIN e ${lanPin}.`:'Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
       {lanPin && lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <span className="lan-pin" title="Quem abrir pela rede local precisa digitar este PIN. Fica em data/lan_pin.txt.">PIN {lanPin}</span> : null}
       {auth?.authenticated&&<button type="button" className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17}/></button>}
@@ -559,7 +561,7 @@ export default function App(){
           </div>
           <div className="home-actions">
             <button type="button" className="primary" disabled={busy||loading} onClick={()=>{if(discard()){setError('');setModal({type:'create'})}}}><Plus size={17}/> Nova campanha</button>
-            <button type="button" className="button" disabled={busy||!c} onClick={()=>openResults()}>Ir para Resultados</button>
+            <button type="button" className="button" disabled={busy} onClick={()=>goMode('results','agora')}>Ir para Resultados</button>
             <button type="button" className="button" disabled={busy||!campaigns.length} onClick={()=>{const pub=campaigns.find(x=>x.status==='published')||campaigns[0]; if(pub) chooseCampaign(pub.id,{openResults:true})}}>Auditar / métricas</button>
           </div>
         </div>
@@ -579,7 +581,10 @@ export default function App(){
           </div>
           <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':(isCloudMode()?'TikTok Studio e TikTok abrem em novas abas deste navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.')}</small>
         </div>
-<ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
+        {/* As campanhas vêm antes da biblioteca de fotos: é o que se abre o
+            app para fazer. Antes ficavam no fim da página, e no celular era
+            preciso rolar seis cartões de fotos até achar a campanha. */}
+        {!loading && campaigns.length>0 && <div className="home-section-title"><h2>Suas campanhas <span className="count">{campaigns.length}</span></h2></div>}
         <div className="home-grid">
           {loading && <div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando campanhas…</h1></div>}
           {!loading && !campaigns.length && (
@@ -594,13 +599,14 @@ export default function App(){
               <div className="home-card-actions">
                 <button type="button" className="primary" disabled={busy} onClick={()=>chooseCampaign(item.id)}>Produzir</button>
                 <button type="button" className="button" disabled={busy} onClick={()=>chooseCampaign(item.id,{openResults:true})}>Resultados</button>
-                <button type="button" className="icon-button" title="Editar" disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button>
-                <button type="button" className="icon-button" title="Copiar" disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button>
-                <button type="button" className="icon-button danger-action" title="Excluir" disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button>
+                <button type="button" className="icon-button" title="Editar" aria-label={`Editar ${item.name}`} disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button>
+                <button type="button" className="icon-button" title="Copiar" aria-label={`Copiar ${item.name}`} disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button>
+                <button type="button" className="icon-button danger-action" title="Excluir" aria-label={`Excluir ${item.name}`} disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button>
               </div>
             </article>
           ))}
         </div>
+        <ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
       </section>
     </main>
     )}
@@ -639,15 +645,19 @@ export default function App(){
           </div>
         </div>
         {c.migration_note&&<div className="migration-note"><AlertCircle size={15}/>{c.migration_note}</div>}
-        <div className={'produce-toolbar'+(c.status==='published'?' produce-toolbar-done':' produce-toolbar-next')}>
+        {/* A faixa "Agora" repetia o titulo da etapa aberta logo abaixo, e o
+            botao "Continuar" dela nao fazia nada quando voce ja estava nessa
+            etapa. So aparece quando voce olha outra etapa ou a campanha ja foi
+            publicada, que e quando o botao leva a algum lugar. */}
+        {(c.status==='published'||(current&&current.id!==selected))&&<div className={'produce-toolbar'+(c.status==='published'?' produce-toolbar-done':' produce-toolbar-next')}>
           <div className="produce-toolbar-next">
             <span className="eyebrow">{c.status==='published'?'CONCLUÍDA':'AGORA'}</span>
             <strong>{c.status==='published'?'Publicada':(current?.title||stage?.title||'Continuar')}</strong>
           </div>
-          <button type="button" className="button produce-continue" disabled={busy||(c.status!=='published'&&!current)} onClick={()=>c.status==='published'?openPublication():choose(current.id)}>
-            {c.status==='published'?'Ver publicação':'Continuar'}<ArrowRight size={14}/>
+          <button type="button" className="button produce-continue" disabled={busy} onClick={()=>c.status==='published'?openPublication():choose(current.id)}>
+            {c.status==='published'?'Ver publicação':'Ir para a etapa atual'}<ArrowRight size={14}/>
           </button>
-        </div>
+        </div>}
         <Canvas key={c.id} campaign={c} selected={selected} onSelect={choose} busy={busy} stages={produceStages}/>
         </>:<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><span className="eyebrow">SEU CANVAS DE PRODUÇÃO</span><h1>Crie sua primeira campanha</h1><p>Defina o produto e o look, anexe a modelo e acompanhe cada aprovação até o TikTok.</p><button className="primary" onClick={()=>setModal({type:'create'})}><Plus size={17}/> Nova campanha</button></div>}</section>
       <aside className="inspector"><div className="inspector-heading produce-inspector-head"><div><span className="eyebrow">{c?'ETAPA':'INÍCIO'}</span><h2>{c?(stage?.title||'Etapa'):'Produção'}</h2></div>{c&&<span className="status-pill">{statusLabels[c.status]}</span>}</div>
@@ -681,13 +691,13 @@ export default function App(){
         <button type="button" className="button full" disabled={busy||!c} onClick={()=>openProduce()}>Voltar a Produzir</button>
       </aside>
       <section className="results-panel">
-        <nav className="results-subnav" aria-label="Subpaginas de Resultados">
+        <nav className="results-subnav" aria-label="Seções de Resultados">
           {[
             ['agora','O que fazer'],
             ['studio','Studio / link'],
             ['lote','Lote 7/15/30'],
             ['playbook','Playbook'],
-            ['historico','Historico'],
+            ['historico','Histórico'],
             ['campanha','Campanha'],
           ].map(([id,lab])=>(
             <button key={id} type="button" className={resultsTab===id?'active':''} disabled={busy} onClick={()=>goMode('results',id)}>{lab}</button>
@@ -699,18 +709,18 @@ export default function App(){
         )}
 
         {resultsTab==='campanha' && (!c ? (
-          <div className="empty-state"><h1>Campanha opcional</h1><p>Escolha uma campanha na lista ao lado, ou use as outras abas (Studio, Lote, Playbook, Historico) sem campanha.</p><button className="button" onClick={()=>goMode('home')}>Ir ao Inicio</button></div>
+          <div className="empty-state"><h1>Campanha opcional</h1><p>Escolha uma campanha na lista ao lado, ou use as outras abas (Studio, Lote, Playbook, Histórico) sem campanha.</p><button className="button" onClick={()=>goMode('home')}>Ir ao Início</button></div>
         ) : (
           <>
             <div className="results-header">
               <div>
                 <span className="eyebrow">PERFORMANCE · CAMPANHA {String(c.id).padStart(4,'0')}</span>
                 <h1>{c.name}</h1>
-                <p className="help">Metricas e insights desta campanha — separados da producao.</p>
+                <p className="help">Métricas e insights desta campanha, separados da produção.</p>
               </div>
               <div className="export-actions">
                 <button type="button" className="button" disabled={busy} onClick={()=>goMode('produce')}>Produzir</button>
-                {publicationLinks(c).length>0 && <button type="button" className="button" onClick={openPublication}>Ver publicacao</button>}
+                {publicationLinks(c).length>0 && <button type="button" className="button" onClick={openPublication}>Ver publicação</button>}
               </div>
             </div>
             {c.assets.some(a=>a.kind==='video') && <VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}
@@ -781,7 +791,7 @@ export default function App(){
           setSelected(go);
           syncHash({mode:'produce',campaignId:result.id,stage:go});
           return result;
-        }, photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a producao.');
+        }, photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a produção.');
         if(created&&analysisOutcome){
           if(analysisOutcome.error)setError(`Campanha criada, mas a análise da IA da foto de descrição falhou: ${analysisOutcome.error}`);
           else if(analysisOutcome.filled.length)flash(`Campanha criada. A IA leu a foto da descrição e preencheu: ${analysisOutcome.filled.map(k=>ANALYSIS_FIELD_LABELS[k]||k).join(', ')}.`);
@@ -803,7 +813,7 @@ function AuthScreen({setup,onDone}){
     catch(e){setError(e.message||String(e));setBusy(false)}
   }
   return <main className="auth-shell"><section className="auth-card">
-    <div className="auth-brand"><span className="logo">?</span><div><strong>Fábrica TikTok</strong><small>Estúdio compartilhado</small></div></div>
+    <div className="auth-brand"><span className="logo" aria-hidden="true"><Clapperboard size={18}/></span><div><strong>Fábrica TikTok</strong><small>Estúdio compartilhado</small></div></div>
     <span className="eyebrow">{setup?'PRIMEIRO ACESSO':'ENTRAR'}</span>
     <h1>{setup?'Crie o acesso principal':'Entre no estúdio'}</h1>
     <p>{setup?'Este usuário poderá criar o segundo acesso para sua parceira.':'Campanhas, prompts e aprovações ficam no mesmo espaço compartilhado.'}</p>
@@ -875,10 +885,10 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
   const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
   const check=(key,label)=><label className="check-row" key={key}><input type="checkbox" checked={!!checks[key]} disabled={busy||immutable} onChange={e=>setChecks(old=>({...old,[key]:e.target.checked}))}/><span>{label}</span></label>;
   const editor=(field,title,rows=7)=><TextEditor title={title} field={field} value={c.prompts[field]} onSave={onSaveTexts} onDirty={onDirty} onError={onError} busy={busy} readOnly={immutable} rows={rows}/>;
-  const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>{isMobileDevice()?'Conta conectada no celular':'Perfil: '}{!isMobileDevice()&&(c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok'))}</small></div></div><ServiceLaunch service={c.generator} disabled={busy||immutable} onClick={event=>onOpen(c.generator,stage,event)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>{isMobileDevice()?(c.generator==='grok'?'Abrir Grok no celular':'Abrir Flow no navegador'):`Abrir ${c.generator==='flow'?'Flow':'Grok'} para ${stage==='image'?'imagem':'vídeo'}`}</span> <ExternalLink size={15}/></ServiceLaunch><p>{isMobileDevice()?(c.generator==='grok'?'Copie o prompt e anexe as referências no Grok.':'Cole o prompt e anexe as referências no Flow.'):c.generator==='grok'?'Mesma janela do Flow (abas). Interacao manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
+  const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>{isMobileDevice()?'Conta conectada no celular':'Perfil: '}{!isMobileDevice()&&(c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok'))}</small></div></div><ServiceLaunch service={c.generator} disabled={busy||immutable} onClick={event=>onOpen(c.generator,stage,event)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>{isMobileDevice()?(c.generator==='grok'?'Abrir Grok no celular':'Abrir Flow no navegador'):`Abrir ${c.generator==='flow'?'Flow':'Grok'} para ${stage==='image'?'imagem':'vídeo'}`}</span> <ExternalLink size={15}/></ServiceLaunch><p>{isMobileDevice()?(c.generator==='grok'?'Copie o prompt e anexe as referências no Grok.':'Cole o prompt e anexe as referências no Flow.'):c.generator==='grok'?'Mesma janela do Flow (abas). Interação manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
   if(selected==='model')return <><AssetView asset={reference} title="Referência fixa da modelo"/>
-    <div className="notice"><strong>Nicho:</strong> {c.niche||'nao definido'} — use a foto padrao deste nicho para manter o mesmo rosto/corpo.</div>
-    {c.niche && onApplyLibraryReference && <button type="button" className="primary full" disabled={busy||immutable} onClick={()=>onApplyLibraryReference(c.niche)}>Usar foto padrao do nicho ({c.niche})</button>}
+    <div className="notice"><strong>Nicho:</strong> {c.niche||'não definido'}. Use a foto padrão deste nicho para manter o mesmo rosto/corpo.</div>
+    {c.niche && onApplyLibraryReference && <button type="button" className="primary full" disabled={busy||immutable} onClick={()=>onApplyLibraryReference(c.niche)}>Usar foto padrão do nicho ({c.niche})</button>}
     <Uploader kind="reference" exists={!!reference} busy={busy} disabled={immutable} onUpload={onUpload}/><div className="notice">Preserve rosto, cabelo, corpo e tom de pele. Mude apenas roupa e cor.</div>{!immutable&&<section className="reuse-section"><h3>Reutilizar referência</h3><label>Referências de {c.model_name}<select value={reuse} onChange={e=>setReuse(e.target.value)}><option value="">Escolha uma imagem salva</option>{references.filter(r=>r.model_name.toLocaleLowerCase()===c.model_name.toLocaleLowerCase()&&r.id!==reference?.id).map(r=><option key={r.id} value={r.id}>{r.campaign_name} · {r.original_name}</option>)}</select></label><button disabled={!reuse||busy} onClick={()=>onReuse(reuse)}>Usar a mesma imagem</button></section>}</>;
   if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p><button className="primary full" disabled={busy||!reference||c.status!=='briefing'} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
   if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div><div className="notice"><strong>Confira a fotografia-base antes de gerar.</strong> Ela precisa mostrar toda a peça que você quer apresentar. Se a roupa estiver cortada, escolha outra referência na etapa Modelo fixa antes de gerar os prompts. A edição preserva o enquadramento, a pose, o cenário e a iluminação. Siga a ordem dos anexos indicada no prompt de cada cor.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}{image&&<AssetView asset={image} title="Imagem gerada" compact/>}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
@@ -913,8 +923,8 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
       </>}</>:<div className="notice">Selecione o MP4 de cada cor na etapa Criar vídeo. Você pode mantê-lo na galeria ou enviá-lo para a Fábrica.</div>}</>;
   }
   if(selected==='performance')return <>
-    <div className="notice"><strong>Metricas ficam em Resultados.</strong> Use a aba Resultados no topo para coletar do Studio, auditar publicados e gerar insights.</div>
-    <p className="help">Produzir fica so com briefing, imagem, roteiro, video e publicacao.</p>
+    <div className="notice"><strong>Métricas ficam em Resultados.</strong> Use a aba Resultados no topo para coletar do Studio, auditar publicados e gerar insights.</div>
+    <p className="help">Produzir fica só com briefing, imagem, roteiro, vídeo e publicação.</p>
   </>;
   return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant} onRefreshCaption={onRefreshScript} onSaveCaption={(prompts)=>prompts?._variantId?onSaveVariant?.(prompts._variantId,{caption:prompts.caption}):onSaveTexts(prompts)}/>}{index>=6&&<div className="notice">Métricas e Crítico: abra <strong>Resultados</strong> no topo da página.</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;
 }
