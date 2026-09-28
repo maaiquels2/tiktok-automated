@@ -45,11 +45,15 @@ export default function App(){
       if(ident) setIdentity(ident);
       if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
       setCloudMode(h?.cloud===true);
-      api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
-      const first=list[0]?await api('/campaigns/'+list[0].id):null;
+      // O PIN da rede local so existe na versao do computador; na nuvem o
+      // pedido sempre falharia e so atrasaria a abertura.
+      if(h?.cloud!==true) api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
+      const route=parseRoute();
+      // Quando o endereco ja aponta uma campanha, abre so ela (antes a primeira
+      // da lista era baixada e descartada logo em seguida).
+      const first=!route.campaignId&&list[0]?await api('/campaigns/'+list[0].id):null;
       if(active){
         setCampaigns(list);setReferences(refs);
-        const route=parseRoute();
         let camp=first;
         let notFound=false;
         if(route.campaignId){
