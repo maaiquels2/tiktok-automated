@@ -1,7 +1,7 @@
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -587,6 +587,9 @@ export function GateCriticoPanel({fileName,scores,note,autoStart=true,onDone}){
 }
 
 
+// Nomes em portugues para o tipo de cada ponto a melhorar (o servidor manda
+// a chave tecnica, que aparecia crua na tela, ex.: "search").
+const IMPROVE_KIND_LABELS={evitar:'Evitar',retencao:'Retenção',watch_pct:'% assistido',search:'Busca'};
 export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onSaveExperiment,onGenerateInsights,onRefreshVariant,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,studioAuditReport,onSavePublishedLink}){
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
   const perfMap=(c.checklist&&c.checklist.performance)||{};
@@ -622,7 +625,9 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
   const key=variant?.color||'default';
   const card=insightsMap[key]||insightsMap['default'];
   const video=videos.find(v=>(v.slot||v.metadata?.color)===variant?.color)||videos[0];
-  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} step={step} value={metrics[name]??''} disabled={busy}
+  // inputMode abre o teclado numerico no celular (type=number sozinho abre o
+  // teclado completo em varios Android).
+  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} inputMode={name==='notes'?undefined:(step==='1'?'numeric':'decimal')} min={name==='notes'?undefined:'0'} step={step} value={metrics[name]??''} disabled={busy}
     onChange={e=>setMetrics(m=>({...m,[name]:e.target.value}))}/></label>;
   const num=v=>v===''||v==null?undefined:Number(v);
   const save=()=>onSavePerformance&&onSavePerformance({color:variant?.color,metrics:{
@@ -644,8 +649,8 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
       return <div className="revenue-pill"><span>R$ por mil views</span><strong>{`R$ ${Number(rpm).toFixed(2)}`}</strong></div>;
     })()}
     <div className="metric-form">
-      {field('views_24h','Views 24h')}{field('views_7d','Views 7d')}{field('watch_pct','Watch %','0.1')}
-      {field('likes','Likes')}{field('comments','Comentários')}{field('saves','Saves')}{field('shares','Shares')}
+      {field('views_24h','Visualizações 24h')}{field('views_7d','Visualizações 7 dias')}{field('watch_pct','% assistido','0.1')}
+      {field('likes','Curtidas')}{field('comments','Comentários')}{field('saves','Salvamentos')}{field('shares','Compartilhamentos')}
       {field('product_clicks','Cliques no produto')}{field('orders','Pedidos')}{field('revenue','Comissão R$','0.01')}
       {field('notes','Notas')}
       <button type="button" className="primary" disabled={busy||!onSavePerformance} onClick={save}>Salvar métricas</button>
@@ -1016,7 +1021,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
     </fieldset>
     <div className="form-actions">
       {onCancel&&<button type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
-      <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?'Salvar':'Criar campanha'}</button>
+      <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?.id?'Salvar':'Criar campanha'}</button>
     </div>
   </form>;
 }
@@ -1188,7 +1193,7 @@ export function DailyQueueCard({busy,onError,onFlash,onCreate}){
       <div className="daily-head">
         <div>
           <span className="eyebrow">FILA DE HOJE</span>
-          <h2>5 posts · {prog.in_flight||0} em producao · faltam ~{prog.remaining??5}</h2>
+          <h2>5 posts · {prog.in_flight||0} em produção · faltam ~{prog.remaining??5}</h2>
           <p className="help">Do playbook. Crie a campanha e siga no Produzir.</p>
         </div>
       </div>
@@ -1705,11 +1710,11 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       <div className={'collapse-block'+(open?' open':'')}>
         <div className="collapse-head">
           <button type="button" className="collapse-toggle" onClick={toggle} aria-expanded={open}>
-            <span className="collapse-chevron">{open?'▾':'▸'}</span>
+            <span className="collapse-chevron" aria-hidden="true">{open?'▾':'▸'}</span>
             <strong>{title}</strong>
             {badge!=null?<span className="count">{badge}</span>:null}
           </button>
-          <button type="button" className="button analysis-action collapse-btn" onClick={toggle}>{open?'Comprimir':'Expandir'}</button>
+          <button type="button" className="button analysis-action collapse-btn" onClick={toggle}>{open?'Recolher':'Expandir'}</button>
         </div>
         {open && <div className="collapse-body">{children}</div>}
       </div>
@@ -1732,14 +1737,14 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
           {!queue && <p className="help">Carregando fila… Rode um lote e gere o playbook se estiver vazio.</p>}
           {queue && (
             <>
-              <Collapse id="prod-continue" title={`Continuar producao (${(queue.continue||[]).length})`} defaultOpen={true} badge={(queue.continue||[]).length}>
+              <Collapse id="prod-continue" title="Continuar produção" defaultOpen={true} badge={(queue.continue||[]).length}>
                 {(queue.continue||[]).length===0 && <p className="help">Nenhuma campanha em andamento. Crie uma do playbook abaixo.</p>}
                 <ul className="prod-list">
                   {(queue.continue||[]).map((c,i)=>(
                     <li key={c.campaign_id||i} className="prod-card">
                       <div>
                         <strong>{c.name}</strong>
-                        <div className="help">{c.label} · {c.status}{c.niche?` · ${c.niche}`:''}</div>
+                        <div className="help">{c.label} · {statusLabels[c.status]||c.status}{c.niche?` · ${c.niche}`:''}</div>
                         <div className="help"><em>Como:</em> {c.how}</div>
                       </div>
                       <button type="button" className="primary" disabled={busy} onClick={()=>onOpenProduce?.(c.campaign_id)}>Abrir Produzir</button>
@@ -1747,8 +1752,8 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                   ))}
                 </ul>
               </Collapse>
-              <Collapse id="prod-next" title={`Criar do playbook (${(queue.produce_next||[]).length})`} defaultOpen={true} badge={(queue.produce_next||[]).length}>
-                {(queue.produce_next||[]).length===0 && <p className="help">Sem briefs. Va em Playbook → Atualizar, ou rode o lote 30d.</p>}
+              <Collapse id="prod-next" title="Criar do playbook" defaultOpen={true} badge={(queue.produce_next||[]).length}>
+                {(queue.produce_next||[]).length===0 && <p className="help">Nenhuma sugestão ainda. Vá em Playbook e toque em Atualizar, ou rode o lote de 30 dias.</p>}
                 <ul className="prod-list">
                   {(queue.produce_next||[]).map((v,i)=>(
                     <li key={i} className="prod-card">
@@ -1765,14 +1770,14 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                   ))}
                 </ul>
               </Collapse>
-              <Collapse id="prod-improve" title={`Espaco para melhorar (${(queue.improve||[]).length})`} defaultOpen={true} badge={(queue.improve||[]).length}>
+              <Collapse id="prod-improve" title="Espaço para melhorar" defaultOpen={true} badge={(queue.improve||[]).length}>
                 <ul className="prod-list improve">
                   {(queue.improve||[]).map((x,i)=>(
                     <li key={i} className="prod-card">
                       <div>
-                        <span className={'chip tone-'+(x.kind==='evitar'?'pink':'purple')}>{x.kind}</span>
+                        <span className={'chip tone-'+(x.kind==='evitar'?'pink':'purple')}>{IMPROVE_KIND_LABELS[x.kind]||x.kind}</span>
                         <strong> {x.title}</strong>
-                        <div className="help"><em>Acao:</em> {x.action}</div>
+                        <div className="help"><em>O que fazer:</em> {x.action}</div>
                       </div>
                     </li>
                   ))}
@@ -1949,7 +1954,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       {activeTab==='historico' && (
         <div className="link-analysis-list">
           <div className="section-title">
-            <h3>Historico de links</h3>
+            <h3>Histórico de links</h3>
             <span className="count">{items.length}</span>
           </div>
           {items.length===0 && <p className="help">Nenhum link analisado ainda. Use Studio / link ou rode um lote.</p>}
@@ -1969,7 +1974,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                     {lab}{sortMark(histSort,k)}
                   </button>
                 ))}
-                <button type="button" className="button analysis-action" onClick={()=>setOpenId(null)}>Comprimir todos</button>
+                <button type="button" className="button analysis-action" onClick={()=>setOpenId(null)}>Recolher todos</button>
               </div>
               <ul>
                 {histRows.map(item=>{
@@ -1986,7 +1991,7 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
                         {item.tiktok_video_id?<strong className="analysis-note">{item.tiktok_video_id}</strong>:null}
                         <StatPills item={item}/>
                         <div className="analysis-actions-row">
-                          <button type="button" className="button analysis-action" onClick={()=>setOpenId(open?null:id)}>{open?'Comprimir':'Expandir detalhes'}</button>
+                          <button type="button" className="button analysis-action" onClick={()=>setOpenId(open?null:id)}>{open?'Recolher':'Expandir detalhes'}</button>
                           <button type="button" className="button analysis-action" disabled={busy||loading} onClick={()=>reanalyze(item)}>{loading?'Coletando…':'Analisar de novo'}</button>
                         </div>
                       </div>

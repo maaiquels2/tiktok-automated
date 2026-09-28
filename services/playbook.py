@@ -301,18 +301,18 @@ def build_productivity_queue(*, playbook: dict | None, campaigns: list | None = 
         "briefing": ("Definir look / gerar prompts", "Preencha produto+cores e gere textos."),
         "image_ready": ("Aprovar imagens", "Checklist identidade + look, depois aprovar."),
         "image_approved": ("Concluir roteiro", "Ler em voz alta e marcar roteiro ok."),
-        "script_ready": ("Criar videos", "1 MP4 por cor, 15s, anexar no Produzir."),
-        "video_ready": ("Aprovar videos", "Audio/corte/CTA — depois Studio."),
+        "script_ready": ("Criar vídeos", "1 MP4 por cor, 15s, anexar no Produzir."),
+        "video_ready": ("Aprovar vídeos", "Áudio, corte e CTA; depois Studio."),
         "video_approved": ("Preparar Studio", "Legenda do playbook + publicar."),
         "ready_to_publish": ("Publicar no Studio", "Registrar link depois do post."),
-        "published": ("Coletar metricas", "Resultados → analisar link ou lote."),
+        "published": ("Coletar métricas", "Em Resultados, analise o link ou o lote."),
     }
     continue_list = []
     for c in camps:
         st = c.get("status") or "briefing"
         if st == "published":
             continue
-        label, how = status_next.get(st, ("Continuar producao", "Abra Produzir e avance a etapa."))
+        label, how = status_next.get(st, ("Continuar produção", "Abra Produzir e avance a etapa."))
         continue_list.append({
             "campaign_id": c.get("id"),
             "name": c.get("name"),
@@ -340,7 +340,7 @@ def build_productivity_queue(*, playbook: dict | None, campaigns: list | None = 
 
     improve = []
     for d in (pb.get("dont") or [])[:5]:
-        improve.append({"kind": "evitar", "title": d, "action": "Revisar hooks/legendas das proximas campanhas."})
+        improve.append({"kind": "evitar", "title": d, "action": "Revisar hooks e legendas das próximas campanhas."})
     for t in (pb.get("top_videos") or [])[:5]:
         try:
             aw = float(str(t.get("avg_watch_s") or "0").replace("s", "").replace(",", "."))
@@ -351,19 +351,19 @@ def build_productivity_queue(*, playbook: dict | None, campaigns: list | None = 
             improve.append({
                 "kind": "retencao",
                 "title": f"Avg watch {aw}s em “{(t.get('caption') or '')[:40]}”",
-                "action": "Produto no frame 0 + query falada ate 2s (meta: >4s como a calca top).",
+                "action": "Produto no primeiro quadro e a busca falada até 2s (meta: mais de 4s, como a calça mais vista).",
             })
         if w and w < 2.0:
             improve.append({
                 "kind": "watch_pct",
                 "title": f"Watch {w}% baixo no top de views",
-                "action": "Encurtar intro; mostrar beneficio antes de 2s.",
+                "action": "Encurtar a abertura e mostrar o benefício antes de 2s.",
             })
     if not (pb.get("hot_queries") or []):
         improve.append({
             "kind": "search",
-            "title": "Poucas queries quentes no lote",
-            "action": "Rodar lote 30d de novo apos parser 1,171 e analisar links com Search.",
+            "title": "Poucas buscas em alta no lote",
+            "action": "Rodar o lote de 30 dias de novo e analisar os links que vieram da busca.",
         })
 
     # dedupe improve titles

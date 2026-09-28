@@ -1,7 +1,7 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools} from './components';
@@ -445,7 +445,7 @@ export default function App(){
     return run(()=>api(`/campaigns/${c.id}/videos/mix`,{method:'POST',body:{...payload,version:c.version}}),'Mix gerado. Revise o MP4 no slot escolhido.','video');
   }
   function savePerformance(payload){
-    return run(()=>api(`/campaigns/${c.id}/performance`,{method:'POST',body:{...payload,version:c.version}}),'Metricas salvas.','studio');
+    return run(()=>api(`/campaigns/${c.id}/performance`,{method:'POST',body:{...payload,version:c.version}}),'Métricas salvas.','studio');
   }
   function saveExperiment(experiment){
     return run(()=>api(`/campaigns/${c.id}/experiment`,{method:'POST',body:{experiment,version:c.version}}),'Teste marcado.','performance');
@@ -467,20 +467,20 @@ export default function App(){
     finally{lock.current=false;setBusy(false)}
   }
   function applyLibraryReference(niche){
-    return run(()=>api(`/campaigns/${c.id}/reference-from-library`,{method:'POST',body:{niche,version:c.version}}),'Foto padrao do nicho aplicada.','model');
+    return run(()=>api(`/campaigns/${c.id}/reference-from-library`,{method:'POST',body:{niche,version:c.version}}),'Foto padrão do nicho aplicada.','model');
   }
   function saveNichePhoto(niche,file){
     if(!file)return;
     const modelName=c.model_name||identity?.model_name||'Micaela';
-    if(isCloudMode())return run(()=>uploadModelLibraryPhotoDirect(modelName,niche,file),'Foto padrao do nicho salva.');
+    if(isCloudMode())return run(()=>uploadModelLibraryPhotoDirect(modelName,niche,file),'Foto padrão do nicho salva.');
     const form=new FormData();form.set('model_name',modelName);form.set('niche',niche);form.set('file',file);
-    return run(()=>api('/model-library',{method:'POST',body:form}),'Foto padrao do nicho salva.');
+    return run(()=>api('/model-library',{method:'POST',body:form}),'Foto padrão do nicho salva.');
   }
     function savePublishedLink(payload){
     return run(()=>api(`/campaigns/${c.id}/published-link`,{method:'POST',body:{...payload,version:c.version}}),'Link do TikTok salvo.','performance');
   }
     function fetchStudioMetrics(color){
-    return run(()=>api(`/campaigns/${c.id}/performance/fetch`,{method:'POST',body:{color,version:c.version}}),'Metricas coletadas do Studio.','performance');
+    return run(()=>api(`/campaigns/${c.id}/performance/fetch`,{method:'POST',body:{color,version:c.version}}),'Métricas coletadas do Studio.','performance');
   }
 
   function publishSlot(payload){
@@ -529,20 +529,20 @@ export default function App(){
   const DeviceIcon=device.type==='phone'?Smartphone:device.type==='tablet'?Tablet:Monitor;
   const current=c?stageInfo.find(s=>s.id===nextStage(c)):null;
   const stage=stageInfo.find(s=>s.id===selected);
-  return <><header className="header"><div className="brand"><span className="logo">?</span><span>Fábrica TikTok</span><span className="brand-divider"/><span className="workspace-name">{identity?.studio_name||'Estúdio'}</span></div>
+  return <><header className="header"><div className="brand"><span className="logo" aria-hidden="true"><Clapperboard size={18}/></span><span>Fábrica TikTok</span><span className="brand-divider"/><span className="workspace-name">{identity?.studio_name||'Estúdio'}</span></div>
     <nav className="mode-nav" aria-label="Navegação principal">
       <button type="button" className={mode==='home'?'active':''} disabled={busy} onClick={()=>goMode('home')}>Início</button>
       <button type="button" className={mode==='produce'?'active':''} disabled={busy||!c} onClick={()=>goMode('produce')}>Produzir</button>
       <button type="button" className={mode==='results'?'active':''} disabled={busy} onClick={()=>goMode('results','agora')}>Resultados</button>
     </nav>
     <div className="header-right">
-      {auth?.authenticated&&<button type="button" className="identity-icon-btn" title="Acessos do estúdio" onClick={()=>setModal({type:'users',title:'Acessos do estúdio'})}><UserCog size={17}/><span className="identity-icon-label">{auth.user.display_name}</span></button>}
+      {auth?.authenticated&&<button type="button" className="identity-icon-btn" title="Acessos do estúdio" aria-label="Acessos do estúdio" onClick={()=>setModal({type:'users',title:'Acessos do estúdio'})}><Users size={17}/><span className="identity-icon-label">{auth.user.display_name}</span></button>}
       <span className="device-badge" aria-label={`Dispositivo de acesso: ${device.label}`} title={isCloudMode()?`Acessando por ${device.label}. Os dados ficam salvos na nuvem (Supabase).`:`Acessando por ${device.label}. Os dados ficam no computador que executa a fábrica.`}><DeviceIcon size={15} aria-hidden="true"/><span>{device.label}</span></span>
-      <button type="button" className="identity-icon-btn" title="Identidade do estudio" aria-label="Identidade do estudio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estudio'})}}>
+      <button type="button" className="identity-icon-btn" title="Identidade do estúdio" aria-label="Identidade do estúdio" disabled={busy} onClick={()=>{if(!busy)setModal({type:'identity', title:'Identidade do estúdio'})}}>
         <UserCog size={18}/>
         <span className="identity-icon-label">{identity?.model_name||'Identidade'}</span>
       </button>
-      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando.':(isCloudMode()?'Dados salvos na nuvem':'Dados no computador')}</span>
+      <span className="local-badge"><ShieldCheck size={15}/> {busy?'Salvando…':(isCloudMode()?'Dados salvos na nuvem':'Dados no computador')}</span>
       {lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <button type="button" className="lan-chip" title="Copia o link pra abrir no celular (mesmo Wi-Fi). Nao mostra o IP na tela." onClick={()=>{navigator.clipboard?.writeText(lanUrls[0]); flash(lanPin?`Link copiado. No celular, o PIN e ${lanPin}.`:'Link do celular copiado. Cole no navegador do phone (mesmo Wi-Fi).')}}>Link do celular</button> : null}
       {lanPin && lanUrls[0] && ['localhost','127.0.0.1'].includes(location.hostname) ? <span className="lan-pin" title="Quem abrir pela rede local precisa digitar este PIN. Fica em data/lan_pin.txt.">PIN {lanPin}</span> : null}
       {auth?.authenticated&&<button type="button" className="icon-button" title="Sair" aria-label="Sair" onClick={logout}><LogOut size={17}/></button>}
@@ -559,7 +559,7 @@ export default function App(){
           </div>
           <div className="home-actions">
             <button type="button" className="primary" disabled={busy||loading} onClick={()=>{if(discard()){setError('');setModal({type:'create'})}}}><Plus size={17}/> Nova campanha</button>
-            <button type="button" className="button" disabled={busy||!c} onClick={()=>openResults()}>Ir para Resultados</button>
+            <button type="button" className="button" disabled={busy} onClick={()=>goMode('results','agora')}>Ir para Resultados</button>
             <button type="button" className="button" disabled={busy||!campaigns.length} onClick={()=>{const pub=campaigns.find(x=>x.status==='published')||campaigns[0]; if(pub) chooseCampaign(pub.id,{openResults:true})}}>Auditar / métricas</button>
           </div>
         </div>
@@ -579,7 +579,10 @@ export default function App(){
           </div>
           <small className="help">{isMobileDevice()?'Os serviços abrem neste aparelho. TikTok Studio e TikTok usam o aplicativo TikTok; Flow abre no navegador.':(isCloudMode()?'TikTok Studio e TikTok abrem em novas abas deste navegador.':'TikTok Studio abre no perfil dedicado do Chrome. TikTok abre pelo navegador deste aparelho.')}</small>
         </div>
-<ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
+        {/* As campanhas vêm antes da biblioteca de fotos: é o que se abre o
+            app para fazer. Antes ficavam no fim da página, e no celular era
+            preciso rolar seis cartões de fotos até achar a campanha. */}
+        {!loading && campaigns.length>0 && <div className="home-section-title"><h2>Suas campanhas <span className="count">{campaigns.length}</span></h2></div>}
         <div className="home-grid">
           {loading && <div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando campanhas…</h1></div>}
           {!loading && !campaigns.length && (
@@ -594,13 +597,14 @@ export default function App(){
               <div className="home-card-actions">
                 <button type="button" className="primary" disabled={busy} onClick={()=>chooseCampaign(item.id)}>Produzir</button>
                 <button type="button" className="button" disabled={busy} onClick={()=>chooseCampaign(item.id,{openResults:true})}>Resultados</button>
-                <button type="button" className="icon-button" title="Editar" disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button>
-                <button type="button" className="icon-button" title="Copiar" disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button>
-                <button type="button" className="icon-button danger-action" title="Excluir" disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button>
+                <button type="button" className="icon-button" title="Editar" aria-label={`Editar ${item.name}`} disabled={busy} onClick={()=>editCampaignById(item.id)}><Pencil size={14}/></button>
+                <button type="button" className="icon-button" title="Copiar" aria-label={`Copiar ${item.name}`} disabled={busy} onClick={()=>copyCampaign(item.id)}><CopyIcon size={14}/></button>
+                <button type="button" className="icon-button danger-action" title="Excluir" aria-label={`Excluir ${item.name}`} disabled={busy} onClick={()=>deleteCampaign(item.id)}><Trash2 size={14}/></button>
               </div>
             </article>
           ))}
         </div>
+        <ModelLibraryPanel modelName={identity?.model_name||'Micaela'} busy={busy} onError={setError} onFlash={flash}/>
       </section>
     </main>
     )}
@@ -644,9 +648,12 @@ export default function App(){
             <span className="eyebrow">{c.status==='published'?'CONCLUÍDA':'AGORA'}</span>
             <strong>{c.status==='published'?'Publicada':(current?.title||stage?.title||'Continuar')}</strong>
           </div>
-          <button type="button" className="button produce-continue" disabled={busy||(c.status!=='published'&&!current)} onClick={()=>c.status==='published'?openPublication():choose(current.id)}>
-            {c.status==='published'?'Ver publicação':'Continuar'}<ArrowRight size={14}/>
-          </button>
+          {/* "Continuar" leva para a etapa atual. Se você já está nela, o botão
+              não fazia nada ao ser clicado; agora só aparece quando leva a
+              algum lugar. */}
+          {(c.status==='published'||(current&&current.id!==selected))&&<button type="button" className="button produce-continue" disabled={busy} onClick={()=>c.status==='published'?openPublication():choose(current.id)}>
+            {c.status==='published'?'Ver publicação':'Ir para a etapa atual'}<ArrowRight size={14}/>
+          </button>}
         </div>
         <Canvas key={c.id} campaign={c} selected={selected} onSelect={choose} busy={busy} stages={produceStages}/>
         </>:<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><span className="eyebrow">SEU CANVAS DE PRODUÇÃO</span><h1>Crie sua primeira campanha</h1><p>Defina o produto e o look, anexe a modelo e acompanhe cada aprovação até o TikTok.</p><button className="primary" onClick={()=>setModal({type:'create'})}><Plus size={17}/> Nova campanha</button></div>}</section>
@@ -681,13 +688,13 @@ export default function App(){
         <button type="button" className="button full" disabled={busy||!c} onClick={()=>openProduce()}>Voltar a Produzir</button>
       </aside>
       <section className="results-panel">
-        <nav className="results-subnav" aria-label="Subpaginas de Resultados">
+        <nav className="results-subnav" aria-label="Seções de Resultados">
           {[
             ['agora','O que fazer'],
             ['studio','Studio / link'],
             ['lote','Lote 7/15/30'],
             ['playbook','Playbook'],
-            ['historico','Historico'],
+            ['historico','Histórico'],
             ['campanha','Campanha'],
           ].map(([id,lab])=>(
             <button key={id} type="button" className={resultsTab===id?'active':''} disabled={busy} onClick={()=>goMode('results',id)}>{lab}</button>
@@ -699,18 +706,18 @@ export default function App(){
         )}
 
         {resultsTab==='campanha' && (!c ? (
-          <div className="empty-state"><h1>Campanha opcional</h1><p>Escolha uma campanha na lista ao lado, ou use as outras abas (Studio, Lote, Playbook, Historico) sem campanha.</p><button className="button" onClick={()=>goMode('home')}>Ir ao Inicio</button></div>
+          <div className="empty-state"><h1>Campanha opcional</h1><p>Escolha uma campanha na lista ao lado, ou use as outras abas (Studio, Lote, Playbook, Histórico) sem campanha.</p><button className="button" onClick={()=>goMode('home')}>Ir ao Início</button></div>
         ) : (
           <>
             <div className="results-header">
               <div>
                 <span className="eyebrow">PERFORMANCE · CAMPANHA {String(c.id).padStart(4,'0')}</span>
                 <h1>{c.name}</h1>
-                <p className="help">Metricas e insights desta campanha — separados da producao.</p>
+                <p className="help">Métricas e insights desta campanha, separados da produção.</p>
               </div>
               <div className="export-actions">
                 <button type="button" className="button" disabled={busy} onClick={()=>goMode('produce')}>Produzir</button>
-                {publicationLinks(c).length>0 && <button type="button" className="button" onClick={openPublication}>Ver publicacao</button>}
+                {publicationLinks(c).length>0 && <button type="button" className="button" onClick={openPublication}>Ver publicação</button>}
               </div>
             </div>
             {c.assets.some(a=>a.kind==='video') && <VideoTimelinePreview asset={c.assets.filter(a=>a.kind==='video')[0]} variant={(c.variants||[])[0]} c={c}/>}
@@ -781,7 +788,7 @@ export default function App(){
           setSelected(go);
           syncHash({mode:'produce',campaignId:result.id,stage:go});
           return result;
-        }, photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a producao.');
+        }, photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a produção.');
         if(created&&analysisOutcome){
           if(analysisOutcome.error)setError(`Campanha criada, mas a análise da IA da foto de descrição falhou: ${analysisOutcome.error}`);
           else if(analysisOutcome.filled.length)flash(`Campanha criada. A IA leu a foto da descrição e preencheu: ${analysisOutcome.filled.map(k=>ANALYSIS_FIELD_LABELS[k]||k).join(', ')}.`);
@@ -803,7 +810,7 @@ function AuthScreen({setup,onDone}){
     catch(e){setError(e.message||String(e));setBusy(false)}
   }
   return <main className="auth-shell"><section className="auth-card">
-    <div className="auth-brand"><span className="logo">?</span><div><strong>Fábrica TikTok</strong><small>Estúdio compartilhado</small></div></div>
+    <div className="auth-brand"><span className="logo" aria-hidden="true"><Clapperboard size={18}/></span><div><strong>Fábrica TikTok</strong><small>Estúdio compartilhado</small></div></div>
     <span className="eyebrow">{setup?'PRIMEIRO ACESSO':'ENTRAR'}</span>
     <h1>{setup?'Crie o acesso principal':'Entre no estúdio'}</h1>
     <p>{setup?'Este usuário poderá criar o segundo acesso para sua parceira.':'Campanhas, prompts e aprovações ficam no mesmo espaço compartilhado.'}</p>
@@ -875,10 +882,10 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
   const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
   const check=(key,label)=><label className="check-row" key={key}><input type="checkbox" checked={!!checks[key]} disabled={busy||immutable} onChange={e=>setChecks(old=>({...old,[key]:e.target.checked}))}/><span>{label}</span></label>;
   const editor=(field,title,rows=7)=><TextEditor title={title} field={field} value={c.prompts[field]} onSave={onSaveTexts} onDirty={onDirty} onError={onError} busy={busy} readOnly={immutable} rows={rows}/>;
-  const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>{isMobileDevice()?'Conta conectada no celular':'Perfil: '}{!isMobileDevice()&&(c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok'))}</small></div></div><ServiceLaunch service={c.generator} disabled={busy||immutable} onClick={event=>onOpen(c.generator,stage,event)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>{isMobileDevice()?(c.generator==='grok'?'Abrir Grok no celular':'Abrir Flow no navegador'):`Abrir ${c.generator==='flow'?'Flow':'Grok'} para ${stage==='image'?'imagem':'vídeo'}`}</span> <ExternalLink size={15}/></ServiceLaunch><p>{isMobileDevice()?(c.generator==='grok'?'Copie o prompt e anexe as referências no Grok.':'Cole o prompt e anexe as referências no Flow.'):c.generator==='grok'?'Mesma janela do Flow (abas). Interacao manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
+  const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>{isMobileDevice()?'Conta conectada no celular':'Perfil: '}{!isMobileDevice()&&(c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok'))}</small></div></div><ServiceLaunch service={c.generator} disabled={busy||immutable} onClick={event=>onOpen(c.generator,stage,event)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>{isMobileDevice()?(c.generator==='grok'?'Abrir Grok no celular':'Abrir Flow no navegador'):`Abrir ${c.generator==='flow'?'Flow':'Grok'} para ${stage==='image'?'imagem':'vídeo'}`}</span> <ExternalLink size={15}/></ServiceLaunch><p>{isMobileDevice()?(c.generator==='grok'?'Copie o prompt e anexe as referências no Grok.':'Cole o prompt e anexe as referências no Flow.'):c.generator==='grok'?'Mesma janela do Flow (abas). Interação manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
   if(selected==='model')return <><AssetView asset={reference} title="Referência fixa da modelo"/>
-    <div className="notice"><strong>Nicho:</strong> {c.niche||'nao definido'} — use a foto padrao deste nicho para manter o mesmo rosto/corpo.</div>
-    {c.niche && onApplyLibraryReference && <button type="button" className="primary full" disabled={busy||immutable} onClick={()=>onApplyLibraryReference(c.niche)}>Usar foto padrao do nicho ({c.niche})</button>}
+    <div className="notice"><strong>Nicho:</strong> {c.niche||'não definido'}. Use a foto padrão deste nicho para manter o mesmo rosto/corpo.</div>
+    {c.niche && onApplyLibraryReference && <button type="button" className="primary full" disabled={busy||immutable} onClick={()=>onApplyLibraryReference(c.niche)}>Usar foto padrão do nicho ({c.niche})</button>}
     <Uploader kind="reference" exists={!!reference} busy={busy} disabled={immutable} onUpload={onUpload}/><div className="notice">Preserve rosto, cabelo, corpo e tom de pele. Mude apenas roupa e cor.</div>{!immutable&&<section className="reuse-section"><h3>Reutilizar referência</h3><label>Referências de {c.model_name}<select value={reuse} onChange={e=>setReuse(e.target.value)}><option value="">Escolha uma imagem salva</option>{references.filter(r=>r.model_name.toLocaleLowerCase()===c.model_name.toLocaleLowerCase()&&r.id!==reference?.id).map(r=><option key={r.id} value={r.id}>{r.campaign_name} · {r.original_name}</option>)}</select></label><button disabled={!reuse||busy} onClick={()=>onReuse(reuse)}>Usar a mesma imagem</button></section>}</>;
   if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p><button className="primary full" disabled={busy||!reference||c.status!=='briefing'} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
   if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div><div className="notice"><strong>Confira a fotografia-base antes de gerar.</strong> Ela precisa mostrar toda a peça que você quer apresentar. Se a roupa estiver cortada, escolha outra referência na etapa Modelo fixa antes de gerar os prompts. A edição preserva o enquadramento, a pose, o cenário e a iluminação. Siga a ordem dos anexos indicada no prompt de cada cor.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}{image&&<AssetView asset={image} title="Imagem gerada" compact/>}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
@@ -913,8 +920,8 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
       </>}</>:<div className="notice">Selecione o MP4 de cada cor na etapa Criar vídeo. Você pode mantê-lo na galeria ou enviá-lo para a Fábrica.</div>}</>;
   }
   if(selected==='performance')return <>
-    <div className="notice"><strong>Metricas ficam em Resultados.</strong> Use a aba Resultados no topo para coletar do Studio, auditar publicados e gerar insights.</div>
-    <p className="help">Produzir fica so com briefing, imagem, roteiro, video e publicacao.</p>
+    <div className="notice"><strong>Métricas ficam em Resultados.</strong> Use a aba Resultados no topo para coletar do Studio, auditar publicados e gerar insights.</div>
+    <p className="help">Produzir fica só com briefing, imagem, roteiro, vídeo e publicação.</p>
   </>;
   return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant} onRefreshCaption={onRefreshScript} onSaveCaption={(prompts)=>prompts?._variantId?onSaveVariant?.(prompts._variantId,{caption:prompts.caption}):onSaveTexts(prompts)}/>}{index>=6&&<div className="notice">Métricas e Crítico: abra <strong>Resultados</strong> no topo da página.</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;
 }
