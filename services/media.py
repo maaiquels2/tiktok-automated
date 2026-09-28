@@ -85,8 +85,15 @@ def inspect_media(path, kind):
     try:
         with Image.open(path) as im:
             fmt, dimensions = im.format, im.size
-            if fmt not in {'JPEG', 'PNG', 'WEBP'} or dimensions[0]*dimensions[1] > 40_000_000:
-                raise ValueError('Use JPG, PNG ou WebP de até 40 megapixels.')
+            # Fotos do iPhone (e de muitos Android) sao JPEG com uma segunda
+            # imagem embutida (mapa de HDR / retrato); o Pillow chama isso de
+            # MPO, mas o arquivo continua sendo um JPEG comum pra quem le.
+            if fmt == 'MPO':
+                fmt = 'JPEG'
+            if fmt not in {'JPEG', 'PNG', 'WEBP'}:
+                raise ValueError('Use JPG, PNG ou WebP.')
+            if dimensions[0]*dimensions[1] > 40_000_000:
+                raise ValueError('A imagem deve ter no máximo 40 megapixels.')
             im.verify()
         ext, mime = {'JPEG': ('.jpg', 'image/jpeg'), 'PNG': ('.png', 'image/png'),
                      'WEBP': ('.webp', 'image/webp')}[fmt]
