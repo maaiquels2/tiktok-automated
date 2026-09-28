@@ -915,11 +915,20 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
       </section>
       <section className="sell-fields" aria-label="Argumento de venda">
         <div className="section-title"><h3>Argumento de venda</h3><span className="help">Opcional, mas muda muito o roteiro</span></div>
-        <label>O que mais segura a compra?
-          <input list="objection-options" value={draft.objection||''} onChange={e=>change('objection',e.target.value)} placeholder="Escolha ou escreva a dúvida do cliente" maxLength={500}/>
-          <datalist id="objection-options">{OBJECTIONS.map(o=><option key={o} value={o}/>)}</datalist>
-          <small className="help">Com esse campo preenchido, o hook passa a falar da dor do cliente e o meio do roteiro mostra a prova que derruba a dúvida.</small>
-        </label>
+        {/* Antes era um <datalist>: no computador a lista abre ao clicar, mas no
+            celular (Safari do iPhone e boa parte dos Android) ela nao aparece,
+            entao as opcoes "nao carregavam". Botoes funcionam em qualquer tela. */}
+        <div className="objection-field">
+          <label htmlFor="objection-input">O que mais segura a compra?</label>
+          <div className="objection-chips" role="group" aria-label="Dúvidas mais comuns do cliente">
+            {OBJECTIONS.map(o=>{
+              const active=draft.objection===o;
+              return <button type="button" key={o} className={'objection-chip'+(active?' selected':'')} aria-pressed={active} onClick={()=>change('objection',active?'':o)}>{o}</button>;
+            })}
+          </div>
+          <input id="objection-input" value={draft.objection||''} onChange={e=>change('objection',e.target.value)} placeholder="Toque numa dúvida acima ou escreva a sua" maxLength={500}/>
+          <small className="help">Com esse campo preenchido, o hook passa a falar da dor do cliente e o meio do roteiro mostra a prova que derruba a dúvida. Toque de novo na dúvida escolhida para limpar.</small>
+        </div>
         <label>Oferta real (se existir)
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
