@@ -2121,3 +2121,85 @@ class MigrationTests(unittest.TestCase):
 
 if __name__=='__main__':
     unittest.main()
+
+
+class CloudModelLibraryUploadTests(unittest.TestCase):
+    """Upload direto da foto padrao (nuvem) contra um Storage falso que, como o
+    Supabase, recusa link de envio para um caminho que ja existe."""
+
+    def setUp(self):
+        import urllib.error
+        self.temp=tempfile.TemporaryDirectory()
+        root=Path(self.temp.name)
+        self.objects={}
+        self.deleted=[]
+        env={'FABRICA_SUPABASE_URL':'https://fake.supabase.co','FABRICA_SUPABASE_SERVICE_KEY':'service-key'}
+        with patch.dict(os.environ,env):
+            self.app=create_app(dict(TESTING=True,CLOUD_MODE=True,AUTH_REQUIRED=False,
+                                     DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'profiles'))
+        self.client=self.app.test_client()
+        self.headers={'X-Local-App':'fabrica-tiktok'}
+        prefix='https://fake.supabase.co/storage/v1/object/'
+        bucket='fabrica-media/'
+
+        def fake_urlopen(req,timeout=None):
+            url=req.full_url
+            method=req.get_method()
+            def reply(payload):
+                resp=Mock()
+                resp.read.return_value=payload
+                resp.__enter__=Mock(return_value=resp)
+                resp.__exit__=Mock(return_value=False)
+                return resp
+            def fail(code,message):
+                raise urllib.error.HTTPError(url,code,message,{},io.BytesIO(json.dumps({'error':'Duplicate' if code==409 else 'not_found','message':message}).encode()))
+            if url.startswith(prefix+'upload/sign/'+bucket):
+                key=url[len(prefix+'upload/sign/'+bucket):]
+                if key in self.objects and (req.get_header('X-upsert') or '')!='true':
+                    fail(409,'The resource already exists')
+                return reply(json.dumps({'url':f'/object/upload/sign/{bucket}{key}?token=t'}).encode())
+            key=url[len(prefix+bucket):]
+            if method=='DELETE':
+                self.deleted.append(key)
+                self.objects.pop(key,None)
+                return reply(b'')
+            if method in ('POST','PUT'):
+                self.objects[key]=req.data
+                return reply(b'{}')
+            if key not in self.objects:
+                fail(404,'Object not found')
+            return reply(self.objects[key])
+
+        patcher=patch('urllib.request.urlopen',side_effect=fake_urlopen)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def send(self,model,niche):
+        r=self.client.post('/api/model-library/upload-url',json={'model_name':model,'niche':niche,'filename':'foto.jpg'},headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        path=r.json['path']
+        self.objects[path]=image_bytes()  # o navegador manda os bytes direto pro Storage
+        r=self.client.post('/api/model-library/confirm',json={'model_name':model,'niche':niche,'path':path,'original_name':'foto.jpg'},headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        return path
+
+    def test_replacing_a_default_photo_does_not_hit_an_existing_file(self):
+        # Um arquivo antigo no caminho fixo (reference.jpg) fazia o Supabase
+        # responder "the resource already exists" e o envio parava.
+        self.objects['model-library/Micaela/casual/reference.jpg']=image_bytes()
+        first=self.send('Micaela','casual')
+        second=self.send('Micaela','casual')
+        self.assertNotEqual(first,second)
+        self.assertIn(first,self.deleted)
+        self.assertIn(second,self.objects)
+        listed=self.client.get('/api/model-library?model_name=Micaela',headers=self.headers).json
+        casual=[n for n in listed['niches'] if n['niche']=='casual'][0]
+        self.assertTrue(casual['has_photo'])
+
+    def test_new_model_photo_goes_to_its_own_folder(self):
+        path=self.send('Dieni','praia')
+        self.assertTrue(path.startswith('model-library/Dieni/praia/'),path)
+        self.assertEqual(self.deleted,[])

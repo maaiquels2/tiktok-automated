@@ -2188,7 +2188,11 @@ def create_app(config=None):
         ext=Path(filename).suffix.lower()
         if ext not in {'.jpg','.jpeg','.png','.webp'}:
             ext='.jpg'
-        rel_path=f"model-library/{ml._safe(model_name)}/{niche}/reference{ext}"
+        # Nome unico a cada envio: o link assinado do Supabase recusa um
+        # caminho que ja existe ("the resource already exists"), entao um
+        # nome fixo (reference.jpg) travava o "Trocar foto" e qualquer envio
+        # que caisse num arquivo antigo. A foto anterior e apagada no confirm.
+        rel_path=f"model-library/{ml._safe(model_name)}/{niche}/reference-{uuid.uuid4().hex}{ext}"
         upload_url=_storage_create_upload_url(rel_path)
         return jsonify({'upload_url':upload_url,'path':rel_path})
 
@@ -2219,10 +2223,15 @@ def create_app(config=None):
                 _metadata,_ext,mime=inspect_media(temp,'image')
             except (ValueError,EOFError) as exc:
                 raise Invalid(str(exc)) from exc
+            previous=ml.get_entry(app.config['DATA_DIR'], model_name, niche, storage_get=_storage_get) or {}
             entry=ml.confirm_photo(
                 app.config['DATA_DIR'], model_name, niche, rel_path, original[:240], mime,
                 storage_get=_storage_get, storage_put=_storage_put,
             )
+            old_path=(previous.get('path') or '').strip()
+            if old_path and old_path!=rel_path and old_path.startswith(expected_prefix):
+                # Trocar foto: a anterior nao e mais usada (campanhas guardam copia propria).
+                _storage_delete(old_path)
             return jsonify(entry)
         finally:
             temp.unlink(missing_ok=True)

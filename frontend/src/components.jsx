@@ -1294,7 +1294,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
         form.set('file',file);
         await uploadModelLibrary(form);
       }
-      onFlash?.('Foto padrão salva: '+niche);
+      onFlash?.('Foto padrão de '+activeModel+' salva: '+niche);
       await load();
       await loadModels(activeModel);
       setSelectedNiche(niche);
