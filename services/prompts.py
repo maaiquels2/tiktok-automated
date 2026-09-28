@@ -499,6 +499,51 @@ def _proof_gestures(features, limit=3, turns=()):
     return plan
 
 
+# No POV a camera e o olho de quem veste: nao da para "girar de costas para a
+# camera" nem "manter o corpo de frente" -- o corpo nao aparece de fora. Estes
+# gestos provam o mesmo fato visto de cima, pelas maos.
+_POV_PROOF_GESTURES = {
+    'sem transparência': ('afasta o tecido do corpo com a ponta dos dedos, sob a mesma luz, e mostra que '
+                          'a pele não aparece através dele'),
+    'recorte': 'a câmera desce até o recorte e o dedo contorna a linha dele',
+    'estampa': 'alisa a estampa com a mão livre, bem perto da lente',
+    'capuz': 'puxa a borda do capuz para a frente com a mão livre até ele entrar no quadro',
+}
+
+
+def _pov_proof_gestures(features, limit=3):
+    plan = []
+    for label in features or []:
+        gesture = _POV_PROOF_GESTURES.get(label) or _PROOF_GESTURES.get(label)
+        if gesture and not _POV_SKIP_RE.search(gesture):
+            item = f'{label} → {gesture}'
+            if item not in plan:
+                plan.append(item)
+        if len(plan) >= limit:
+            break
+    return plan
+
+
+# Acoes do nicho que so existem vistas de fora (rosto, sorriso, pose, caminhar
+# ate a camera, girar). No POV elas contradizem "nunca mostrar o rosto".
+_POV_SKIP_RE = re.compile(
+    r'\b(?:olh\w*|sorri\w*|sorriso|pose|posar|caminh\w*\s+(?:lent\w*\s+)?at[ée]\s+(?:a\s+)?c[âa]mera|'
+    r'entrar\s+no\s+frame|gir\w*|vir\w*|rota(?:ç|c)[ãa]o|de\s+costas|perfil|express\w*|rosto|'
+    r'cta|gesto\s+caracter\w*)\b',
+    re.I,
+)
+# Sem fala nao ha CTA falado: "CTA final animado" do nicho so confundia o gerador.
+_CTA_ACTION_RE = re.compile(r'\bcta\b', re.I)
+
+
+def _filter_actions(value: str, pattern) -> str:
+    raw = _phrase(value)
+    if not raw:
+        return ''
+    chunks = [part.strip(' .,:;') for part in re.split(r'\s*;\s*|\n+', raw) if part.strip(' .,:;')]
+    return '; '.join(part for part in chunks if not pattern.search(part))
+
+
 _ARM_ACTIONS = ('alongar', 'along', 'braco', 'braço', 'levantar', 'erguer',
                 'acenar', 'aceno', 'maos para cima', 'mãos para cima', 'comemor')
 
@@ -1584,7 +1629,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis da peça"
-    moves = _movement_plan(_movement_without_unapproved_turns(movements))
+    moves = _movement_plan(_filter_actions(_movement_without_unapproved_turns(movements), _CTA_ACTION_RE))
     turn_direction, _turn_action = _turn_direction(c)
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas nem texto na tela): {video_notes}." if video_notes else ""
@@ -1695,7 +1740,8 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis do produto"
-    moves = _movement_plan(movements) or "manuseio natural que mostre o produto de perto"
+    moves = (_movement_plan(_filter_actions(movements, _POV_SKIP_RE))
+             or "manuseio natural que mostre o produto de perto")
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
@@ -1708,9 +1754,8 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
     # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
     # gerador corta o final do prompt sozinho.
-    gestures = _proof_gestures(
-        _product_features(c, limit=2 if _limite_video(c) else 4),
-        turns=_body_turns(c))
+    gestures = _pov_proof_gestures(
+        _product_features(c, limit=2 if _limite_video(c) else 4))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s, sempre visto pelas mãos em primeira pessoa: '
         + '; '.join(gestures) + '.\n'
@@ -1896,6 +1941,78 @@ def generate_variants(c, audit=None):
     return saida
 
 
+def _build_pov_image_prompt(c, *, product, color, piece_ref, photos, product_reference,
+                            facts, materials, notes, base_image=False):
+    """Imagem-base do video POV: o primeiro quadro ja em primeira pessoa.
+
+    O video POV anexa esta imagem como primeiro quadro e proibe mostrar o
+    rosto. Ate aqui a imagem era a mesma do UGC (a modelo de frente, com
+    rosto), entao o gerador recebia um primeiro quadro que ele mesmo estava
+    proibido de mostrar. Na primeira cor a imagem muda o ponto de vista a
+    partir da foto de referencia; nas outras cores ela ja nasce da imagem
+    POV aprovada e vira uma edicao localizada, como no UGC.
+    """
+    model = c['model_name']
+    worn = _product_family(c) in ('moda', 'infantil')
+    in_view = (f"{piece_ref} vestida no corpo, vista de cima pelos olhos de quem veste, "
+               "com uma das mãos tocando a peça" if worn else
+               f"{piece_ref} em uma das mãos, perto da lente, visto pelos olhos de quem segura")
+    pov_rules = (
+        "PONTO DE VISTA: primeira pessoa (POV), câmera do celular na altura dos olhos apontada para baixo. "
+        "A outra mão segura o celular e fica fora do quadro. "
+        "NUNCA mostrar rosto, pescoço, cabelo na frente da lente nem reflexo em espelho, vidro ou tela. "
+    )
+    if base_image:
+        attachments = "ORDEM DOS ANEXOS: anexe primeiro a imagem aprovada desta campanha (primeiro quadro POV)"
+        if photos:
+            attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+        attachments += '. O primeiro anexo é a única base de ponto de vista, mãos, cenário e enquadramento. '
+        return (
+            attachments
+            + "EDIÇÃO LOCALIZADA: trate a imagem aprovada como a fotografia-base final. "
+            + f"Produto: {product}. Cor: {color}. "
+            + f"Altere somente a área ocupada por {piece_ref}, mantendo todo o restante visualmente idêntico: "
+            + "mesmas mãos, mesmo tom de pele, mesma posição dos dedos, mesmo ângulo de câmera. "
+            + pov_rules
+            + product_reference
+            + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+            + f"FATOS DO PRODUTO A PRESERVAR: {facts}. "
+            + f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
+            + "CENÁRIO FIXO: preserve exatamente fundo, chão, objetos, iluminação, sombras e balanço de branco. "
+            + "INTEGRAÇÃO FOTOGRÁFICA: caimento, dobras, oclusão pelos dedos e sombras de contato coerentes; "
+            + "sem aparência de recorte ou colagem. Sem textos nem marcas inventadas. "
+            + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
+            + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
+        )
+    attachments = f"ORDEM DOS ANEXOS: anexe primeiro a foto de referência da modelo (fotografia-base de {model})"
+    if photos:
+        attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+    attachments += ('. O primeiro anexo é a base de tom de pele, mãos, unhas, corpo e cenário — mas NÃO de '
+                    'enquadramento: esta imagem muda o ponto de vista para a primeira pessoa. ')
+    return (
+        attachments
+        + "PRIMEIRO QUADRO DE UM VÍDEO POV: fotografia vertical 9:16 feita com o celular de "
+        + f"{model}, como se a câmera fossem os olhos dela. "
+        + f"Produto: {product}. Cor: {color}. "
+        + f"O QUE APARECE: {in_view}. "
+        + pov_rules
+        + f"IDENTIDADE PELAS MÃOS: mesmo tom de pele, mesmas mãos, unhas e proporções do corpo de {model} "
+        + "na foto de referência; nada de mãos ou pele de outra pessoa. "
+        + product_reference
+        + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+        + f"FATOS DO PRODUTO A PRESERVAR: {facts}. "
+        + f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}; mantenha a textura e o caimento compatíveis com a referência do produto. "
+        + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
+        + "CENÁRIO: o mesmo ambiente da foto de referência, agora visto de cima — mesmo chão, objetos, "
+        + "iluminação, balanço de branco e granulação. Não trocar a locação nem inventar um estúdio. "
+        + "REALISMO: fotografia comum de celular, sem filtro, leve perspectiva de grande-angular; "
+        + "caimento, dobras, oclusão pelos dedos e sombras de contato coerentes; sem pose de catálogo. "
+        + "Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. "
+        + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
+        + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
+    )
+
+
 def generate(c, script=None, variant_index=0, base_image=False, audit=None, attempts=6):
     """Monta o pacote (imagem, video, falas, legenda) de uma cor.
 
@@ -1986,6 +2103,11 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         + (f"DETALHES ESTÁTICOS DO PRODUTO (sem alterar a composição da fotografia-base): {notes}. " if notes else '')
         + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
     )
+    if _video_mode(c) == 'pov':
+        image = _build_pov_image_prompt(
+            c, product=product, color=color, piece_ref=piece_ref, photos=photos,
+            product_reference=product_reference, facts=facts, materials=materials,
+            notes=notes, base_image=base_image)
     resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
     build_video = {
         'pov': _build_pov_video_prompt,

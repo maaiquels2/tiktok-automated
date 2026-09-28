@@ -573,6 +573,56 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f'"{pov["hook"]}"',pov['video'])
         self.assertIn(f'"{pov["cta"]}"',pov['video'])
 
+    def test_pov_image_is_already_first_person_so_the_video_can_start_from_it(self):
+        # O video POV anexa a imagem aprovada como primeiro quadro e proibe o
+        # rosto. A imagem nao pode ser a modelo de frente (a do UGC).
+        campaign=dict(model_name='Micaela',product='Legging cintura alta com bolso lateral',
+                      outfit='legging com top',color='preto',audience='mulheres',
+                      benefit='tem bolso lateral',angle='',tone='',style='',details='',
+                      movements='Caminhar ate a camera; ajustar o cos; close no tecido; pose confiante final',
+                      generator='flow',niche='academia')
+        ugc=generate(campaign)['image']
+        pov=generate({**campaign,'video_mode':'pov'})['image']
+        self.assertIn('Preserve rosto',ugc)
+        self.assertNotIn('Preserve rosto',pov)
+        self.assertIn('PRIMEIRO QUADRO DE UM VÍDEO POV',pov)
+        self.assertIn('NUNCA mostrar rosto',pov)
+        self.assertIn('NÃO de enquadramento',pov)
+        # Da segunda cor em diante a base ja e a imagem POV aprovada.
+        segunda=generate({**campaign,'video_mode':'pov'},base_image=True)['image']
+        self.assertIn('EDIÇÃO LOCALIZADA',segunda)
+        self.assertIn('imagem aprovada desta campanha (primeiro quadro POV)',segunda)
+        self.assertIn('NUNCA mostrar rosto',segunda)
+        # Fala e movimento continuam com a imagem de frente.
+        for modo in ('', 'movimento'):
+            self.assertIn('Preserve rosto',generate({**campaign,'video_mode':modo})['image'])
+
+    def test_pov_video_drops_actions_that_only_exist_seen_from_outside(self):
+        campaign=dict(model_name='Micaela',product='Legging sem transparência com recorte',
+                      outfit='legging',color='preto',audience='mulheres',benefit='não fica transparente',
+                      angle='',tone='',style='',details='',body_turns='costas',
+                      movements='Olhar pra camera e sorrir; caminhar lenta ate a camera; ajustar o cos; '
+                                'girar devagar; close no tecido; pose confiante final; CTA final animado',
+                      generator='flow',niche='academia')
+        video=generate({**campaign,'video_mode':'pov'})['video']
+        acoes=video.split('AÇÕES')[1].split('ENCERRAMENTO')[0]
+        self.assertIn('ajustar o cos',acoes)
+        self.assertIn('close no tecido',acoes)
+        for fora in ('sorrir','ate a camera','girar','pose confiante','CTA final'):
+            self.assertNotIn(fora,acoes)
+        prova=video.split('PROVA VISUAL')[1].split('\n')[0]
+        self.assertNotIn('gira de costas',prova)
+        self.assertNotIn('gira de lado',prova)
+
+    def test_movement_video_has_no_spoken_cta_action(self):
+        campaign=dict(model_name='Micaela',product='Fantasia de bruxa',outfit='fantasia',color='preto',
+                      audience='adultos',benefit='',angle='',tone='',style='',details='',
+                      movements='Revelar a fantasia; close em detalhe; CTA final animado',
+                      generator='flow',niche='fantasia')
+        video=generate({**campaign,'video_mode':'movimento'})['video']
+        self.assertIn('Revelar a fantasia',video)
+        self.assertNotIn('CTA final animado',video)
+
     def test_cloud_boot_adds_missing_campaign_columns_instead_of_failing_later(self):
         # Regressao de producao: o codigo subiu com 'video_mode' em FIELDS, o
         # Postgres do Supabase nao tinha a coluna e toda criacao de campanha
