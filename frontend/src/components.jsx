@@ -1239,8 +1239,18 @@ export function DailyQueueCard({busy,onError,onFlash,onCreate}){
   );
 }
 
+// Guarda a modelo escolhida na biblioteca pra ela continuar selecionada
+// depois de recarregar a pagina (antes voltava sempre pra modelo padrao).
+const MODEL_LIBRARY_KEY='fabrica.modelLibrary.activeModel';
+function readStoredModel(){
+  try{return (localStorage.getItem(MODEL_LIBRARY_KEY)||'').trim()}catch(_){return ''}
+}
+
 export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
-  const [activeModel,setActiveModel]=useState(modelName);
+  const [activeModel,setActiveModel]=useState(()=>readStoredModel()||modelName);
+  // Previa local (a propria foto escolhida) enquanto a foto enviada ainda
+  // nao chegou do armazenamento - fotos do celular tem varios MB.
+  const [previews,setPreviews]=useState({});
   const [knownModels,setKnownModels]=useState([]);
   const [newModelDraft,setNewModelDraft]=useState('');
   const [addingModel,setAddingModel]=useState(false);
@@ -1252,7 +1262,18 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
   const [renaming,setRenaming]=useState(null);
   const [renameDraft,setRenameDraft]=useState('');
   const fileRefs=useRef({});
-  useEffect(()=>{setActiveModel(modelName)},[modelName]);
+  const firstModelName=useRef(modelName);
+  useEffect(()=>{
+    // So segue a modelo padrao quando ela muda de verdade (ex.: identidade
+    // carregou depois); no primeiro carregamento vale a que ficou salva.
+    if(firstModelName.current===modelName) return;
+    firstModelName.current=modelName;
+    setActiveModel(modelName);
+  },[modelName]);
+  useEffect(()=>{
+    try{ if(activeModel) localStorage.setItem(MODEL_LIBRARY_KEY,activeModel); }catch(_){}
+  },[activeModel]);
+  useEffect(()=>()=>{Object.values(previews).forEach(url=>URL.revokeObjectURL(url))},[]);
   async function loadModels(preferred){
     try{
       const data=await listModelLibraryModels();
@@ -1294,6 +1315,9 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
         form.set('file',file);
         await uploadModelLibrary(form);
       }
+      const key=activeModel+'|'+niche;
+      const local=URL.createObjectURL(file);
+      setPreviews(prev=>{ if(prev[key]) URL.revokeObjectURL(prev[key]); return {...prev,[key]:local}; });
       onFlash?.('Foto padrão de '+activeModel+' salva: '+niche);
       await load();
       await loadModels(activeModel);
@@ -1310,6 +1334,8 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     if(!ok)return;
     try{
       await deleteModelLibraryPhoto({model_name:activeModel,niche});
+      const key=activeModel+'|'+niche;
+      setPreviews(prev=>{ if(!prev[key]) return prev; URL.revokeObjectURL(prev[key]); const next={...prev}; delete next[key]; return next; });
       onFlash?.('Foto padrão excluída: '+niche);
       if(selectedNiche===niche) setSelectedNiche('');
       await load();
@@ -1446,9 +1472,9 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
                   type="button"
                   className="model-niche-thumb"
                   title="Ver em tela cheia"
-                  onClick={e=>{e.stopPropagation();setSelectedNiche(item.niche);setLightbox({url:item.url,label:item.label,name:item.original_name||''});}}
+                  onClick={e=>{e.stopPropagation();setSelectedNiche(item.niche);setLightbox({url:previews[activeModel+'|'+item.niche]||item.url,label:item.label,name:item.original_name||''});}}
                 >
-                  <img key={item.url||item.updated_at||item.niche} src={item.url} alt={item.label}/>
+                  <img key={item.url||item.updated_at||item.niche} src={previews[activeModel+'|'+item.niche]||item.url} alt={item.label}/>
                 </button>
               ) : <span className="help">Sem foto ainda</span>}
             </div>
