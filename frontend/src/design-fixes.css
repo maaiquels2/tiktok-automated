@@ -342,3 +342,12 @@
   font-size: 12px;
   line-height: 1.6;
 }
+
+/* Nova campanha: escolha da modelo. Antes o formulario usava sempre a modelo
+   da Identidade, mesmo depois de trocar em "Fotos padrao"; as fotos dos
+   nichos e o nome da campanha ficavam da modelo errada. */
+.model-pick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
