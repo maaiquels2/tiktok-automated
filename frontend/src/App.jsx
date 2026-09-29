@@ -450,7 +450,9 @@ export default function App(){
     const action=()=>run(
       ()=>api(endpoint,{method:'POST',body:{version:c.version}}),
       c.generator==='grok'?'Prompt de vídeo recriado dentro do limite de 4.000 caracteres.':'Prompt de vídeo recriado.',
-      'video'
+      // Ja estando na etapa de video, nao "navega" de novo: assim a rolagem
+      // fica onde estava, no prompt que acabou de ser recriado.
+      selected==='video'?undefined:'video'
     );
     if(hasVideo){
       confirm('Recriar o prompt de vídeo?',`O vídeo${slot?` da cor ${slot}`:''} já anexado será removido porque precisará ser gerado novamente. A imagem e o roteiro serão preservados.`,action,'Recriar prompt');
