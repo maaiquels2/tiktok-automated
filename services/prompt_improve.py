@@ -9,6 +9,10 @@ import re
 
 from services.prompts import _video_mode
 
+# Quantos movimentos cabem no trecho do meio (8 segundos): cerca de 2 segundos
+# para cada um. Acima disso o gerador acelera tudo ou deforma o corpo.
+MAX_MOVES = 4
+
 _BOTTOM_WORDS = ('legging', 'short', 'calça', 'calca', 'saia', 'bermuda', 'biquíni', 'biquini', 'calcinha')
 
 
@@ -30,7 +34,7 @@ def _moves(c: dict) -> list[str]:
     items = [m.strip(' .') for m in re.split(r'[;\n]|,(?![^()]*\))', raw) if m.strip(' .')]
     # Tira pedidos de camera e giros: o giro vem da orientacao corporal.
     items = [m for m in items if not re.search(r'c[âa]mera|close|zoom|costas|gir|vir', m, re.I)]
-    return [m[0].lower() + m[1:] for m in items[:2]]
+    return [m[0].lower() + m[1:] for m in items[:MAX_MOVES]]
 
 
 def _turn(c: dict) -> str:
@@ -56,7 +60,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
 
     moves = _moves(c)
     turn = _turn(c)
-    steps = moves[:1 if turn else 2] + ([turn] if turn else [])
+    steps = moves[:MAX_MOVES - 1 if turn else MAX_MOVES] + ([turn] if turn else [])
     if not steps:
         steps = ['caminha dois passos e ajeita a peça com uma das mãos']
     middle = 'Ela ' + ', depois '.join(steps) + ', devagar e com naturalidade'

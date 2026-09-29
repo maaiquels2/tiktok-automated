@@ -1279,6 +1279,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('agachar',ugc)
         self.assertNotIn('girar',ugc)
 
+    def test_compact_prompt_uses_every_listed_movement_up_to_four(self):
+        from services.prompt_improve import build_compact_video_prompt
+        falas={'hook':'Olha isso.','development':'Veste muito bem.','cta':'Confere no carrinho.'}
+        tres=build_compact_video_prompt({'product':'Legging','movements':'caminhar, agachar, alongar'},falas,'Preto')
+        for move in ('caminhar','agachar','alongar'):
+            self.assertIn(move,tres)
+        seis=build_compact_video_prompt({'product':'Legging','body_turns':'lado',
+                                         'movements':'caminhar; agachar; alongar; sentar; pular; dançar'},falas,'Preto')
+        self.assertIn('alongar',seis)
+        self.assertNotIn('sentar',seis)
+        self.assertIn('vira de perfil',seis)
+
     def test_explicit_ai_refresh_works_for_a_color_variant(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
         self.cid=other['id']

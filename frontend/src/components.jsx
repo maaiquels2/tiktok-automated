@@ -1108,7 +1108,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <div className="notice"><strong>Preenchido pelo nicho.</strong> Pode editar se quiser — o padrão já está otimizado pra TikTok Shop.</div>
           <div className="form-grid">{advanced.map(([k,l,p])=>field(k,l,p))}</div>
           <label>Detalhes adicionais<textarea rows={3} value={draft.details||''} onChange={e=>change('details',e.target.value)} placeholder="Enquadramento, gestos e detalhes do produto" maxLength={5000}/></label>
-          <label>Movimentos para mostrar<textarea rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós" maxLength={1500}/><small className="help">Movimentos que devem aparecer no vídeo deste produto</small></label>
+          <label>Movimentos para mostrar<textarea rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós" maxLength={1500}/><small className="help">Um movimento por vírgula ou por linha. O "Melhorar prompt" usa todos, até 4, na ordem escrita. Para 15 segundos, 2 ou 3 costumam ficar mais naturais.</small></label>
         </div>
       )}
       {!showAdvanced && (
