@@ -2266,3 +2266,24 @@ class VisionDeadlineTests(unittest.TestCase):
         self.assertEqual(mime,'image/jpeg')
         with Image.open(io.BytesIO(dados)) as img:
             self.assertLessEqual(max(img.size),copywriter.VISION_MAX_SIDE)
+
+
+class IndexCacheTests(unittest.TestCase):
+    """O index.html precisa vir sempre inteiro: com ETag igual entre deploys o
+    navegador ficava preso na versao antiga do site."""
+
+    def test_index_has_no_validators_and_is_never_stored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/'dist').mkdir()
+            (root/'dist'/'index.html').write_text('<html>novo</html>',encoding='utf-8')
+            app=create_app(dict(TESTING=True,DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'p',FRONTEND_DIR=root/'dist'))
+            client=app.test_client()
+            first=client.get('/')
+            self.assertEqual(first.status_code,200)
+            self.assertNotIn('ETag',first.headers)
+            self.assertNotIn('Last-Modified',first.headers)
+            self.assertIn('no-store',first.headers['Cache-Control'])
+            again=client.get('/',headers={'If-None-Match':'"qualquer"','If-Modified-Since':'Wed, 01 Jan 2020 00:00:00 GMT'})
+            self.assertEqual(again.status_code,200)
+            self.assertIn(b'novo',again.data)

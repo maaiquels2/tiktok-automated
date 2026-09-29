@@ -1056,7 +1056,15 @@ def create_app(config=None):
     @app.get('/')
     @app.get('/creator')
     def index():
-        return send_from_directory(app.config['FRONTEND_DIR'],'index.html')
+        # Sem ETag/Last-Modified: o index.html de cada deploy tem o mesmo
+        # tamanho (so muda o hash do bundle) e, na Vercel, a mesma data de
+        # arquivo -- o navegador revalidava, recebia 304 e continuava com a
+        # pagina antiga apontando pro bundle antigo. As mudancas publicadas
+        # nunca apareciam, nem com F5.
+        response=send_from_directory(app.config['FRONTEND_DIR'],'index.html',etag=False,conditional=False,last_modified=None)
+        response.headers.pop('Last-Modified',None)
+        response.headers['Cache-Control']='no-store, no-cache, must-revalidate, max-age=0'
+        return response
 
 
     @app.get('/gate/')
