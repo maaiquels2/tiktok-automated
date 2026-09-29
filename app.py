@@ -744,7 +744,13 @@ def create_app(config=None):
         """Envia bytes para o Storage do Supabase, sobrescrevendo se ja existir."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
-        headers=_storage_headers({'Content-Type':mime or 'application/octet-stream','x-upsert':'true'})
+        extra={'Content-Type':mime or 'application/octet-stream','x-upsert':'true'}
+        if _storage_is_registry(key):
+            # Registros (biblioteca de fotos, identidade...) mudam no mesmo
+            # caminho: sem isso a CDN do Supabase guarda a versao antiga por
+            # ate 1 hora e a tela volta a mostrar foto excluida/modelo antiga.
+            extra['cache-control']='max-age=0, no-cache'
+        headers=_storage_headers(extra)
         req=urllib.request.Request(url,data=data,headers=headers,method='PUT')
         try:
             with urllib.request.urlopen(req,timeout=60) as resp:
@@ -752,10 +758,17 @@ def create_app(config=None):
         except urllib.error.HTTPError as exc:
             raise Invalid(f'Não foi possível salvar no armazenamento: {_storage_error_detail(exc)}',502) from exc
 
+    def _storage_is_registry(key):
+        return str(key).lower().endswith('.json')
+
     def _storage_get(key):
         """Baixa os bytes de um arquivo do Storage do Supabase."""
         _storage_check()
         url=f"{storage_url}/storage/v1/object/{storage_bucket}/{key}"
+        if _storage_is_registry(key):
+            # Endereco unico a cada leitura: a CDN do Supabase nao tem copia
+            # dele e devolve sempre a versao mais recente do registro.
+            url+=f"?fresh={uuid.uuid4().hex}"
         headers=_storage_headers()
         req=urllib.request.Request(url,headers=headers,method='GET')
         try:
