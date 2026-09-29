@@ -857,7 +857,6 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
   </section>;
 }
 const MOTOR_LABELS={'':'Motor automático',necessidade:'Necessidade',escassez:'Escassez',desejo_posse:'Desejo de posse'};
-const VIDEO_MODE_LABELS={'':'UGC com modelo',pov:'POV do produto',movimento:'Só movimento'};
 const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',costas:'De costas'};
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
@@ -866,7 +865,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
-  const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.video_mode||campaign?.body_turns));
+  const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.body_turns));
   const published=campaign?.status==='published';
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
   const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
@@ -950,11 +949,31 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
         </label>
+        {/* O formato (UGC, POV, Só movimento) muda o vídeo inteiro: fica sempre
+            à vista. Escondido em "Mais opções" parecia que tinha sumido. */}
+        <label>Formato do vídeo
+          <div className="generator-options pov-options" role="radiogroup" aria-label="Formato do vídeo gerado">
+            <label className={'generator-option '+(!draft.video_mode?'selected':'')}>
+              <input type="radio" name="video_mode" value="" checked={!draft.video_mode} onChange={()=>change('video_mode','')}/>
+              <span><strong>UGC com modelo</strong><small>Modelo aparece de frente, como hoje</small></span>
+            </label>
+            <label className={'generator-option '+(draft.video_mode==='pov'?'selected':'')}>
+              <input type="radio" name="video_mode" value="pov" checked={draft.video_mode==='pov'} onChange={()=>change('video_mode','pov')}/>
+              <span><strong>POV do produto</strong><small>Câmera na mão, só produto e mãos, sem rosto</small></span>
+            </label>
+            <label className={'generator-option '+(draft.video_mode==='movimento'?'selected':'')}>
+              <input type="radio" name="video_mode" value="movimento" checked={draft.video_mode==='movimento'} onChange={()=>change('video_mode','movimento')}/>
+              <span><strong>Só movimento</strong><small>Sem fala: puxa, gira e ajusta a peça no corpo</small></span>
+            </label>
+          </div>
+          <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
+          <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
+        </label>
         {/* Motor, formato e orientacao ocupavam boa parte do formulario, cada um
             com um paragrafo de ajuda. Ficam recolhidos, com a escolha atual no
             titulo; abrem sozinhos se ja tiver algo diferente do padrao. */}
         <details className="more-options" open={moreOpen} onToggle={e=>setMoreOpen(e.currentTarget.open)}>
-        <summary><strong>Mais opções do vídeo</strong><small>{MOTOR_LABELS[draft.motor||'']} · {VIDEO_MODE_LABELS[draft.video_mode||'']} · {BODY_TURN_LABELS[draft.body_turns||'']}</small></summary>
+        <summary><strong>Mais opções do vídeo</strong><small>{MOTOR_LABELS[draft.motor||'']} · {BODY_TURN_LABELS[draft.body_turns||'']}</small></summary>
         <label>Motor de persuasão
           <div className="generator-options motor-options" role="radiogroup" aria-label="Motor de persuasão do roteiro">
             <label className={'generator-option '+((!draft.motor)?'selected':'')}>
@@ -975,24 +994,6 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </label>
           </div>
           <small className="help">Define o gatilho que comanda o hook e o CTA. Sem oferta real preenchida, "Escassez" usa só descoberta honesta (achei e não esperava) — nunca prazo ou estoque inventado.</small>
-        </label>
-        <label>Formato do vídeo
-          <div className="generator-options pov-options" role="radiogroup" aria-label="Formato do vídeo gerado">
-            <label className={'generator-option '+(!draft.video_mode?'selected':'')}>
-              <input type="radio" name="video_mode" value="" checked={!draft.video_mode} onChange={()=>change('video_mode','')}/>
-              <span><strong>UGC com modelo</strong><small>Modelo aparece de frente, como hoje</small></span>
-            </label>
-            <label className={'generator-option '+(draft.video_mode==='pov'?'selected':'')}>
-              <input type="radio" name="video_mode" value="pov" checked={draft.video_mode==='pov'} onChange={()=>change('video_mode','pov')}/>
-              <span><strong>POV do produto</strong><small>Câmera na mão, só produto e mãos, sem rosto</small></span>
-            </label>
-            <label className={'generator-option '+(draft.video_mode==='movimento'?'selected':'')}>
-              <input type="radio" name="video_mode" value="movimento" checked={draft.video_mode==='movimento'} onChange={()=>change('video_mode','movimento')}/>
-              <span><strong>Só movimento</strong><small>Sem fala: puxa, gira e ajusta a peça no corpo</small></span>
-            </label>
-          </div>
-          <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
-          <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
         </label>
         <label>Orientação corporal no vídeo
           <div className="generator-options turn-options" role="radiogroup" aria-label="Maior giro permitido para a modelo">

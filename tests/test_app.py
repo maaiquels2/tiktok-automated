@@ -2231,3 +2231,38 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
         self.assertEqual(r.status_code,200,r.json)
         listed=self.client.get('/api/model-library?model_name=Dieni',headers=self.headers).json
         self.assertFalse([n for n in listed['niches'] if n['niche']=='praia'][0]['has_photo'])
+
+
+class VisionDeadlineTests(unittest.TestCase):
+    """A leitura da foto pela IA precisa terminar antes do teto de 60s da
+    funcao na nuvem, senao o salvamento do look morre com "Task timed out"."""
+
+    def test_slow_provider_stops_at_the_budget_with_a_clear_message(self):
+        import time
+        from services import copywriter
+        def lento(settings, system, user, images=None):
+            time.sleep(5)
+            return '{}'
+        settings={'provider':'openai','api_key':'x','model':'m'}
+        with patch.dict(copywriter.CALLERS,{'openai':lento}), patch.object(copywriter,'VISION_BUDGET_SECONDS',0.3):
+            comeco=time.monotonic()
+            campos,motivo=copywriter.analyze_product([(image_bytes(),'image/png','foto')],settings)
+            self.assertLess(time.monotonic()-comeco,2)
+        self.assertIsNone(campos)
+        self.assertIn('não respondeu', motivo)
+
+    def test_big_photos_are_shrunk_before_going_to_the_provider(self):
+        from services import copywriter
+        grande=io.BytesIO()
+        Image.new('RGB',(4000,3000),'white').save(grande,format='PNG')
+        vistos=[]
+        def captura(settings, system, user, images=None):
+            vistos.extend(images)
+            return '{"benefit":"ok"}'
+        settings={'provider':'openai','api_key':'x','model':'m'}
+        with patch.dict(copywriter.CALLERS,{'openai':captura}):
+            copywriter.analyze_product([(grande.getvalue(),'image/png','foto')],settings)
+        dados,mime=vistos[0]
+        self.assertEqual(mime,'image/jpeg')
+        with Image.open(io.BytesIO(dados)) as img:
+            self.assertLessEqual(max(img.size),copywriter.VISION_MAX_SIDE)
