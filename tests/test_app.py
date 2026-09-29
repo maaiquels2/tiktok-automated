@@ -2133,6 +2133,7 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
         root=Path(self.temp.name)
         self.objects={}
         self.deleted=[]
+        self.cdn={}
         env={'FABRICA_SUPABASE_URL':'https://fake.supabase.co','FABRICA_SUPABASE_SERVICE_KEY':'service-key'}
         with patch.dict(os.environ,env):
             self.app=create_app(dict(TESTING=True,CLOUD_MODE=True,AUTH_REQUIRED=False,
@@ -2158,7 +2159,7 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
                 if key in self.objects and (req.get_header('X-upsert') or '')!='true':
                     fail(409,'The resource already exists')
                 return reply(json.dumps({'url':f'/object/upload/sign/{bucket}{key}?token=t'}).encode())
-            key=url[len(prefix+bucket):]
+            key=url[len(prefix+bucket):].split('?',1)[0]
             if method=='DELETE':
                 self.deleted.append(key)
                 self.objects.pop(key,None)
@@ -2166,8 +2167,13 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
             if method in ('POST','PUT'):
                 self.objects[key]=req.data
                 return reply(b'{}')
+            # Como a CDN do Supabase: guarda a resposta por endereco exato e
+            # nao percebe quando o arquivo e sobrescrito.
+            if url in self.cdn:
+                return reply(self.cdn[url])
             if key not in self.objects:
                 fail(404,'Object not found')
+            self.cdn[url]=self.objects[key]
             return reply(self.objects[key])
 
         patcher=patch('urllib.request.urlopen',side_effect=fake_urlopen)
@@ -2213,3 +2219,15 @@ class CloudModelLibraryUploadTests(unittest.TestCase):
         listed=self.client.get('/api/model-library?model_name=Dieni',headers=self.headers).json
         praia=[n for n in listed['niches'] if n['niche']=='praia'][0]
         self.assertTrue(praia['has_photo'])
+
+    def test_deleted_photo_disappears_even_behind_the_storage_cdn(self):
+        # A biblioteca e um arquivo JSON regravado no mesmo caminho. Lido pelo
+        # mesmo endereco, a CDN devolvia a versao antiga e a foto excluida
+        # continuava aparecendo depois de recarregar a pagina.
+        self.send('Dieni','praia')
+        listed=self.client.get('/api/model-library?model_name=Dieni',headers=self.headers).json
+        self.assertTrue([n for n in listed['niches'] if n['niche']=='praia'][0]['has_photo'])
+        r=self.client.delete('/api/model-library',json={'model_name':'Dieni','niche':'praia'},headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        listed=self.client.get('/api/model-library?model_name=Dieni',headers=self.headers).json
+        self.assertFalse([n for n in listed['niches'] if n['niche']=='praia'][0]['has_photo'])
