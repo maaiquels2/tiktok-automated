@@ -1610,7 +1610,23 @@ def create_app(config=None):
     # endpoint novo so para isso.
     app.extensions['learning_context'] = learning_context
 
-    def write_with_llm(campaign, pack, cid=None, required=False):
+    def write_scripts_parallel(campaigns):
+        """Escreve as falas de varias cores ao mesmo tempo.
+
+        Uma cor por vez somava ate 32s por cor: com duas ou mais cores o
+        "Gerar prompts" passava do limite de 60s da funcao na nuvem e caia com
+        "O servidor demorou demais". Em paralelo, o tempo total e o de uma cor.
+        Devolve uma lista (escrito, motivo) na mesma ordem, ou None por cor
+        quando a IA esta desligada.
+        """
+        settings = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        if not settings.get('enabled') or not campaigns:
+            return [None]*len(campaigns)
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(campaigns))) as pool:
+            return list(pool.map(lambda item: copywriter.write_script(item, settings), campaigns))
+
+    def write_with_llm(campaign, pack, cid=None, required=False, precomputed=None):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
 
         A auditoria local decide se o texto entra. Reprovado duas vezes, fica o
@@ -1638,7 +1654,7 @@ def create_app(config=None):
             if required:
                 raise Invalid('Ative e teste o ChatGPT em Configurar escrita por IA antes de gerar o roteiro.', 409)
             return pack, ''
-        written, motivo = copywriter.write_script(campaign, settings)
+        written, motivo = precomputed if precomputed is not None else copywriter.write_script(campaign, settings)
         if not written:
             app.logger.info('Escrita por IA recusada: %s', motivo)
             registrar('local', motivo)
@@ -1703,8 +1719,10 @@ def create_app(config=None):
         variants=[]
         if len(colors)>=2:
             variants=generate_variants(current,audit=copywriter.audit)
-            for variant in variants:
-                variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'],cid)
+            briefs=[{**current,'color':variant['color']} for variant in variants]
+            results=write_scripts_parallel(briefs)
+            for variant,brief,result in zip(variants,briefs,results):
+                variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result)
         else:
             pack,_=write_with_llm(current,generate(current,audit=copywriter.audit),cid)
         # Só reivindica a versão e grava depois de terminar toda a geração.
@@ -1742,8 +1760,9 @@ def create_app(config=None):
         for photo in current['product_assets']:
             path_for(photo)
         variants=generate_variants(current,audit=copywriter.audit)
-        for variant in variants:
-            variant['prompts'],_=write_with_llm({**current,'color':variant['color']},variant['prompts'],cid)
+        briefs=[{**current,'color':variant['color']} for variant in variants]
+        for variant,brief,result in zip(variants,briefs,write_scripts_parallel(briefs)):
+            variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result)
         touch(cid, c['version'])
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         for variant in variants:
