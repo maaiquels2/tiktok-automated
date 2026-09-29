@@ -2741,6 +2741,56 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+    # "Melhorar prompt": troca o prompt de video pela versao enxuta e
+    # descritiva (services/prompt_improve.py). "Recriar prompt" volta ao
+    # prompt completo.
+    def compact_video_prompt(cid,prompts,color):
+        from services.prompt_improve import build_compact_video_prompt
+        if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
+            raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de melhorar o prompt de vídeo.',409)
+        return build_compact_video_prompt(detail(cid),prompts,color)
+
+    @app.post('/api/campaigns/<int:cid>/prompts/improve-video')
+    def improve_single_video_prompt(cid):
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        current=detail(cid)
+        if current['variants']:
+            raise Invalid('Escolha a cor cujo prompt de vídeo deseja melhorar.',409)
+        prompts=current['prompts']
+        if not prompts.get('video'):
+            raise Invalid('Gere os textos pelo briefing primeiro.',409)
+        video=compact_video_prompt(cid,prompts,c.get('color') or '')
+        invalidate_video_slot(cid,c)
+        save_prompts(cid,{'video':video})
+        touch(cid,c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
+    @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/improve-video')
+    def improve_variant_video_prompt(cid,vid):
+        data=body()
+        c=start(cid,data)
+        editable(c)
+        rows=db().execute(
+            'SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)
+        ).fetchall()
+        selected=next(((index,row) for index,row in enumerate(rows) if row['id']==vid),None)
+        if selected is None:
+            raise Invalid('Variação de cor não encontrada.',404)
+        index,row=selected
+        prompts=json.loads(row['prompts'])
+        prompts['video']=compact_video_prompt(cid,prompts,row['color'])
+        invalidate_video_slot(cid,c,row['color'])
+        db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
+                     (json.dumps(prompts,ensure_ascii=False),vid))
+        if index==0:
+            save_prompts(cid,{'video':prompts['video']})
+        touch(cid,c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
     @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
     def edit_variant_prompts(cid,vid):
         data=body()
