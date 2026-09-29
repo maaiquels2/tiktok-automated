@@ -34,7 +34,12 @@ export async function api(path, { timeoutMs, ...options } = {}) {
 
   const data = await response.json().catch(() => ({}));
 
-  if (!response.ok) throw new Error(data.error || 'Não foi possível acessar o aplicativo local.');
+  if (!response.ok) {
+    // Quando a funcao da nuvem estoura o tempo, a Vercel devolve uma pagina
+    // de erro sem JSON; a mensagem generica escondia que foi demora.
+    if (!data.error && (response.status === 504 || response.status === 502)) throw new Error('O servidor demorou demais para responder. Tente de novo em instantes.');
+    throw new Error(data.error || 'Não foi possível acessar o aplicativo local.');
+  }
 
   return data;
 

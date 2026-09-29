@@ -1354,6 +1354,9 @@ def create_app(config=None):
             except Invalid:
                 pass
         images.append((description_bytes,description_mime,'foto da página de descrição do produto'))
+        # Fecha a leitura antes de esperar a IA: sem isso a conexão com o banco
+        # fica presa numa transação aberta durante toda a chamada ao provedor.
+        db().commit()
         context=f"Produto: {c.get('product') or c.get('name') or ''}. Nicho: {c.get('niche') or ''}."
         campos,motivo=copywriter.analyze_product(images,settings,context=context)
         if campos is None:

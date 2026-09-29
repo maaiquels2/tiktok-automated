@@ -39,6 +39,14 @@ BATCH_TIMEOUT = 45
 # Teto de tempo da etapa inteira de escrita. Duas tentativas de 25s somavam
 # quase um minuto; aqui a segunda so comeca se couber dentro do orcamento.
 BUDGET_SECONDS = 32
+# Teto da leitura de fotos pela IA. A funcao na nuvem morre aos 60s, e uma
+# resposta lenta do provedor derrubava o salvamento do look com "Task timed out"
+# sem nenhuma mensagem util. Com o teto, o app responde antes e explica.
+VISION_BUDGET_SECONDS = 40
+# Lado maior das fotos mandadas pra IA. Print de tela do iPhone e foto da
+# galeria passam de 3000px; a IA nao precisa disso pra ler texto e roupa, e
+# arquivo menor sobe e e processado bem mais rapido.
+VISION_MAX_SIDE = 1600
 
 # Afirmacoes de desempenho que so podem aparecer se estiverem no briefing.
 # Entusiasmo subjetivo ("linda", "maravilhosa") fica liberado: e opiniao, nao
@@ -947,6 +955,52 @@ def _parse_vision_result(raw: str) -> dict:
     return out
 
 
+def _shrink_for_vision(image_bytes: bytes, mime: str) -> tuple[bytes, str]:
+    """Reduz a foto para no maximo VISION_MAX_SIDE px (JPEG). Se nao der pra
+    abrir a imagem, manda a original -- a IA decide se consegue ler."""
+    try:
+        import io
+        from PIL import Image, ImageOps
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            img = ImageOps.exif_transpose(img)
+            if max(img.size) <= VISION_MAX_SIDE and len(image_bytes) <= 1_500_000:
+                return image_bytes, mime
+            img.thumbnail((VISION_MAX_SIDE, VISION_MAX_SIDE))
+            if img.mode not in ('RGB', 'L'):
+                img = img.convert('RGB')
+            out = io.BytesIO()
+            img.save(out, format='JPEG', quality=85)
+            return out.getvalue(), 'image/jpeg'
+    except Exception:
+        return image_bytes, mime
+
+
+def _call_with_deadline(caller, settings: dict, system: str, user: str, images, orcamento_s: float) -> str:
+    """Chama o provedor com teto de tempo TOTAL. O timeout do urllib vale por
+    operacao de rede (e o provedor ainda pode repetir a chamada ao recusar um
+    parametro), entao sozinho nao garante que a requisicao termine antes do
+    limite da funcao na nuvem."""
+    import threading
+    resultado: dict = {}
+
+    def alvo():
+        try:
+            resultado['ok'] = caller(settings, system, user, images)
+        except BaseException as exc:  # repassado para quem chamou
+            resultado['erro'] = exc
+
+    tarefa = threading.Thread(target=alvo, daemon=True)
+    tarefa.start()
+    tarefa.join(orcamento_s)
+    if tarefa.is_alive():
+        raise ProviderError(
+            f'a IA não respondeu em {int(orcamento_s)} segundos. '
+            'O briefing foi salvo; tente de novo ou preencha os campos à mão.')
+    if 'erro' in resultado:
+        raise resultado['erro']
+    return resultado['ok']
+
+
 def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, context: str = '') -> tuple[dict | None, str]:
     """Analisa fotos do produto (e/ou da descrição) e devolve sugestoes pros
     campos do briefing. Cada item de `images` e (bytes, mime, rotulo) - o
@@ -967,8 +1021,11 @@ def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, contex
         user += f'\n\nIdentificação de cada foto, na ordem enviada: {identificacao}.'
     if context:
         user += f'\n\nContexto adicional (não invente além disso): {context}'
+    fotos = [_shrink_for_vision(dados, mime) for dados, mime, _ in images]
     try:
-        bruto = caller(settings, VISION_SYSTEM_PROMPT, user, [(dados, mime) for dados, mime, _ in images])
+        bruto = _call_with_deadline(
+            caller, {**settings, '_request_timeout': min(TIMEOUT, VISION_BUDGET_SECONDS)},
+            VISION_SYSTEM_PROMPT, user, fotos, orcamento_s=VISION_BUDGET_SECONDS)
         campos = _parse_vision_result(bruto)
     except ProviderError as exc:
         if exc.status:
