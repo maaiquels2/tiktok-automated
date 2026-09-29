@@ -122,7 +122,7 @@ export function PromptScore({text}){
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onConfigureWriter,videoPromptLimit,immutable}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -176,7 +176,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           </>}
           {focus==='video'&&<>
             {img?<AssetView asset={img} title={`Imagem aprovada · ${variant.color}`} compact/>:<div className="notice">Falta a imagem desta cor.</div>}
-            <div className="variant-prompt"><div className="section-title"><strong>Prompt de vídeo — {variant.color}</strong><div className="prompt-tools"><small className={'prompt-length '+(videoPromptLimit&&p.video?.length>videoPromptLimit?'is-over':'')}>{p.video?.length||0}{videoPromptLimit?` / ${videoPromptLimit}`:''} caracteres</small><PromptScore text={p.video}/>{onRefreshVideoPrompt&&!immutable&&<button type="button" disabled={busy} onClick={()=>onRefreshVideoPrompt(variant.id)}><RefreshCw size={14}/> Recriar prompt</button>}<CopyButton text={p.video||''} onError={onError}/></div></div><p>{p.video||'-'}</p></div>
+            <div className="variant-prompt"><div className="section-title"><strong>Prompt de vídeo — {variant.color}</strong><div className="prompt-tools"><small className={'prompt-length '+(videoPromptLimit&&p.video?.length>videoPromptLimit?'is-over':'')}>{p.video?.length||0}{videoPromptLimit?` / ${videoPromptLimit}`:''} caracteres</small><PromptScore text={p.video}/>{onImproveVideoPrompt&&!immutable&&<button type="button" disabled={busy} onClick={()=>onImproveVideoPrompt(variant.id)}><Sparkles size={14}/> Melhorar prompt</button>}{onRefreshVideoPrompt&&!immutable&&<button type="button" disabled={busy} onClick={()=>onRefreshVideoPrompt(variant.id)}><RefreshCw size={14}/> Recriar prompt</button>}<CopyButton text={p.video||''} onError={onError}/></div></div><p>{p.video||'-'}</p></div>
             <div className="variant-prompt"><div className="section-title"><strong>Falas 15s</strong></div>
               <p><strong>0–4s:</strong> {p.hook||'-'}</p>
               <p><strong>4–12s:</strong> {p.development||'-'}</p>

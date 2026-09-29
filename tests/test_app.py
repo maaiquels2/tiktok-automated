@@ -1243,6 +1243,42 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(_time.monotonic()-inicio,1.5)
         self.assertIn('não respondeu',motivo)
 
+    def test_improve_video_prompt_writes_a_short_descriptive_version(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        variant=before['variants'][1]
+        response=self.post(f"/variants/{variant['id']}/improve-video",{'version':before['version']})
+        self.assertEqual(response.status_code,200,response.json)
+        changed=next(v for v in response.json['variants'] if v['id']==variant['id'])['prompts']
+        video=changed['video']
+        self.assertLess(len(video),1800)
+        self.assertIn('720 × 1280',video)
+        self.assertIn(changed['hook'].replace('"',"'"),video)
+        self.assertIn(changed['cta'].replace('"',"'"),video)
+        self.assertIn('Branco',video)
+        self.assertNotIn('NÃO INVENTAR',video.upper().replace('NAO','NÃO'))
+        # A outra cor nao muda.
+        first=next(v for v in response.json['variants'] if v['id']!=variant['id'])
+        self.assertEqual(first['prompts']['video'],before['variants'][0]['prompts']['video'])
+
+    def test_compact_prompt_follows_video_mode(self):
+        from services.prompt_improve import build_compact_video_prompt
+        base={'product':'Legging','model_name':'Micaela','generator':'flow','movements':'agachar; alongar; girar'}
+        falas={'hook':'Olha isso.','development':'Agacho e continua no lugar.','cta':'Confere no carrinho.'}
+        pov=build_compact_video_prompt({**base,'video_mode':'pov'},falas,'Preto')
+        self.assertIn('nunca o rosto',pov)
+        self.assertIn('1080 × 1920',pov)
+        mudo=build_compact_video_prompt({**base,'video_mode':'movimento'},falas,'Preto')
+        self.assertNotIn('Olha isso',mudo)
+        self.assertIn('sem fala',mudo)
+        ugc=build_compact_video_prompt({**base,'body_turns':'costas'},falas,'Preto')
+        self.assertIn('vira de costas por um instante',ugc)
+        self.assertIn('agachar',ugc)
+        self.assertNotIn('girar',ugc)
+
     def test_explicit_ai_refresh_works_for_a_color_variant(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
         self.cid=other['id']

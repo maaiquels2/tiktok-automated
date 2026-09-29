@@ -28,9 +28,9 @@ const ATTRIBUTES = [
 
 function speechLines(text) {
   const lines = [];
-  const re = /Fala[^:]*:\s*["“]([^"”]+)["”]|(?:She says|says):\s*["“]([^"”]+)["”]/gi;
+  const re = /(?:Fala[^:]*|Ela diz|Narração|She says|says):\s*["“]([^"”]+)["”]/gi;
   let m;
-  while ((m = re.exec(text))) lines.push((m[1] || m[2] || '').trim());
+  while ((m = re.exec(text))) lines.push((m[1] || '').trim());
   return lines;
 }
 
@@ -50,9 +50,9 @@ export function scorePrompt(text) {
   const speech = speechLines(prompt);
   const outsideSpeech = speech.reduce((acc, line) => acc.split(line.toLowerCase()).join(' '), low);
   const totalWords = speech.reduce((n, line) => n + words(line), 0);
-  if (totalWords > 42) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada. O ideal é até 38.`);
-  else if (totalWords > 38) hit(1, `Fala no limite: ${totalWords} palavras em 15s.`);
-  if (speech[0] && words(speech[0]) > 12) hit(1, `O gancho (0–4s) tem ${words(speech[0])} palavras. Em 4 segundos cabem até 12.`);
+  if (totalWords > 50) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada. O ideal é até 46.`);
+  else if (totalWords > 46) hit(1, `Fala no limite: ${totalWords} palavras em 15s.`);
+  if (speech[0] && words(speech[0]) > 14) hit(1, `O gancho (0–4s) tem ${words(speech[0])} palavras. Em 4 segundos cabem até 14.`);
 
   const actions = ACTIONS.filter(([needle]) => outsideSpeech.includes(needle)).map(([, label]) => label);
   if (actions.length >= 6) hit(3, `Ações e ângulos demais para 15s (${actions.length}): ${actions.join(', ')}. Escolha 2 ou 3.`);
