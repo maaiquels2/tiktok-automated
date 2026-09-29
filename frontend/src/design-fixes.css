@@ -270,3 +270,28 @@
   color: #ff8a8a;
   border-color: #ff8a8a;
 }
+
+/* Escolha do nicho com a foto padrão de cada moda (substitui o <select>). */
+.niche-picker-field { display:flex; flex-direction:column; gap:6px; }
+.niche-picker-field .field-label { font-weight:600; }
+.niche-picker {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
+  gap:8px;
+}
+.niche-pick {
+  display:flex; flex-direction:column; align-items:stretch; gap:4px;
+  padding:4px; border-radius:10px; text-align:center;
+  border:1px solid rgba(127,127,127,.35); background:transparent; color:inherit;
+  font-size:12px; line-height:1.2; cursor:pointer;
+}
+.niche-pick img, .niche-pick .niche-pick-empty {
+  width:100%; aspect-ratio:3/4; object-fit:cover; border-radius:7px; display:block;
+}
+.niche-pick .niche-pick-empty {
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(127,127,127,.12); font-size:11px; opacity:.75;
+}
+.niche-pick.selected { border-color:#7c4dff; box-shadow:0 0 0 2px #7c4dff; font-weight:600; }
+.niche-pick:disabled { cursor:default; opacity:.6; }
+.field-error { color:#e5484d; font-size:12px; }
