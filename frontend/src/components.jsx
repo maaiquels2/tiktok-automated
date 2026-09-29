@@ -961,8 +961,9 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         </label>
         {/* O formato (UGC, POV, Só movimento) muda o vídeo inteiro: fica sempre
             à vista. Escondido em "Mais opções" parecia que tinha sumido. */}
-        <label>Formato do vídeo
-          <div className="generator-options pov-options" role="radiogroup" aria-label="Formato do vídeo gerado">
+        <div className="option-field">
+          <span className="option-field-title" id="video-mode-title">Formato do vídeo</span>
+          <div className="generator-options pov-options" role="radiogroup" aria-labelledby="video-mode-title">
             <label className={'generator-option '+(!draft.video_mode?'selected':'')}>
               <input type="radio" name="video_mode" value="" checked={!draft.video_mode} onChange={()=>change('video_mode','')}/>
               <span><strong>UGC com modelo</strong><small>Modelo aparece de frente, como hoje</small></span>
@@ -978,14 +979,15 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           </div>
           <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
           <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
-        </label>
+        </div>
         {/* Motor, formato e orientacao ocupavam boa parte do formulario, cada um
             com um paragrafo de ajuda. Ficam recolhidos, com a escolha atual no
             titulo; abrem sozinhos se ja tiver algo diferente do padrao. */}
         <details className="more-options" open={moreOpen} onToggle={e=>setMoreOpen(e.currentTarget.open)}>
         <summary><strong>Mais opções do vídeo</strong><small>{MOTOR_LABELS[draft.motor||'']} · {BODY_TURN_LABELS[draft.body_turns||'']}</small></summary>
-        <label>Motor de persuasão
-          <div className="generator-options motor-options" role="radiogroup" aria-label="Motor de persuasão do roteiro">
+        <div className="option-field">
+          <span className="option-field-title" id="motor-title">Motor de persuasão</span>
+          <div className="generator-options motor-options" role="radiogroup" aria-labelledby="motor-title">
             <label className={'generator-option '+((!draft.motor)?'selected':'')}>
               <input type="radio" name="motor" value="" checked={!draft.motor} onChange={()=>change('motor','')}/>
               <span><strong>Automático</strong><small>Escolhe pelo que você preencheu</small></span>
@@ -1004,9 +1006,10 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </label>
           </div>
           <small className="help">Define o gatilho que comanda o hook e o CTA. Sem oferta real preenchida, "Escassez" usa só descoberta honesta (achei e não esperava) — nunca prazo ou estoque inventado.</small>
-        </label>
-        <label>Orientação corporal no vídeo
-          <div className="generator-options turn-options" role="radiogroup" aria-label="Maior giro permitido para a modelo">
+        </div>
+        <div className="option-field">
+          <span className="option-field-title" id="body-turns-title">Orientação corporal no vídeo</span>
+          <div className="generator-options turn-options" role="radiogroup" aria-labelledby="body-turns-title">
             <label className={'generator-option '+(!draft.body_turns?'selected':'')}>
               <input type="radio" name="body_turns" value="" checked={!draft.body_turns} onChange={()=>change('body_turns','')}/>
               <span><strong>De frente</strong><small>Sem virar o corpo</small></span>
@@ -1025,7 +1028,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </label>
           </div>
           <small className="help">Essa escolha tem prioridade sobre os movimentos automáticos do nicho. “De frente” impede giros inesperados; costas só aparecem quando você autorizar.</small>
-        </label>
+        </div>
         </details>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">

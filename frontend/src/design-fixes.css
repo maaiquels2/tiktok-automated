@@ -201,7 +201,8 @@
   border-bottom: 1px solid var(--border);
   margin-bottom: 12px;
 }
-.more-options > label {
+.more-options > label,
+.more-options > .option-field {
   padding: 0 14px;
 }
 .more-options > summary strong {
@@ -295,3 +296,49 @@
 .niche-pick.selected { border-color:#7c4dff; box-shadow:0 0 0 2px #7c4dff; font-weight:600; }
 .niche-pick:disabled { cursor:default; opacity:.6; }
 .field-error { color:#e5484d; font-size:12px; }
+
+/* Formato, Motor e Orientacao: antes cada grupo ficava dentro de um <label>
+   com outros <label> dentro. O navegador ligava o titulo ao primeiro botao:
+   passar o mouse em qualquer cartao acendia "De frente" e clicar no titulo
+   marcava a primeira opcao. Agora o grupo e um bloco comum com titulo. */
+.option-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.option-field-title {
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.5;
+}
+
+/* Cartoes de opcao: a descricao era cortada com "..." ("Sem virar ...",
+   "Perfil de 9..."). Agora quebra linha e aparece inteira. */
+.generator-option small {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+/* Orientacao corporal em 2 x 2, igual ao Motor logo acima. Em 4 colunas o
+   nome "Leve de lado" quebrava e as descricoes nao cabiam. */
+.turn-options {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* O foco de teclado desenhava um quadrado roxo em volta da bolinha, que
+   parecia uma segunda opcao marcada. Agora o contorno fica no cartao todo. */
+.generator-option input:focus-visible {
+  outline: none;
+}
+.generator-option:has(input:focus-visible) {
+  outline: 2px solid var(--purple);
+  outline-offset: 2px;
+}
+
+/* Gerador: o texto de ajuda herdava a letra grande dos paragrafos da janela
+   e ficava maior que o resto do formulario. */
+.generator-choice .generator-choice-help {
+  font-size: 12px;
+  line-height: 1.6;
+}
