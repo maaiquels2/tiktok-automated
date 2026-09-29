@@ -678,11 +678,15 @@ export default function App(){
             ):(
               <h1 className="campaign-title-row">{c.name}<button type="button" className="icon-button btn-rename" title="Renomear" aria-label="Renomear campanha" disabled={busy} onClick={beginRename}><Pencil size={14}/></button></h1>
             )}
+            {/* Lembrete da roupa: a foto de referencia da modelo e a roupa
+                padrao que ela veste em todos os videos desta campanha. */}
+            <LookReminder c={c}/>
           </div>
           <div className="export-actions produce-chrome-actions">
             <button className="button" onClick={editCampaign} disabled={busy} title={c.status==='published'?'Criar versão editável':'Editar briefing'}><RefreshCw size={14}/> Editar</button>
             <a className="button export-download" href={`/api/campaigns/${c.id}/package.txt`} title="Baixar textos">TXT</a>
             <a className="button export-download" href={`/api/campaigns/${c.id}/package.zip`} title="Baixar pacote"><Download size={14}/> ZIP</a>
+            <button type="button" className="button danger-action" onClick={()=>deleteCampaign(c.id)} disabled={busy} title="Excluir campanha" aria-label={`Excluir ${c.name}`}><Trash2 size={14}/> Excluir</button>
             <ServiceLaunch service={c.generator} className={'generator-open-btn compact '+(c.generator==='flow'?'is-flow':'is-grok')} disabled={busy||c.status==='published'} onClick={event=>openService(c.generator, selected==='video'||selected==='video_approval'?'video':'image',event)} title={c.generator==='flow'?'Abrir Flow':'Abrir Grok'}>
               <BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/>
               <span className="generator-open-text"><strong>{c.generator==='flow'?'Flow':'Grok'}</strong></span>
@@ -924,6 +928,15 @@ function UserAccessPanel({auth,onError,onFlash}){
   </div>;
 }
 
+function LookReminder({c}){
+  const reference=c.assets.find(a=>a.kind==='reference');
+  const outfit=(c.outfit||'').trim();
+  if(!reference&&!outfit)return null;
+  return <div className="look-reminder">
+    {reference&&<a href={reference.url} target="_blank" rel="noreferrer" title="Abrir a foto da modelo"><img src={reference.url} alt={`Roupa padrão de ${c.model_name}`} loading="lazy"/></a>}
+    <span><small>Roupa da modelo</small><strong>{outfit||'Veja na foto de referência'}</strong></span>
+  </div>;
+}
 function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto}){
   const reference=c.assets.find(a=>a.kind==='reference'),image=c.assets.find(a=>a.kind==='image'),video=c.assets.find(a=>a.kind==='video');
   const [reuse,setReuse]=useState(''),[checks,setChecks]=useState(c.checklist||{}),[publishedUrl,setPublishedUrl]=useState(c.published_url||'');
