@@ -862,6 +862,8 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [nicheOptions,setNicheOptions]=useState(NICHES);
   const [nicheError,setNicheError]=useState(false);
+  const [modelOptions,setModelOptions]=useState([]);
+  useEffect(()=>{let alive=true;listModelLibraryModels().then(data=>{if(alive)setModelOptions(data.models||[])}).catch(()=>{});return()=>{alive=false}},[]);
   useEffect(()=>{let alive=true;(async()=>{try{const mn=draft?.model_name||campaign?.model_name||'Micaela'; const data=await modelLibrary(mn); if(!alive)return; const rows=data.niches||[]; if(rows.length) setNicheOptions(rows.map(n=>({id:n.niche,label:n.label,url:n.has_photo?n.url:''})));}catch(_){}})(); return()=>{alive=false}; },[draft?.model_name, campaign?.model_name]);
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
@@ -871,6 +873,21 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
   const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
   const change=(key,value)=>{setDraft(d=>({...d,[key]:value}));onDirty?.(true)};
+  // Trocar a modelo aqui troca tambem as fotos dos nichos logo abaixo, e o
+  // nome automatico ("Modelo · Nicho") acompanha.
+  function chooseModel(model){
+    setDraft(d=>{
+      const prev=String(d.name||'').trim();
+      const old=String(d.model_name||'').trim().toLowerCase();
+      const next={...d,model_name:model};
+      if(!prev||(old&&prev.toLowerCase().startsWith(old+' · '))){
+        const rest=prev.includes(' · ')?prev.slice(prev.indexOf(' · ')+3):'';
+        next.name=rest?`${model} · ${rest}`:model;
+      }
+      return next;
+    });
+    onDirty?.(true);
+  }
   function applyNiche(niche){
     const defaults=NICHE_DEFAULTS[niche]||{};
     const label=({praia:'Praia',academia:'Academia',casual:'Casual','dia-a-dia':'Dia a dia',intima:'Íntima',fantasia:'Fantasia'})[niche]||niche;
@@ -916,6 +933,21 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
     <fieldset disabled={busy||published}>
       {/* Antes era um <select>: a lista nativa do navegador não mostra
           imagem, e ficava difícil lembrar qual roupa cada moda usa. */}
+      {(()=>{
+        const current=(draft.model_name||'').trim();
+        const names=[...modelOptions];
+        if(current&&!names.some(n=>n.toLocaleLowerCase()===current.toLocaleLowerCase()))names.unshift(current);
+        if(names.length<2)return null;
+        return <div className="option-field model-pick-field">
+          <span className="option-field-title" id="brief-model-title">Modelo</span>
+          <div className="model-pick" role="radiogroup" aria-labelledby="brief-model-title">
+            {names.map(n=>{
+              const active=n.toLocaleLowerCase()===current.toLocaleLowerCase();
+              return <button type="button" key={n} role="radio" aria-checked={active} className={'objection-chip'+(active?' selected':'')} onClick={()=>chooseModel(n)}>{n}</button>;
+            })}
+          </div>
+        </div>;
+      })()}
       <div className="niche-picker-field">
         <span className="field-label">Nicho da modelo *</span>
         <div className="niche-picker" role="radiogroup" aria-label="Nicho da modelo">
@@ -1256,7 +1288,7 @@ export function DailyQueueCard({busy,onError,onFlash,onCreate}){
 // Guarda a modelo escolhida na biblioteca pra ela continuar selecionada
 // depois de recarregar a pagina (antes voltava sempre pra modelo padrao).
 const MODEL_LIBRARY_KEY='fabrica.modelLibrary.activeModel';
-function readStoredModel(){
+export function readStoredModel(){
   try{return (localStorage.getItem(MODEL_LIBRARY_KEY)||'').trim()}catch(_){return ''}
 }
 
@@ -1375,7 +1407,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     const label=(renameDraft||'').trim();
     if(!label){onError?.('Informe o nome da moda.');return}
     try{
-      await renameModelLibraryLabel({model_name:modelName,niche:renaming,label});
+      await renameModelLibraryLabel({model_name:activeModel,niche:renaming,label});
       onFlash?.('Moda renomeada: '+label);
       setRenaming(null);
       await load();
@@ -1385,7 +1417,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     if(!selectedNiche){onError?.('Selecione um nicho com foto.');return}
     setSheetBusy(true);
     try{
-      const data=await characterSheet(modelName,selectedNiche);
+      const data=await characterSheet(activeModel,selectedNiche);
       const text=data.prompt||'';
       try{
         await navigator.clipboard.writeText(text);
@@ -1407,7 +1439,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
     if(!ok)return;
     setSheetBusy(true);
     try{
-      const data=await openCharacterSheet({model_name:modelName,niche:selectedNiche,confirmed:true});
+      const data=await openCharacterSheet({model_name:activeModel,niche:selectedNiche,confirmed:true});
       onFlash?.(data.message||'Grok aberto. Anexe a foto e cole o prompt.');
       if(data.prompt){
         try{await navigator.clipboard.writeText(data.prompt)}catch(_){/* backend may already have copied */}
