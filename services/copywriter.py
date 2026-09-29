@@ -750,8 +750,15 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
         if tentativa and (time.monotonic() - comeco) + TIMEOUT > orcamento_s:
             # Nao comeca uma tentativa que nao tem tempo de terminar.
             return None, (ultimo or 'sem tempo para uma nova tentativa')
+        restante = max(1.0, orcamento_s - (time.monotonic() - comeco)) if tentativa else orcamento_s
         try:
-            bruto = caller(settings, SYSTEM_PROMPT, user)
+            # Teto de tempo TOTAL da chamada. O timeout do urllib vale por
+            # operacao de rede e o provedor ainda repete ao recusar um
+            # parametro: sem isto uma chamada lenta passava do limite de 60s
+            # da funcao na nuvem e a tela so mostrava "demorou demais".
+            bruto = _call_with_deadline(
+                lambda s, sy, u, _imgs: caller(s, sy, u),
+                settings, SYSTEM_PROMPT, user, None, orcamento_s=restante)
             candidates = _parse_candidates(bruto)
         except ProviderError as exc:
             if exc.status:

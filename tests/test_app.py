@@ -1204,6 +1204,45 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,409,response.json)
         self.assertIn('Ative e teste o ChatGPT',response.json['error'])
 
+    def test_generate_writes_all_colors_at_the_same_time(self):
+        # Com varias cores o "Gerar prompts" chamava a IA uma cor por vez e
+        # passava do limite de 60s da nuvem. Agora as cores vao juntas.
+        import time as _time
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco, Preto'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+
+        def lento(campaign, settings, **_):
+            _time.sleep(0.4)
+            return None, 'teste'
+
+        inicio=_time.monotonic()
+        with patch('services.copywriter.write_script',side_effect=lento) as chamada:
+            response=self.post('/generate')
+        duracao=_time.monotonic()-inicio
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(chamada.call_count,3)
+        self.assertLess(duracao,1.0,'as tres cores deviam ser escritas em paralelo')
+        self.assertEqual(len(response.json['variants']),3)
+
+    def test_ai_writing_gives_up_when_the_provider_hangs(self):
+        # Uma chamada presa nao pode segurar a funcao ate o limite da nuvem.
+        import time as _time
+        import services.copywriter as cw
+
+        def travado(settings, system, user):
+            _time.sleep(5)
+            return '{"opcoes": []}'
+
+        conta={'provider':'openai','api_key':'x','model':'m'}
+        inicio=_time.monotonic()
+        with patch.dict(cw.CALLERS,{'openai':travado}):
+            escrito,motivo=cw.write_script({'product':'Top','color':'preto'},conta,orcamento_s=0.3)
+        self.assertIsNone(escrito)
+        self.assertLess(_time.monotonic()-inicio,1.5)
+        self.assertIn('não respondeu',motivo)
+
     def test_explicit_ai_refresh_works_for_a_color_variant(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
         self.cid=other['id']
