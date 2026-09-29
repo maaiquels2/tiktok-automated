@@ -861,7 +861,8 @@ const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',c
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [nicheOptions,setNicheOptions]=useState(NICHES);
-  useEffect(()=>{let alive=true;(async()=>{try{const mn=draft?.model_name||campaign?.model_name||'Micaela'; const data=await modelLibrary(mn); if(!alive)return; const rows=data.niches||[]; if(rows.length) setNicheOptions(rows.map(n=>({id:n.niche,label:n.label})));}catch(_){}})(); return()=>{alive=false}; },[draft?.model_name, campaign?.model_name]);
+  const [nicheError,setNicheError]=useState(false);
+  useEffect(()=>{let alive=true;(async()=>{try{const mn=draft?.model_name||campaign?.model_name||'Micaela'; const data=await modelLibrary(mn); if(!alive)return; const rows=data.niches||[]; if(rows.length) setNicheOptions(rows.map(n=>({id:n.niche,label:n.label,url:n.has_photo?n.url:''})));}catch(_){}})(); return()=>{alive=false}; },[draft?.model_name, campaign?.model_name]);
   const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
@@ -911,15 +912,24 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
       {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
     </div>
   );
-  return <form className="brief-form" onSubmit={e=>{e.preventDefault();onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
+  return <form className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);return}onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
     <fieldset disabled={busy||published}>
-      <label>Nicho da modelo *
-        <select value={draft.niche||''} onChange={e=>applyNiche(e.target.value)} required>
-          <option value="">Escolha o nicho</option>
-          {nicheOptions.map(n=><option key={n.id} value={n.id}>{n.label}</option>)}
-        </select>
+      {/* Antes era um <select>: a lista nativa do navegador não mostra
+          imagem, e ficava difícil lembrar qual roupa cada moda usa. */}
+      <div className="niche-picker-field">
+        <span className="field-label">Nicho da modelo *</span>
+        <div className="niche-picker" role="radiogroup" aria-label="Nicho da modelo">
+          {nicheOptions.map(n=>{
+            const active=draft.niche===n.id;
+            return <button type="button" key={n.id} role="radio" aria-checked={active} className={'niche-pick'+(active?' selected':'')} onClick={()=>applyNiche(n.id)}>
+              {n.url?<img src={n.url} alt="" loading="lazy"/>:<span className="niche-pick-empty">Sem foto</span>}
+              <span>{n.label}</span>
+            </button>;
+          })}
+        </div>
+        {nicheError&&!draft.niche&&<small className="field-error">Escolha o nicho da modelo.</small>}
         <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
-      </label>
+      </div>
       <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>
       <section className="ai-analysis-field" aria-label="Análise automática do produto">
         <div className="section-title"><h3>Análise automática do produto</h3><span className="help">Opcional</span></div>
@@ -1454,7 +1464,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
                   maxLength={60}
                   aria-label="Novo nome da moda"
                   onChange={e=>setRenameDraft(e.target.value)}
-                  onKeyDown={e=>{ if(e.key==='Escape'){ e.preventDefault(); setRenaming(null);} }}
+                  onKeyDown={e=>{ e.stopPropagation(); if(e.key==='Escape'){ e.preventDefault(); setRenaming(null);} }}
                 />
                 <button type="submit" className="primary" disabled={busy||loading}>Salvar</button>
                 <button type="button" disabled={busy||loading} onClick={()=>setRenaming(null)}>Cancelar</button>
