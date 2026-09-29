@@ -34,6 +34,7 @@
 9. Rodar lote 7d em Resultados → gerar playbook → usar **Fila de hoje (5 posts)**.
 
 ## Atualizar depois
+Dê dois cliques em `atualizar-fabrica.bat` (baixa a versão nova, instala e reinicia). Ou, no PowerShell:
 ```powershell
 git pull
 powershell -ExecutionPolicy Bypass -File .\instalar.ps1
