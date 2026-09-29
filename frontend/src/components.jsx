@@ -100,6 +100,10 @@ export function ProductGallery({photos=[]}){
   if(!photos.length)return null;
   return <section className="product-gallery"><h3>Fotos do produto</h3><p>Anexe estas fotos depois da referência fixa da modelo.</p><div className="product-photo-grid">{photos.map((photo,i)=><AssetView key={photo.id} asset={photo} title={`Produto · foto ${i+1}`} compact/>)}</div></section>;
 }
+// Cor aberta por etapa. O painel remonta a cada gravacao (ex.: "Recriar
+// prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
+// usuario estava mexendo.
+const openVariantByFocus={};
 export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onConfigureWriter,videoPromptLimit,immutable}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
@@ -110,8 +114,10 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
   // pendente (ou na primeira cor, se nao houver pendencia). Antes disso as
   // cores todas abriam juntas nas visoes de imagem/video/roteiro, o que
   // enchia a tela num celular com varias cores.
-  const [openColor,setOpenColor]=useState(()=>{
+  const [openColor,setOpenColorState]=useState(()=>{
     if(!variants.length) return null;
+    const remembered=openVariantByFocus[(focus||'')+'|'+variants.map(v=>v.id).join(',')];
+    if(remembered!==undefined&&(remembered===null||variants.some(v=>v.color===remembered))) return remembered;
     const byImg=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
     const byVid=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
     const byDev=Object.fromEntries((deviceVideos||[]).map(a=>[a.slot||'',a]));
@@ -119,6 +125,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
     if(focus==='video') return (variants.find(v=>!byVid[v.color]&&!byDev[v.color])||variants[0]).color;
     return variants[0].color;
   });
+  const setOpenColor=color=>{openVariantByFocus[(focus||'')+'|'+variants.map(v=>v.id).join(',')]=color;setOpenColorState(color)};
   if(!variants.length)return null;
   const byImage=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
   const byVideo=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
