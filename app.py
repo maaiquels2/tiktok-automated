@@ -27,6 +27,7 @@ from services.prompts import (color_variants, generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
 from services import copywriter
+from services import net
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
@@ -85,6 +86,10 @@ def create_app(config=None):
     storage_key=os.environ.get('FABRICA_SUPABASE_SERVICE_KEY','').strip()
     storage_anon_key=os.environ.get('FABRICA_SUPABASE_ANON_KEY','').strip()
     storage_bucket=(os.environ.get('FABRICA_STORAGE_BUCKET','').strip() or 'fabrica-media')
+    if cloud_mode:
+        # Ver services/net.py: no ambiente atual da Vercel a consulta de DNS
+        # mista do Python falha e derruba todo acesso ao Storage.
+        net.install_ipv4_fallback()
     auth_required=bool(app.config.get('AUTH_REQUIRED',cloud_mode or os.environ.get('FABRICA_AUTH_REQUIRED','0')=='1'))
     secret_path=app.config['DATA_DIR']/'session_secret.txt'
     secret=os.environ.get('FABRICA_SECRET_KEY','').strip()
@@ -1126,6 +1131,8 @@ def create_app(config=None):
         except Exception:
             port_i = 5050
         lan = _lan_urls(port_i)
+        # ?deep=1 testa se o servidor alcanca o Storage (sem expor host nem chave).
+        extra = {'armazenamento': net.diagnose(storage_url)} if cloud_mode and request.args.get('deep') == '1' else {}
         return jsonify(
             app='fabrica-tiktok',
             version=6,
@@ -1134,6 +1141,7 @@ def create_app(config=None):
             lan_enabled=os.environ.get('FABRICA_LAN', '1') != '0',
             lan_urls=lan,
             open_on_this_device=f"{request.scheme}://{request.host}",
+            **extra,
         )
 
     @app.get('/api/campaigns')
