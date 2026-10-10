@@ -1132,7 +1132,7 @@ def create_app(config=None):
             port_i = 5050
         lan = _lan_urls(port_i)
         # ?deep=1 testa se o servidor alcanca o Storage (sem expor host nem chave).
-        extra = {'armazenamento': net.diagnose(storage_url)} if cloud_mode and request.args.get('deep') == '1' else {}
+        extra = {'armazenamento': net.diagnose(storage_url, request.args.get('esperado', ''))} if cloud_mode and request.args.get('deep') == '1' else {}
         return jsonify(
             app='fabrica-tiktok',
             version=6,

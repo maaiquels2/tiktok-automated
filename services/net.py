@@ -44,7 +44,7 @@ def _probe(fn):
         return f'http {status}' if status else f'erro: {exc.__class__.__name__}'
 
 
-def diagnose(url: str) -> dict:
+def diagnose(url: str, expected_ref: str = '') -> dict:
     """Testa, sem credenciais, se o servidor alcanca o host de ``url``.
 
     Nao devolve o host nem nenhum segredo: so o resultado de cada tentativa.
@@ -66,6 +66,10 @@ def diagnose(url: str) -> dict:
     return {
         'configurado': True,
         'tipo_de_host': tipo,
+        **({'igual_ao_projeto_informado': host == f'{expected_ref}.supabase.co',
+            'dns_projeto_informado_ipv4': _probe(lambda: _original_getaddrinfo(
+                f'{expected_ref}.supabase.co', 443, socket.AF_INET, socket.SOCK_STREAM)),
+            'tamanho_do_host': len(host)} if expected_ref.isalnum() else {}),
         'dns_referencia_ipv4': _probe(lambda: _original_getaddrinfo('supabase.com', 443, socket.AF_INET, socket.SOCK_STREAM)),
         'dns_misto': _probe(lambda: _original_getaddrinfo(host, 443, 0, socket.SOCK_STREAM)),
         'dns_ipv4': _probe(lambda: _original_getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)),
