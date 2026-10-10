@@ -72,6 +72,13 @@ export function scorePrompt(text) {
     .filter(([needle]) => !outsideSpeech.includes(needle)).map(([, label]) => label);
   if (promised.length) hit(1, `A fala cita ${promised.join(' e ')}, mas nenhuma cena mostra isso.`);
 
+  // Guia oficial do Grok: sem movimento de câmera e luz nomeados, a decisão
+  // mais importante do vídeo fica por conta do acaso.
+  if (!/dolly|travelling|acompanhamento|aproximação|pan\b|panorâmica|tilt|órbita|orbit|zoom|câmera fixa|fixa na altura|câmera na mão|na mão|tripé/.test(outsideSpeech))
+    hit(1, 'Movimento de câmera não nomeado. O guia do Grok pede para dizer como a câmera se move (ex.: "dolly-in lento", "câmera fixa", "câmera na mão").');
+  if (!/\bluz\b|ilumina|golden hour|contraluz/.test(outsideSpeech))
+    hit(1, 'Luz não nomeada. Diga qual luz usar (ex.: "a mesma luz da imagem", "luz natural de janela").');
+
   const handRules = (low.match(/\bmãos?\b/g) || []).length;
   if (handRules >= 7) hit(1, `Regras demais para as mãos (${handRules} menções). O gerador costuma travar os gestos.`);
 

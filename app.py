@@ -2791,6 +2791,26 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+    # Sequencia de 3 partes para o Extend Video do Grok + montagem no CapCut
+    # (services/story_sequence.py). So leitura: nada e gravado, entao nao
+    # mexe no prompt de 15s nem no video ja anexado.
+    @app.get('/api/campaigns/<int:cid>/sequence')
+    def story_sequence(cid):
+        from services.story_sequence import build_story_sequence
+        c=detail(cid)
+        prompts,color=c['prompts'],c.get('color') or ''
+        vid=request.args.get('variant',type=int)
+        if vid is not None:
+            variant=next((v for v in c['variants'] if v['id']==vid),None)
+            if variant is None:
+                raise Invalid('Variação de cor não encontrada.',404)
+            prompts,color=variant['prompts'],variant['color']
+        elif c['variants']:
+            prompts,color=c['variants'][0]['prompts'],c['variants'][0]['color']
+        if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
+            raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de montar a sequência.',409)
+        return jsonify(build_story_sequence(c,prompts,color))
+
     @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
     def edit_variant_prompts(cid,vid):
         data=body()

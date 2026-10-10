@@ -1276,20 +1276,115 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('sem fala',mudo)
         ugc=build_compact_video_prompt({**base,'body_turns':'costas'},falas,'Preto')
         self.assertIn('vira de costas por um instante',ugc)
-        self.assertIn('agachar',ugc)
+        self.assertIn('Ela agacha',ugc)
         self.assertNotIn('girar',ugc)
 
     def test_compact_prompt_uses_every_listed_movement_up_to_four(self):
         from services.prompt_improve import build_compact_video_prompt
         falas={'hook':'Olha isso.','development':'Veste muito bem.','cta':'Confere no carrinho.'}
         tres=build_compact_video_prompt({'product':'Legging','movements':'caminhar, agachar, alongar'},falas,'Preto')
-        for move in ('caminhar','agachar','alongar'):
-            self.assertIn(move,tres)
+        # Narrado na terceira pessoa: "Ela caminha", nao "Ela caminhar".
+        self.assertIn('Ela caminha, depois agacha, depois alonga',tres)
         seis=build_compact_video_prompt({'product':'Legging','body_turns':'lado',
                                          'movements':'caminhar; agachar; alongar; sentar; pular; dançar'},falas,'Preto')
-        self.assertIn('alongar',seis)
-        self.assertNotIn('sentar',seis)
+        self.assertIn('alonga',seis)
+        self.assertNotIn('senta',seis)
         self.assertIn('vira de perfil',seis)
+
+    def test_compact_prompt_follows_the_grok_guide_formula(self):
+        # Guia do Grok: camera e luz nomeadas, clima por referencia, plano
+        # aberto o bastante para a peca vendida aparecer inteira.
+        from services.prompt_improve import build_compact_video_prompt
+        falas={'hook':'Olha isso.','development':'Veste muito bem.','cta':'Confere no carrinho.'}
+        legging=build_compact_video_prompt({'product':'Legging','niche':'academia'},falas,'Preto')
+        self.assertIn('corpo inteiro',legging)
+        self.assertIn('dolly-in lento',legging)
+        self.assertIn('Luz: a mesma da imagem',legging)
+        self.assertIn('fit check de academia',legging)
+        self.assertIn('movimentos lentos',legging)
+        top=build_compact_video_prompt({'product':'Top cropped'},falas,'Preto')
+        self.assertIn('da cintura para cima',top)
+        self.assertNotIn('corpo inteiro',top)
+        mudo=build_compact_video_prompt({'product':'Short','video_mode':'movimento'},falas,'Preto')
+        self.assertIn('dos joelhos para cima',mudo)
+        self.assertIn('fixa',mudo)
+        for texto in (legging,top,mudo):
+            self.assertLess(len(texto),1600)
+
+    def test_compact_prompt_proves_what_the_hook_promises(self):
+        # Com dois fatos confirmados, a prova do meio segue o que a fala
+        # promete primeiro -- nao a ordem interna da lista de atributos.
+        from services.prompt_improve import build_compact_video_prompt
+        falas={'hook':'Eu tinha medo de ficar transparente.','development':'Agachei e a cintura alta ficou no lugar.',
+               'cta':'Corre pro carrinho laranja.'}
+        c={'product':'Legging cintura alta','details':'sem transparência','movements':'agachar; caminhar'}
+        ugc=build_compact_video_prompt(c,falas,'Preto')
+        self.assertIn('agachamento curto de frente sob a mesma luz',ugc)
+        self.assertNotIn('passa a mão na cintura',ugc)
+        self.assertNotIn('depois agacha',ugc)
+        pov=build_compact_video_prompt({**c,'video_mode':'pov'},falas,'Preto')
+        self.assertIn('a pele não aparece',pov)
+        cintura=build_compact_video_prompt(c,{**falas,'hook':'A cintura alta não desce.'},'Preto')
+        self.assertIn('passa a mão na cintura',cintura)
+
+    def test_story_sequence_splits_the_audited_lines_into_three_parts(self):
+        from services.story_sequence import build_story_sequence
+        falas={'hook':'Achei que ia ficar transparente no agachamento.',
+               'development':'Agachei de frente pra luz e nada aparece, o cós continua no lugar o tempo todo.',
+               'cta':'Corre pro carrinho laranja e confere agora.','cover_text':'Legging sem transparência'}
+        c={'product':'Legging','model_name':'Micaela','generator':'grok','details':'sem transparência',
+           'movements':'agachar; caminhar; alongar; sentar'}
+        seq=build_story_sequence(c,falas,'Preto')
+        partes=seq['clips']
+        self.assertEqual([p['role'] for p in partes],['Gancho','Prova','Fechamento'])
+        self.assertEqual([p['kind'] for p in partes],['image','extend','extend'])
+        for parte,campo in zip(partes,('hook','development','cta')):
+            self.assertIn(falas[campo],parte['prompt'])
+            self.assertEqual(parte['spoken'],falas[campo])
+        # So a primeira parte descreve o quadro inicial; as extensoes dizem o
+        # que acontece depois, como pede o guia.
+        self.assertIn('imagem anexada',partes[0]['prompt'])
+        for parte in partes[1:]:
+            self.assertNotIn('imagem anexada',parte['prompt'])
+            self.assertIn('Continuação do mesmo take',parte['prompt'])
+            self.assertLess(len(parte['prompt']),500)
+        self.assertNotIn('sentar',partes[1]['prompt'])
+        self.assertIn('720 × 1280',partes[0]['prompt'])
+        self.assertTrue(any('CapCut' in passo or 'Legendas' in passo for passo in seq['capcut']))
+        self.assertIn('Legging sem transparência',seq['text'])
+        self.assertEqual(seq['total_seconds'],sum(p['seconds'] for p in partes))
+
+    def test_story_sequence_without_speech_moves_the_story_to_screen_text(self):
+        from services.story_sequence import build_story_sequence
+        falas={'hook':'Achei que ia marcar.','development':'Não marca nada.','cta':'Toca no carrinho laranja.',
+               'screen_text':'O medo era marcar o corpo'}
+        seq=build_story_sequence({'product':'Vestido','video_mode':'movimento','details':'bolso lateral'},falas,'Azul')
+        for parte in seq['clips']:
+            self.assertEqual(parte['spoken'],'')
+            self.assertNotIn('Achei que ia marcar',parte['prompt'])
+            self.assertIn('Sem fala',parte['prompt'])
+        self.assertEqual(seq['clips'][0]['screen_text'],'O medo era marcar o corpo')
+        self.assertEqual(seq['clips'][1]['screen_text'],'Repara no bolso lateral')
+        self.assertTrue(any('Silencie' in passo for passo in seq['capcut']))
+        pov=build_story_sequence({'product':'Vestido','video_mode':'pov'},falas,'Azul')
+        for parte in pov['clips']:
+            self.assertRegex(parte['prompt'],'nunca o rosto|O rosto nunca aparece')
+
+    def test_story_sequence_endpoint_reads_the_chosen_color(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        branco=before['variants'][1]
+        response=self.client.get(f"/api/campaigns/{self.cid}/sequence?variant={branco['id']}",headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json['color'],'Branco')
+        self.assertIn(branco['prompts']['hook'].replace('"',"'"),response.json['clips'][0]['prompt'])
+        # So leitura: nada muda na campanha.
+        self.assertEqual(self.get()['version'],before['version'])
+        missing=self.client.get(f'/api/campaigns/{self.cid}/sequence?variant=999999',headers=self.headers)
+        self.assertEqual(missing.status_code,404)
 
     def test_explicit_ai_refresh_works_for_a_color_variant(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
