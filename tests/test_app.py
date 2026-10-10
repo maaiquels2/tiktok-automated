@@ -47,6 +47,14 @@ class WorkflowTests(unittest.TestCase):
         response=self.client.post('/api/campaigns',json=self.brief,headers=self.headers)
         self.assertEqual(response.status_code,201,response.json)
         self.cid=response.json['id']
+        # A conferencia real da chave fala com a OpenAI/Gemini; nos testes de
+        # fluxo ela aprova sempre. Os testes da propria conferencia ficam
+        # abaixo e a exercitam de verdade, com a rede simulada.
+        import services.copywriter as _cw
+        self.real_verify_key=_cw.verify_key
+        verify=patch('services.copywriter.verify_key',return_value=(True,''))
+        verify.start()
+        self.addCleanup(verify.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -1082,6 +1090,66 @@ class WorkflowTests(unittest.TestCase):
         limpo=self.client.patch('/api/writer',json={'clear_key':True},headers=self.headers)
         self.assertFalse(limpo.json['has_key'])
         self.assertFalse(limpo.json['enabled'])
+
+    def test_writer_key_is_checked_before_it_is_saved(self):
+        with patch('services.copywriter.verify_key',return_value=(False,'A chave foi recusada pelo provedor.')) as check:
+            response=self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-chave-errada-123456789012','enabled':True},headers=self.headers)
+        self.assertEqual(response.status_code,400)
+        self.assertIn('recusada',response.json['error'])
+        check.assert_called_once()
+        self.assertFalse(self.client.get('/api/writer').json['has_key'])
+        sem_chave=self.client.patch('/api/writer',json={'provider':'openai','enabled':True},headers=self.headers)
+        self.assertEqual(sem_chave.status_code,400)
+
+    def test_verify_key_checks_format_answer_and_model(self):
+        import io as _io, json as _json, urllib.error as _err
+        real=self.real_verify_key
+        ok,msg=real('openai','chave-sem-prefixo')
+        self.assertFalse(ok); self.assertIn('sk-',msg)
+        ok,msg=real('gemini','sk-coisa-da-openai-1234567890')
+        self.assertFalse(ok); self.assertIn('AIza',msg)
+        class Resp:
+            def __init__(self,data): self.data=data
+            def read(self): return _json.dumps(self.data).encode()
+            def __enter__(self): return self
+            def __exit__(self,*a): return False
+        key='sk-proj-'+'a'*40
+        with patch('urllib.request.urlopen',return_value=Resp({'data':[{'id':'gpt-4o-mini'}]})):
+            self.assertEqual(real('openai',key,'gpt-4o-mini'),(True,''))
+            ok,msg=real('openai',key,'gpt-inexistente')
+            self.assertFalse(ok); self.assertIn('gpt-inexistente',msg)
+        recusa=_err.HTTPError('u',401,'Unauthorized',{},_io.BytesIO(b'{}'))
+        with patch('urllib.request.urlopen',side_effect=recusa):
+            ok,msg=real('openai',key)
+            self.assertFalse(ok); self.assertIn('recusada',msg)
+
+    def test_script_longer_than_15_seconds_cannot_be_concluded(self):
+        self.image_ready()
+        self.assertEqual(self.move('image_approved').status_code,200)
+        longo=' '.join(['palavra']*30)
+        self.assertEqual(self.client.patch(f'/api/campaigns/{self.cid}/prompts',json={'prompts':{'hook':longo},'version':self.get()['version']},headers=self.headers).status_code,200)
+        blocked=self.move('script_ready')
+        self.assertEqual(blocked.status_code,409)
+        self.assertIn('15 segundos',blocked.json['error'])
+        self.assertIn('gancho com 30 palavras',blocked.json['error'])
+
+    def test_compact_prompt_keeps_the_face_and_skips_off_body_actions(self):
+        from services.prompt_improve import build_compact_video_prompt
+        c={'product':'Calça jeans','niche':'dia-a-dia','details':'tecido macio',
+           'movements':'pegar a peça; vestir/ajustar; sentar e levantar','body_turns':'leve_lado'}
+        falas={'hook':'O tecido macio me ganhou.','development':'Repara no tecido macio.','cta':'Corre pro carrinho laranja.'}
+        texto=build_compact_video_prompt(c,falas,'Azul')
+        self.assertIn('rosto fica sempre no quadro',texto)
+        self.assertNotIn('dolly-in lento até o cós',texto)
+        self.assertNotIn('pega a',texto)
+        self.assertNotIn('vestir',texto)
+        self.assertIn('ajusta a peça',texto)
+        self.assertIn('senta e levanta',texto)
+        self.assertIn('sem mostrar as costas',texto)
+        self.assertIn('nunca fica de costas',texto)
+        self.assertNotIn('perto da lente',texto)
+        self.assertIn('totalmente opaco',build_compact_video_prompt({**c,'product':'Short'},falas,'Preto'))
+        self.assertNotIn('nunca fica de costas',build_compact_video_prompt({**c,'body_turns':'costas'},falas,'Azul'))
 
     def test_llm_copy_is_used_when_it_passes_the_audit(self):
         self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)

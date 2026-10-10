@@ -1693,6 +1693,20 @@ def create_app(config=None):
             valor = data.get(campo)
             if valor is not None and (not isinstance(valor, str) or len(valor) > 400):
                 raise Invalid(f'Campo {campo} invalido.')
+        # A chave so e gravada e ligada depois de conferida no provedor.
+        current = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        new_key = (data.get('api_key') or '').strip()
+        eff_provider = provider if provider is not None else current['provider']
+        eff_key = '' if data.get('clear_key') else (new_key or current['api_key'])
+        eff_model = (data.get('model') or '').strip() or (current['model'] if eff_provider == current['provider'] else '') \
+            or copywriter.DEFAULT_MODELS.get(eff_provider, '')
+        turning_on = bool(data.get('enabled', current['enabled']))
+        if turning_on and 'enabled' in data and (not eff_provider or not eff_key):
+            raise Invalid('Escolha o provedor e cole a chave da API para ligar a escrita por IA.')
+        if eff_provider and eff_key and (new_key or (turning_on and 'enabled' in data) or 'model' in data or provider is not None):
+            ok, motivo = copywriter.verify_key(eff_provider, eff_key, eff_model)
+            if not ok:
+                raise Invalid(motivo)
         copywriter.save_settings(
             app.config['DATA_DIR'], data,
             storage_get=(_storage_get if cloud_mode else None),
@@ -3500,6 +3514,25 @@ def create_app(config=None):
             temp_path.unlink(missing_ok=True)
         return jsonify(detail(cid)), 201
 
+    # Teto falado de 15 s, o mesmo que a auditoria aplica ao texto escrito por
+    # IA. Antes, um roteiro editado a mao com 70 palavras era concluido e o
+    # gerador de video acelerava a fala ou cortava o final.
+    SCRIPT_LIMITS={'hook':('gancho',copywriter.BUDGET['hook'][1]),
+                   'development':('desenvolvimento',copywriter.BUDGET['development'][1]),
+                   'cta':('chamada',copywriter.BUDGET['cta'][1])}
+
+    def script_overflow(prompts):
+        problems=[]
+        total=0
+        for key,(name,high) in SCRIPT_LIMITS.items():
+            words=len(str(prompts.get(key) or '').split())
+            total+=words
+            if words>high:
+                problems.append(f'{name} com {words} palavras (máximo {high})')
+        if not problems and total>copywriter.TOTAL_MAX:
+            problems.append(f'{total} palavras no total (máximo {copywriter.TOTAL_MAX})')
+        return problems
+
     @app.post('/api/campaigns/<int:cid>/transition')
     def transition(cid):
         data=body()
@@ -3527,10 +3560,17 @@ def create_app(config=None):
             if current.get('variants'):
                 for variant in current['variants']:
                     vp=variant.get('prompts') or {}
-                    if any(not vp.get(k) for k in ('hook','development','cta','caption','video')):
+                    if any(not str(vp.get(k) or '').strip() for k in ('hook','development','cta','caption','video')):
                         raise Invalid(f"Complete o roteiro da cor {variant['color']} antes de avançar.",409)
-            elif any(not current['prompts'].get(k) for k in PROMPTS):
+                    over=script_overflow(vp)
+                    if over:
+                        raise Invalid(f"O roteiro da cor {variant['color']} não cabe em 15 segundos: {', '.join(over)}. Encurte antes de concluir.",409)
+            elif any(not str(current['prompts'].get(k) or '').strip() for k in PROMPTS):
                 raise Invalid('Gere e revise todos os textos primeiro.',409)
+            else:
+                over=script_overflow(current['prompts'])
+                if over:
+                    raise Invalid(f"O roteiro não cabe em 15 segundos: {', '.join(over)}. Encurte antes de concluir.",409)
         elif target=='video_approved':
             need_asset(cid,'image',True)
             rows=need_videos(cid)

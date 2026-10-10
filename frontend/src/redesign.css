@@ -788,3 +788,17 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   }
   .toast { bottom: calc(150px + env(safe-area-inset-bottom)); }
 }
+
+/* Avisos que bloqueiam o avanco (roteiro acima de 15 s, campo faltando). */
+.rd-alert {
+  background: var(--rd-imagem-soft);
+  color: var(--rd-imagem-ink);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  font-size: 14px;
+}
+.rd-alert ul { margin: 6px 0 0; padding-left: 18px; }
+.field-error { display: block; color: var(--rd-danger); font-size: 13px; font-weight: 600; margin-top: 4px; }
+.rd-phase.is-locked,
+.rd-substep:disabled { opacity: 0.55; cursor: not-allowed; }

@@ -17,7 +17,7 @@ import math
 import re
 
 from services.prompt_improve import (
-    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, size,
+    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, push_target, size,
 )
 from services.prompts import _count_words, _focus_parts, _video_mode, _with_em
 
@@ -107,7 +107,8 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         ])
         middle = '\n'.join([
             keep_line,
-            f'Ela {steps}, devagar; a câmera faz um dolly-in lento até {touch} e volta. Ela diz: "{development}"',
+            f'Ela {steps}, devagar; a câmera faz um dolly-in lento até {push_target(c)} e volta, '
+            f'com o rosto sempre no quadro. Ela diz: "{development}"',
         ])
         last = '\n'.join([
             keep_line,

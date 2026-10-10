@@ -233,6 +233,57 @@ def load_settings(data_dir, storage_get=None) -> dict:
     }
 
 
+# Formato de cada chave. Conferir antes de gravar evita o caso mais comum:
+# colar so um pedaco da chave, ou a chave do outro provedor.
+KEY_FORMATS = {
+    'openai': (r'^sk-[A-Za-z0-9_\-]{20,}$', 'A chave da OpenAI começa com "sk-" e é bem mais longa.'),
+    'gemini': (r'^AIza[0-9A-Za-z_\-]{30,}$', 'A chave do Gemini começa com "AIza".'),
+}
+VERIFY_TIMEOUT = 12
+
+
+def verify_key(provider: str, key: str, model: str = '') -> tuple[bool, str]:
+    """Confere a chave (e o modelo) direto no provedor, sem gastar créditos.
+
+    Listar os modelos da conta e gratuito e responde 401/403 para chave
+    invalida. Antes a chave era gravada e ligada sem nenhuma conferencia: o
+    erro so aparecia na hora de escrever um roteiro, longe da configuracao.
+    """
+    if provider not in KEY_FORMATS:
+        return False, 'Escolha OpenAI ou Gemini.'
+    pattern, hint = KEY_FORMATS[provider]
+    if not re.match(pattern, key or ''):
+        return False, f'Chave em formato inválido. {hint}'
+    if provider == 'openai':
+        request = urllib.request.Request('https://api.openai.com/v1/models',
+                                         headers={'Authorization': f'Bearer {key}'})
+    else:
+        request = urllib.request.Request('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+                                         headers={'x-goog-api-key': key})
+    try:
+        with urllib.request.urlopen(request, timeout=VERIFY_TIMEOUT) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403) or (provider == 'gemini' and exc.code == 400):
+            return False, ('A chave foi recusada pelo provedor. Confira se copiou a chave inteira '
+                           'e se ela continua ativa na sua conta.')
+        if exc.code == 429:
+            return False, 'O provedor recusou por limite de uso ou falta de créditos na conta (429).'
+        return False, f'O provedor respondeu {exc.code} ao conferir a chave. Tente de novo em instantes.'
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return False, 'Não foi possível falar com o provedor para conferir a chave. Verifique a internet e tente de novo.'
+    model = (model or '').strip()
+    if model:
+        if provider == 'openai':
+            names = {str(item.get('id') or '') for item in data.get('data') or [] if isinstance(item, dict)}
+        else:
+            names = {str(item.get('name') or '').removeprefix('models/') for item in data.get('models') or []
+                     if isinstance(item, dict)}
+        if names and model not in names:
+            return False, f'O modelo "{model}" não está disponível para esta chave. Confira o nome do modelo.'
+    return True, ''
+
+
 def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) -> dict:
     current = load_settings(data_dir, storage_get=storage_get)
     provider = values.get('provider')

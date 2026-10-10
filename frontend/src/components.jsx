@@ -349,6 +349,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           </>}
         </div>
         <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
+        <div className="script-budget" aria-label="Palavras por trecho">{[['hook','0–4s',14],['development','4–12s',26],['cta','12–15s',10]].map(([key,time,high])=>{const words=String(p[key]||'').trim().split(/\s+/).filter(Boolean).length;return <span key={key} className={'budget-chip is-'+(!words||words>high?'off':'ok')} title={`${time}: até ${high} palavras`}><em>{time}</em>{words}<small>/máx {high}</small></span>})}</div>
         {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
           <div className="variant-prompt" key={key}>
             <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
@@ -1025,8 +1026,13 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
 }
 const MOTOR_LABELS={'':'Motor automático',necessidade:'Necessidade',escassez:'Escassez',desejo_posse:'Desejo de posse'};
 const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',costas:'De costas'};
+// Campos sem os quais o servidor nao gera prompts. Antes so nome, modelo e
+// produto eram exigidos aqui, e a falta de cor ou publico so aparecia depois,
+// como erro, ao clicar em Gerar.
+const REQUIRED_BRIEF={name:'nome da campanha',product:'produto',color:'cores',model_name:'modelo',outfit:'roupa',audience:'público',benefit:'benefício'};
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
+  const [briefError,setBriefError]=useState('');
   const [nicheOptions,setNicheOptions]=useState(NICHES);
   const [nicheError,setNicheError]=useState(false);
   const [modelOptions,setModelOptions]=useState([]);
@@ -1089,14 +1095,21 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   },[]);
   const field=(key,label,placeholder)=>(
     <div key={key} className={key==='product'?'product-field':''}>
-      <label>{label}{['name','model_name','product'].includes(key)&&' *'}
+      <label>{label}{REQUIRED_BRIEF[key]&&' *'}
         <input value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>
         {key==='color'&&<small className="help">Separe as cores por vírgulas para criar uma variação de cada uma.</small>}
       </label>
       {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
     </div>
   );
-  return <form className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);return}onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
+  return <form className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);return}
+    const missing=Object.entries(REQUIRED_BRIEF).filter(([key])=>!String(draft[key]||'').trim());
+    if(missing.length){
+      setBriefError('Preencha antes de salvar: '+missing.map(([,label])=>label).join(', ')+'.');
+      if(missing.some(([key])=>advanced.some(([k])=>k===key)))setShowAdvanced(true);
+      return;
+    }
+    setBriefError('');onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
     <fieldset disabled={busy||published}>
       {/* Antes era um <select>: a lista nativa do navegador não mostra
           imagem, e ficava difícil lembrar qual roupa cada moda usa. */}
@@ -1259,6 +1272,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         </div>
       )}
     </fieldset>
+    {briefError&&<p className="rd-alert" role="alert">{briefError}</p>}
     <div className="form-actions">
       {onCancel&&<button type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
       <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?.id?'Salvar':'Criar campanha'}</button>
@@ -1325,6 +1339,14 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
   useEffect(()=>{writerSettings().then(setData).catch(e=>onError?.(e.message))},[]);
   if(!data) return null;
   const change=(patch)=>setData(d=>({...d,...patch}));
+  // Formato conferido enquanto digita; a conferencia de verdade (a chave
+  // existe e o modelo esta disponivel) acontece no servidor ao salvar.
+  const typed=key.trim();
+  const keyError=!typed||!data.provider?''
+    :data.provider==='openai'&&!/^sk-[A-Za-z0-9_-]{20,}$/.test(typed)?'A chave da OpenAI começa com "sk-" e é bem mais longa. Confira se copiou a chave inteira.'
+    :data.provider==='gemini'&&!/^AIza[0-9A-Za-z_-]{30,}$/.test(typed)?'A chave do Gemini começa com "AIza". Confira se copiou a chave inteira.'
+    :'';
+  const missingKey=data.enabled&&!data.has_key&&!typed;
   async function save(extra={}){
     setSaving(true);setSample(null);
     try{
@@ -1373,7 +1395,8 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       <label>Chave de API
         <input type="password" value={key} disabled={busy||saving} onChange={e=>setKey(e.target.value)}
           placeholder={data.has_key?`Chave guardada ${data.key_hint} — deixe vazio para manter`:'Cole a chave aqui'} maxLength={400} autoComplete="off"/>
-        <small className="help">Fica só neste computador, em data/llm.json. Nunca é enviada para o GitHub nem aparece na tela depois de salva.</small>
+        {keyError&&<small className="field-error" role="alert">{keyError}</small>}
+        <small className="help">{isCloudMode()?'Fica guardada no armazenamento privado da Fábrica.':'Fica só neste computador, em data/llm.json.'} Nunca aparece na tela depois de salva. Ao salvar, a Fábrica confere a chave e o modelo direto no provedor.</small>
       </label>
       <label className="check-row">
         <input type="checkbox" checked={!!data.enabled} disabled={busy||saving||!data.has_key&&!key.trim()} onChange={e=>change({enabled:e.target.checked})}/>
@@ -1383,8 +1406,9 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
     <div className="form-actions">
       {data.has_key&&<button type="button" disabled={busy||saving} onClick={()=>save({clear_key:true,enabled:false})}>Remover chave</button>}
       {data.provider&&data.has_key&&<button type="button" disabled={busy||testing} onClick={test}>{testing?'Testando…':'Testar conexão'}</button>}
-      <button type="button" className="primary" disabled={busy||saving} onClick={()=>save()}>{saving?'Salvando…':'Salvar escrita por IA'}</button>
+      <button type="button" className="primary" disabled={busy||saving||!!keyError||missingKey} onClick={()=>save()}>{saving?'Conferindo a chave…':'Salvar escrita por IA'}</button>
     </div>
+    {missingKey&&<small className="field-error">Cole a chave da API para ligar a escrita por IA.</small>}
     {sample&&<div className="notice writer-sample">
       <strong>Exemplo gerado agora:</strong>
       <p><em>Hook:</em> {sample.hook}</p>
