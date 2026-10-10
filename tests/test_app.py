@@ -1370,6 +1370,39 @@ class WorkflowTests(unittest.TestCase):
         for parte in pov['clips']:
             self.assertRegex(parte['prompt'],'nunca o rosto|O rosto nunca aparece')
 
+    def test_campaign_list_carries_a_cover_photo(self):
+        self.assertIsNone(self.client.get('/api/campaigns',headers=self.headers).json[0]['cover_asset_id'])
+        ref=self.upload('reference').json
+        cover=self.client.get('/api/campaigns',headers=self.headers).json[0]['cover_asset_id']
+        self.assertIsNotNone(cover)
+        self.assertEqual(self.post('/generate').status_code,200)
+        image=self.upload('image')
+        self.assertEqual(image.status_code,201)
+        cover=self.client.get('/api/campaigns',headers=self.headers).json[0]['cover_asset_id']
+        kinds={a['id']:a['kind'] for a in self.get()['assets']}
+        self.assertEqual(kinds[cover],'image')
+
+    def test_video_mode_switch_keeps_images_and_script(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        response=self.post('/video-mode',{'version':before['version'],'video_mode':'movimento','prompt_style':'guia'})
+        self.assertEqual(response.status_code,200,response.json)
+        after=response.json
+        self.assertEqual(after['video_mode'],'movimento')
+        self.assertEqual(after['status'],before['status'])
+        self.assertEqual([a['id'] for a in after['assets']],[a['id'] for a in before['assets']])
+        for old,new in zip(before['variants'],after['variants']):
+            self.assertEqual(new['prompts']['hook'],old['prompts']['hook'])
+            self.assertEqual(new['prompts']['image'],old['prompts']['image'])
+            self.assertIn('sem fala',new['prompts']['video'])
+            self.assertTrue(new['prompts']['video'].startswith('Vídeo vertical'))
+        back=self.post('/video-mode',{'version':after['version'],'video_mode':''}).json
+        self.assertIn('Fala (PT-BR)',back['variants'][0]['prompts']['video'])
+        self.assertEqual(self.post('/video-mode',{'version':back['version'],'video_mode':'pov'}).status_code,409)
+
     def test_story_sequence_endpoint_reads_the_chosen_color(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
         self.cid=other['id']

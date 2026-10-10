@@ -1138,7 +1138,19 @@ def create_app(config=None):
 
     @app.get('/api/campaigns')
     def list_campaigns():
-        return jsonify([dict(r) for r in db().execute('SELECT * FROM campaigns ORDER BY updated_at DESC,id DESC')])
+        # cover_asset_id: a foto do cartao no Inicio -- a imagem aprovada da
+        # campanha, senao a ultima imagem gerada, senao a referencia da modelo.
+        rows=db().execute('''
+            SELECT c.*, (
+                SELECT a.id FROM assets a
+                WHERE a.campaign_id=c.id AND a.active=1 AND a.kind IN ('image','reference')
+                ORDER BY CASE WHEN a.kind='image' THEN 0 ELSE 1 END,
+                         CASE WHEN a.approved_at IS NULL THEN 1 ELSE 0 END,
+                         a.id DESC
+                LIMIT 1
+            ) AS cover_asset_id
+            FROM campaigns c ORDER BY c.updated_at DESC, c.id DESC''')
+        return jsonify([dict(r) for r in rows])
 
     @app.post('/api/campaigns')
     def create_campaign():
@@ -2787,6 +2799,48 @@ def create_app(config=None):
                      (json.dumps(prompts,ensure_ascii=False),vid))
         if index==0:
             save_prompts(cid,{'video':prompts['video']})
+        touch(cid,c['version'])
+        db().commit()
+        return jsonify(detail(cid))
+
+    # Troca "Com fala" <-> "So movimento" direto na etapa de video. Pelo
+    # briefing (PATCH) qualquer campo muda a campanha inteira e apaga imagens
+    # e prompts; aqui so os prompts de video sao refeitos, porque a imagem e o
+    # roteiro valem para os dois formatos. POV fica de fora: ele muda a
+    # imagem-base e precisa passar por Definir look.
+    @app.post('/api/campaigns/<int:cid>/video-mode')
+    def change_video_mode(cid):
+        data=body()
+        mode=str(data.get('video_mode') or '').strip()
+        if mode not in ('','movimento'):
+            raise Invalid('Aqui dá para alternar entre Com fala e Só movimento. O POV muda a imagem-base: troque em Definir look.',409)
+        c=start(cid,data)
+        editable(c)
+        if (c.get('video_mode') or '')=='pov':
+            raise Invalid('Esta campanha é POV: a imagem-base é em primeira pessoa. Para mudar o formato, use Definir look.',409)
+        guia=data.get('prompt_style')=='guia'
+        db().execute('UPDATE campaigns SET video_mode=? WHERE id=?',(mode,cid))
+        c={**c,'video_mode':mode}
+        def rebuilt(prompts,color,index):
+            if guia:
+                return compact_video_prompt(cid,prompts,color)
+            return rebuild_video_prompt(cid,c,prompts,color,base_image=index>0)
+        rows=db().execute('SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)).fetchall()
+        if rows:
+            for index,row in enumerate(rows):
+                prompts=json.loads(row['prompts'])
+                if not prompts.get('video'):
+                    continue
+                prompts['video']=rebuilt(prompts,row['color'],index)
+                db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
+                             (json.dumps(prompts,ensure_ascii=False),row['id']))
+                if index==0:
+                    save_prompts(cid,{'video':prompts['video']})
+        else:
+            prompts=detail(cid)['prompts']
+            if prompts.get('video'):
+                save_prompts(cid,{'video':rebuilt(prompts,c.get('color') or '',0)})
+        invalidate_video_slot(cid,c)
         touch(cid,c['version'])
         db().commit()
         return jsonify(detail(cid))

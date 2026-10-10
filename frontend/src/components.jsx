@@ -2,6 +2,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from 
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
+import { swatchFor } from './ui';
 import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 export function Dialog({title,children,onClose}){
@@ -118,6 +119,31 @@ export function PromptScore({text}){
   </span>;
 }
 
+// Menu suspenso (conta, ⋯ da campanha). Abre no clique e fecha ao clicar
+// fora, no Esc ou ao escolher um item. Itens: {label, icon, onClick, href,
+// danger, disabled} | {divider:true} | {node} para um bloco so de leitura.
+export function Menu({label,trigger,items,align='end',iconOnly=false}){
+  const [open,setOpen]=useState(false);
+  const ref=useRef(null);
+  useEffect(()=>{
+    if(!open)return;
+    const away=e=>{if(!ref.current?.contains(e.target))setOpen(false)};
+    const esc=e=>{if(e.key==='Escape')setOpen(false)};
+    document.addEventListener('pointerdown',away);
+    document.addEventListener('keydown',esc);
+    return()=>{document.removeEventListener('pointerdown',away);document.removeEventListener('keydown',esc)};
+  },[open]);
+  return <div className="rd-menu" ref={ref}>
+    <button type="button" className={'rd-menu-trigger'+(iconOnly?' is-icon':'')} aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={()=>setOpen(v=>!v)}>{trigger}</button>
+    {open&&<div className={'rd-menu-list align-'+align} role="menu">
+      {items.filter(Boolean).map((item,i)=>item.divider?<hr key={i}/>
+        :item.node?<div key={i} className="rd-menu-info">{item.node}</div>
+        :item.href?<a key={i} role="menuitem" href={item.href} className={item.danger?'is-danger':''} onClick={()=>setOpen(false)}>{item.icon}{item.label}</a>
+        :<button key={i} type="button" role="menuitem" className={item.danger?'is-danger':''} disabled={item.disabled} onClick={e=>{setOpen(false);item.onClick?.(e)}}>{item.icon}{item.label}</button>)}
+    </div>}
+  </div>;
+}
+
 // Sequencia de 3 partes para o Extend Video do Grok (gancho, prova,
 // fechamento) e o passo a passo do CapCut. So leitura: busca quando o usuario
 // abre e nao grava nada na campanha. Quem usa passa key com as falas, para o
@@ -134,7 +160,11 @@ export function StorySequence({campaignId,variantId=null,onError}){
     finally{setLoading(false)}
   }
   return <section className="story-sequence">
-    <button type="button" onClick={toggle} disabled={loading} aria-expanded={open}><Film size={14}/> {loading?'Montando sequência…':open?'Fechar sequência':'Sequência storytelling (Extend Video)'}</button>
+    <button type="button" onClick={toggle} disabled={loading} aria-expanded={open}>
+      <span className="rd-story-eyebrow">MAIS DE 15 SEGUNDOS</span>
+      <strong>{loading?'Montando sequência…':open?'Fechar sequência storytelling':'Sequência storytelling'}</strong>
+      <small>Gancho, prova e fechamento em 3 partes com Extend Video, e o passo a passo do CapCut.</small>
+    </button>
     {open&&seq&&<div className="story-sequence-body">
       <div className="section-title"><strong>3 partes · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
       {seq.clips.map(clip=><div key={clip.index} className="variant-prompt story-clip">
@@ -151,24 +181,111 @@ export function StorySequence({campaignId,variantId=null,onError}){
   </section>;
 }
 
+const VIDEO_FORMATS=[['','Com fala'],['movimento','Só movimento'],['pov','POV']];
+
+// Bancada da etapa Criar video: imagem aprovada ao lado, prompt no topo com a
+// acao principal (copiar e abrir o gerador), falas como linha do tempo, o
+// passo a passo e, por ultimo, o envio do MP4. No celular a acao principal
+// fica presa no rodape, na altura do polegar.
+export function VideoWorkbench({campaign,prompts,color,variantId=null,image,video,deviceVideo,deviceFile,busy,disabled,immutable,onError,onUpload,onDeviceVideo,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,videoPromptLimit}){
+  const p=prompts||{};
+  const [copied,setCopied]=useState(false);
+  const dropRef=useRef(null);
+  const mode=campaign?.video_mode||'';
+  const guia=String(p.video||'').startsWith('Vídeo vertical');
+  const gen=campaign?.generator==='flow'?'Flow':'Grok';
+  const length=p.video?.length||0;
+  const over=!!videoPromptLimit&&length>videoPromptLimit;
+  const hasVideo=!!(video||deviceVideo);
+  const name=color||'este vídeo';
+  const launch=className=><ServiceLaunch service={campaign?.generator||'grok'} className={className} disabled={busy||!p.video}
+    onClick={event=>{copyText(p.video||'');setCopied(true);onOpenGenerator?.(event)}}>
+    <Copy size={18} aria-hidden="true"/> Copiar prompt e abrir o {gen}
+  </ServiceLaunch>;
+  const pickFormat=value=>{if(value!==mode&&!immutable)onChangeVideoMode?.(value,guia)};
+  return <div className="rd-workbench">
+    <aside className="rd-wb-media" aria-label="Imagem aprovada">
+      {image?<AssetView asset={image} title={`Imagem aprovada · ${name}`} compact/>:<div className="notice">Falta a imagem aprovada de {name}.</div>}
+    </aside>
+    <div className="rd-wb-main">
+      <section className="rd-card" aria-label="Prompt de vídeo">
+        <div className="rd-card-head"><h3>Prompt de vídeo{color?` · ${color}`:''}</h3><PromptScore text={p.video}/></div>
+        <div className="rd-segments">
+          <div><span className="rd-segmented-label">Formato</span>
+            <div className="rd-segmented" role="radiogroup" aria-label="Formato do vídeo">
+              {VIDEO_FORMATS.map(([value,label])=><button key={value||'fala'} type="button" role="radio" aria-checked={mode===value} disabled={busy||immutable} onClick={()=>pickFormat(value)}>{label}</button>)}
+            </div>
+          </div>
+          <div><span className="rd-segmented-label">Versão do prompt</span>
+            <div className="rd-segmented" role="radiogroup" aria-label="Versão do prompt">
+              <button type="button" role="radio" aria-checked={guia} disabled={busy||immutable||!onImproveVideoPrompt} onClick={()=>{if(!guia)onImproveVideoPrompt?.(variantId)}}>Guia do Grok</button>
+              <button type="button" role="radio" aria-checked={!guia} disabled={busy||immutable||!onRefreshVideoPrompt} onClick={()=>{if(guia)onRefreshVideoPrompt?.(variantId)}}>Completo</button>
+            </div>
+          </div>
+        </div>
+        <pre className="rd-prompt-box">{p.video||'Gere os prompts em Definir look.'}</pre>
+        <div className="rd-prompt-actions">
+          {launch('rd-cta')}
+          <CopyButton text={p.video||''} onError={onError} label="Só copiar"/>
+          {!immutable&&onRefreshVideoPrompt&&<button type="button" className="button" disabled={busy} onClick={()=>(guia?onImproveVideoPrompt:onRefreshVideoPrompt)?.(variantId)}><RefreshCw size={15}/> Recriar</button>}
+          <span className={'rd-prompt-count'+(over?' is-over':'')}>{length.toLocaleString('pt-BR')}{videoPromptLimit?` / ${videoPromptLimit.toLocaleString('pt-BR')}`:''} caracteres</span>
+        </div>
+      </section>
+
+      <section className="rd-card" aria-label="Falas">
+        <div className="rd-card-head"><h3>Falas em 15 segundos</h3></div>
+        {mode==='movimento'&&<p className="help">Formato sem fala: o vídeo não usa estas frases. Elas seguem valendo para a legenda e o texto na tela.</p>}
+        <div className="rd-timeline">
+          <div><i/><span>0–4s · Gancho</span><p>{p.hook||'—'}</p></div>
+          <div><i/><span>4–12s · Prova</span><p>{p.development||'—'}</p></div>
+          <div><i/><span>12–15s · Chamada</span><p>{p.cta||'—'}</p></div>
+        </div>
+      </section>
+
+      <div className="rd-wb-grid">
+        <section className="rd-card" aria-label="Como gerar">
+          <div className="rd-card-head"><h3>Como gerar</h3></div>
+          <ol className="rd-steps">
+            <li className={copied?'is-done':'is-next'}><b>{copied?'✓':'1'}</b>Copiar o prompt</li>
+            <li className={hasVideo?'is-done':copied?'is-next':''}><b>{hasVideo?'✓':'2'}</b>No {gen}, anexar a imagem aprovada e colar o prompt</li>
+            <li className={hasVideo?'is-done':''}><b>{hasVideo?'✓':'3'}</b>Gerar 2 ou 3 vezes e trazer o melhor MP4</li>
+          </ol>
+        </section>
+        {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/></div>}
+      </div>
+
+      <section className="rd-drop" ref={dropRef} aria-label={`Vídeo de ${name}`}>
+        <div className="rd-drop-head"><strong>{hasVideo?`Vídeo de ${name}`:`Traga o vídeo de ${name}`}</strong><span>MP4 vertical 9:16, cerca de 15 s. No celular, “usar da galeria” valida sem enviar o arquivo.</span></div>
+        {video&&<AssetView asset={video} title={`Vídeo · ${name}`} compact/>}
+        {deviceVideo&&<DeviceVideoCard record={deviceVideo} localFile={deviceFile}/>}
+        {onUpload&&!immutable&&<Uploader kind="video" color={color||undefined} exists={!!video} busy={busy} disabled={disabled} onUpload={onUpload}/>}
+        {onDeviceVideo&&!immutable&&<DeviceVideoPicker color={color||undefined} record={deviceVideo} busy={busy} disabled={disabled} onSelect={onDeviceVideo}/>}
+      </section>
+
+      {!immutable&&<div className="rd-actionbar">
+        <button type="button" className="rd-upload-jump" aria-label="Ir para o envio do vídeo" onClick={()=>dropRef.current?.scrollIntoView({behavior:'smooth',block:'center'})}><Upload size={20}/></button>
+        {launch('rd-cta')}
+      </div>}
+    </div>
+  </div>;
+}
+
 // Cor aberta por etapa. O painel remonta a cada gravacao (ex.: "Recriar
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaignId}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
     writerSettings().then(setWriter).catch(()=>setWriter({enabled:false,provider:''}));
   },[focus]);
-  // Acordeao de verdade: so uma cor aberta por vez, comecando na primeira
-  // pendente (ou na primeira cor, se nao houver pendencia). Antes disso as
-  // cores todas abriam juntas nas visoes de imagem/video/roteiro, o que
-  // enchia a tela num celular com varias cores.
+  // Abas de cor: abre na primeira cor pendente desta etapa (ou na que estava
+  // aberta antes de o painel remontar).
   const [openColor,setOpenColorState]=useState(()=>{
     if(!variants.length) return null;
     const remembered=openVariantByFocus[(focus||'')+'|'+variants.map(v=>v.id).join(',')];
-    if(remembered!==undefined&&(remembered===null||variants.some(v=>v.color===remembered))) return remembered;
+    if(remembered&&variants.some(v=>v.color===remembered)) return remembered;
     const byImg=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
     const byVid=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
     const byDev=Object.fromEntries((deviceVideos||[]).map(a=>[a.slot||'',a]));
@@ -181,80 +298,71 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
   const byImage=Object.fromEntries((images||[]).filter(a=>a.kind==='image').map(a=>[a.slot||a.metadata?.color||'',a]));
   const byVideo=Object.fromEntries((videos||[]).filter(a=>a.kind==='video').map(a=>[a.slot||a.metadata?.color||'',a]));
   const byDeviceVideo=Object.fromEntries((deviceVideos||[]).map(a=>[a.slot||'',a]));
-  const title=focus==='image'?'Imagens por cor':focus==='video'?'Vídeos por cor':focus==='script'?'Roteiros 15s por cor':'Prompts por cor';
+  const title=focus==='image'?'Imagens por cor':focus==='script'?'Roteiros 15s por cor':'Prompts por cor';
   const help=focus==='image'
     ?'Gere e anexe uma imagem por cor. Todas ficam disponíveis para aprovação.'
-    :focus==='video'
-      ?'Use a imagem aprovada da mesma cor, copie o prompt de vídeo e anexe o MP4 de 15s. Precisa de um vídeo por cor.'
-      :focus==='script'
-        ?'Cada cor tem falas (hook, desenvolvimento, CTA). A legenda do TikTok fica na etapa Studio.'
-        :'Abra cada cor para copiar os prompts e o roteiro correspondentes.';
-  return <section className="variant-list"><div className="section-title"><h3>{title}</h3><span className="help">{variants.length} variações</span></div>
-    <p>{help}</p>
-    {variants.map((variant,idx)=>{
-      const p=variant.prompts||{};
-      const img=byImage[variant.color];
-      const vid=byVideo[variant.color];
-      const deviceVid=byDeviceVideo[variant.color];
-      const status=focus==='image'?(img?(img.approved_at?'Imagem aprovada':'Imagem anexada'):'Falta anexar')
-        :focus==='video'?((vid||deviceVid)?((vid||deviceVid).approved_at?'Vídeo aprovado':deviceVid?'Vídeo na galeria':'Vídeo anexado'):'Falta selecionar')
-        :'Roteiro';
-      return <details className="variant-card" key={variant.id||variant.color} open={variant.color===openColor} onToggle={e=>setOpenColor(e.target.open?variant.color:(openColor===variant.color?null:openColor))}>
-        <summary><strong>{variant.color}</strong><span>{status}</span></summary>
-        <div className="variant-content">
-          {focus==='image'&&<>
-            <div className="variant-prompt"><div className="section-title"><strong>Prompt de imagem — use só esta cor</strong><CopyButton text={p.image||''} onError={onError}/></div><p>{p.image||'-'}</p></div>
-            {img?<AssetView asset={img} title={`Resultado · ${variant.color}`} compact/>:null}
-            {onUpload&&!immutable&&<Uploader kind="image" color={variant.color} exists={!!img} busy={busy} disabled={disabled} onUpload={onUpload}/>}
-          </>}
-          {focus==='video'&&<>
-            {img?<AssetView asset={img} title={`Imagem aprovada · ${variant.color}`} compact/>:<div className="notice">Falta a imagem desta cor.</div>}
-            <div className="variant-prompt"><div className="section-title"><strong>Prompt de vídeo — {variant.color}</strong><div className="prompt-tools"><small className={'prompt-length '+(videoPromptLimit&&p.video?.length>videoPromptLimit?'is-over':'')}>{p.video?.length||0}{videoPromptLimit?` / ${videoPromptLimit}`:''} caracteres</small><PromptScore text={p.video}/>{onImproveVideoPrompt&&!immutable&&<button type="button" disabled={busy} onClick={()=>onImproveVideoPrompt(variant.id)}><Sparkles size={14}/> Melhorar prompt</button>}{onRefreshVideoPrompt&&!immutable&&<button type="button" disabled={busy} onClick={()=>onRefreshVideoPrompt(variant.id)}><RefreshCw size={14}/> Recriar prompt</button>}<CopyButton text={p.video||''} onError={onError}/></div></div><p>{p.video||'-'}</p></div>
-            <div className="variant-prompt"><div className="section-title"><strong>Falas 15s</strong></div>
-              <p><strong>0–4s:</strong> {p.hook||'-'}</p>
-              <p><strong>4–12s:</strong> {p.development||'-'}</p>
-              <p><strong>12–15s:</strong> {p.cta||'-'}</p>
+    :focus==='script'
+      ?'Cada cor tem falas (hook, desenvolvimento, CTA). A legenda do TikTok fica na etapa Studio.'
+      :'Escolha a cor para copiar os prompts e o roteiro correspondentes.';
+  const variant=variants.find(v=>v.color===openColor)||variants[0];
+  const tabState=v=>{
+    const img=byImage[v.color],vid=byVideo[v.color]||byDeviceVideo[v.color];
+    if(focus==='image')return img?[img.approved_at?'aprovada':'anexada',true]:['falta imagem',false];
+    if(focus==='video')return vid?[vid.approved_at?'aprovado':'vídeo pronto',true]:['falta vídeo',false];
+    return ['',true];
+  };
+  const p=variant.prompts||{};
+  const img=byImage[variant.color];
+  const vid=byVideo[variant.color];
+  const deviceVid=byDeviceVideo[variant.color];
+  return <section className={'variant-list rd-variants is-'+(focus||'all')}>
+    {focus!=='video'&&<><div className="section-title"><h3>{title}</h3><span className="help">{variants.length} {variants.length===1?'cor':'cores'}</span></div><p>{help}</p></>}
+    <div className="rd-color-tabs" role="tablist" aria-label="Cores">
+      {variants.map(v=>{const [label,ok]=tabState(v);return <button key={v.id||v.color} type="button" role="tab" className="rd-color-tab" aria-selected={v.color===variant.color} onClick={()=>setOpenColor(v.color)}>
+        <span className="rd-swatch" style={{background:swatchFor(v.color)}} aria-hidden="true"/>{v.color}{label&&<small className={ok?'is-ok':''}>{label}</small>}
+      </button>})}
+    </div>
+    <div className="variant-content" role="tabpanel" aria-label={variant.color}>
+      {focus==='image'&&<>
+        <div className="variant-prompt"><div className="section-title"><strong>Prompt de imagem — use só esta cor</strong><CopyButton text={p.image||''} onError={onError}/></div><p>{p.image||'-'}</p></div>
+        {img?<AssetView asset={img} title={`Resultado · ${variant.color}`} compact/>:null}
+        {onUpload&&!immutable&&<Uploader kind="image" color={variant.color} exists={!!img} busy={busy} disabled={disabled} onUpload={onUpload}/>}
+      </>}
+      {focus==='video'&&<VideoWorkbench campaign={campaign} prompts={p} color={variant.color} variantId={variant.id} image={img} video={vid} deviceVideo={deviceVid} deviceFile={deviceFiles[variant.color]}
+        busy={busy} disabled={disabled} immutable={immutable} onError={onError} onUpload={onUpload} onDeviceVideo={onDeviceVideo}
+        onRefreshVideoPrompt={onRefreshVideoPrompt} onImproveVideoPrompt={onImproveVideoPrompt} onChangeVideoMode={onChangeVideoMode} onOpenGenerator={onOpenGenerator} videoPromptLimit={videoPromptLimit}/>}
+      {focus==='script'&&<>
+        {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
+          <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?`Escolha entre gerar somente ${variant.color} ou os roteiros das ${variants.length} cores em uma solicitação.`:'Configure a chave para chamar a API nesta etapa.'}</small></div>
+          {writer?.enabled
+            ?<div className="script-ai-buttons">
+              <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar esta cor</span><span className="button-label-mobile">Esta cor</span></button>
+              {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar todas as {variants.length} cores</span><span className="button-label-mobile">Todas ({variants.length})</span></button>}
             </div>
-            {campaignId&&p.hook&&p.development&&p.cta&&<StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaignId} variantId={variant.id} onError={onError}/>}
-            {vid?<AssetView asset={vid} title={`Vídeo · ${variant.color}`} compact/>:null}
-            {deviceVid?<DeviceVideoCard record={deviceVid} localFile={deviceFiles[variant.color]}/>:null}
-            {onUpload&&!immutable&&<Uploader kind="video" color={variant.color} exists={!!vid} busy={busy} disabled={disabled} onUpload={onUpload}/>}
-            {onDeviceVideo&&!immutable&&<DeviceVideoPicker color={variant.color} record={deviceVid} busy={busy} disabled={disabled} onSelect={onDeviceVideo}/>}
+            :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
+        </section>}
+        <div className="variant-actions">
+          <span className="help">Alternativas locais, sem usar API:</span>
+          {onRefreshVariant&&!immutable&&<>
+            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'],{writerMode:'local'})}>Criar outro hook</button>
+            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
           </>}
-          {focus==='script'&&<>
-            {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
-              <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?`Escolha entre gerar somente ${variant.color} ou os roteiros das ${variants.length} cores em uma solicitação.`:'Configure a chave para chamar a API nesta etapa.'}</small></div>
-              {writer?.enabled
-                ?<div className="script-ai-buttons">
-                  <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar esta cor</span><span className="button-label-mobile">Esta cor</span></button>
-                  {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar todas as {variants.length} cores</span><span className="button-label-mobile">Todas ({variants.length})</span></button>}
-                </div>
-                :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
-            </section>}
-            <div className="variant-actions">
-              <span className="help">Alternativas locais, sem usar API:</span>
-              {onRefreshVariant&&!immutable&&<>
-                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'],{writerMode:'local'})}>Criar outro hook</button>
-                <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
-              </>}
-            </div>
-            <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
-            {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
-              <div className="variant-prompt" key={key}>
-                <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
-                {onSaveVariant&&!immutable
-                  ?<VariantScriptField variant={variant} field={key} value={p[key]||''} busy={busy} onSave={onSaveVariant}/>
-                  :<p>{p[key]||'-'}</p>}
-              </div>)}
-          </>}
-          {!['image','video','script'].includes(focus)&&[['image','Prompt de imagem'],['video','Prompt de vídeo'],['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s'],['caption','Legenda']].map(([key,title])=>
-            <div className="variant-prompt" key={key}>
-              <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
-              <p>{p[key]||'-'}</p>
-            </div>)}
         </div>
-      </details>;
-    })}
+        <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
+        {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
+          <div className="variant-prompt" key={key}>
+            <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
+            {onSaveVariant&&!immutable
+              ?<VariantScriptField variant={variant} field={key} value={p[key]||''} busy={busy} onSave={onSaveVariant}/>
+              :<p>{p[key]||'-'}</p>}
+          </div>)}
+      </>}
+      {!['image','video','script'].includes(focus)&&[['image','Prompt de imagem'],['video','Prompt de vídeo'],['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s'],['caption','Legenda']].map(([key,title])=>
+        <div className="variant-prompt" key={key}>
+          <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
+          <p>{p[key]||'-'}</p>
+        </div>)}
+    </div>
   </section>;
 }
 
