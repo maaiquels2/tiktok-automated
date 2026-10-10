@@ -1716,6 +1716,44 @@ textarea:focus {
   color: var(--ink-48);
 }
 
+.story-sequence {
+  margin-top: 12px;
+}
+.story-sequence > button {
+  min-height: 34px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.story-sequence-body {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-13);
+  border-radius: 12px;
+}
+.story-sequence-body .section-title small {
+  font-weight: 400;
+  color: var(--muted);
+}
+.story-sequence-body h4 {
+  margin: 14px 0 4px;
+  font-size: 13px;
+}
+.story-sequence-body ul,
+.story-sequence-body ol {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.story-clip .help {
+  display: block;
+  margin-bottom: 4px;
+}
+.variant-prompt p.story-screen-text {
+  margin-top: 6px;
+  max-height: none;
+}
+
 .comparison-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));

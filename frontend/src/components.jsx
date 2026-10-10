@@ -2,7 +2,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from 
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -118,11 +118,44 @@ export function PromptScore({text}){
   </span>;
 }
 
+// Sequencia de 3 partes para o Extend Video do Grok (gancho, prova,
+// fechamento) e o passo a passo do CapCut. So leitura: busca quando o usuario
+// abre e nao grava nada na campanha. Quem usa passa key com as falas, para o
+// painel recomecar quando o roteiro muda.
+export function StorySequence({campaignId,variantId=null,onError}){
+  const [open,setOpen]=useState(false);
+  const [seq,setSeq]=useState(null);
+  const [loading,setLoading]=useState(false);
+  async function toggle(){
+    if(seq){setOpen(v=>!v);return}
+    setLoading(true);
+    try{setSeq(await storySequence(campaignId,variantId));setOpen(true)}
+    catch(e){onError?.(e.message)}
+    finally{setLoading(false)}
+  }
+  return <section className="story-sequence">
+    <button type="button" onClick={toggle} disabled={loading} aria-expanded={open}><Film size={14}/> {loading?'Montando sequência…':open?'Fechar sequência':'Sequência storytelling (Extend Video)'}</button>
+    {open&&seq&&<div className="story-sequence-body">
+      <div className="section-title"><strong>3 partes · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
+      {seq.clips.map(clip=><div key={clip.index} className="variant-prompt story-clip">
+        <div className="section-title"><strong>Parte {clip.index} · {clip.role} <small>{clip.kind==='image'?'imagem → vídeo':'Extend Video'} · ~{clip.seconds}s</small></strong><CopyButton text={clip.prompt} onError={onError}/></div>
+        <small className="help">{clip.why}</small>
+        <p>{clip.prompt}</p>
+        {clip.screen_text&&<p className="story-screen-text"><strong>Texto na tela (CapCut):</strong> {clip.screen_text}</p>}
+      </div>)}
+      <h4>Como gerar no Grok</h4>
+      <ul>{seq.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>
+      <h4>Montagem no CapCut</h4>
+      <ol>{seq.capcut.map(step=><li key={step}>{step}</li>)}</ol>
+    </div>}
+  </section>;
+}
+
 // Cor aberta por etapa. O painel remonta a cada gravacao (ex.: "Recriar
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaignId}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -182,6 +215,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
               <p><strong>4–12s:</strong> {p.development||'-'}</p>
               <p><strong>12–15s:</strong> {p.cta||'-'}</p>
             </div>
+            {campaignId&&p.hook&&p.development&&p.cta&&<StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaignId} variantId={variant.id} onError={onError}/>}
             {vid?<AssetView asset={vid} title={`Vídeo · ${variant.color}`} compact/>:null}
             {deviceVid?<DeviceVideoCard record={deviceVid} localFile={deviceFiles[variant.color]}/>:null}
             {onUpload&&!immutable&&<Uploader kind="video" color={variant.color} exists={!!vid} busy={busy} disabled={disabled} onUpload={onUpload}/>}
