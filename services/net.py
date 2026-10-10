@@ -57,8 +57,16 @@ def diagnose(url: str) -> dict:
         with urllib.request.urlopen(url.rstrip('/') + '/storage/v1/version', timeout=10):
             pass
 
+    if host.startswith('db.') and host.endswith('.supabase.co'):
+        tipo = 'banco direto (db.*, so IPv6) -- deveria ser o Project URL'
+    elif host.endswith('.supabase.co'):
+        tipo = 'Project URL do Supabase'
+    else:
+        tipo = 'outro'
     return {
         'configurado': True,
+        'tipo_de_host': tipo,
+        'dns_referencia_ipv4': _probe(lambda: _original_getaddrinfo('supabase.com', 443, socket.AF_INET, socket.SOCK_STREAM)),
         'dns_misto': _probe(lambda: _original_getaddrinfo(host, 443, 0, socket.SOCK_STREAM)),
         'dns_ipv4': _probe(lambda: _original_getaddrinfo(host, 443, socket.AF_INET, socket.SOCK_STREAM)),
         'dns_ipv6': _probe(lambda: _original_getaddrinfo(host, 443, socket.AF_INET6, socket.SOCK_STREAM)),
