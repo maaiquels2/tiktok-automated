@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
+import {Landing, BackToLanding} from './Landing';
 import {Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 
@@ -557,7 +558,7 @@ export default function App(){
     try{await api(`/campaigns/${c.id}/layout`,{method:'PATCH',body:{layout}});setC(old=>({...old,layout}));}catch(e){setError(e.message)}
   }
   if(auth?.required&&!auth.authenticated){
-    return <AuthScreen setup={auth.setup_required} onDone={()=>location.reload()}/>;
+    return <Landing setup={auth.setup_required} renderLogin={back=><AuthScreen setup={auth.setup_required} onBack={back} onDone={()=>{location.hash='/inicio';location.reload()}}/>}/>;
   }
   const device=getDeviceInfo();
   const DeviceIcon=device.type==='phone'?Smartphone:device.type==='tablet'?Tablet:Monitor;
@@ -872,7 +873,7 @@ export default function App(){
   </>;
 }
 
-function AuthScreen({setup,onDone}){
+function AuthScreen({setup,onBack,onDone}){
   const [form,setForm]=useState({display_name:'',username:'',password:''});
   const [busy,setBusy]=useState(false),[error,setError]=useState('');
   async function submit(event){
@@ -881,6 +882,7 @@ function AuthScreen({setup,onDone}){
     catch(e){setError(e.message||String(e));setBusy(false)}
   }
   return <main className="auth-shell"><section className="auth-card">
+    {onBack&&<BackToLanding onBack={onBack}/>}
     <div className="auth-brand"><span className="logo" aria-hidden="true"><Clapperboard size={18}/></span><div><strong>Fábrica TikTok</strong><small>Estúdio compartilhado</small></div></div>
     <span className="eyebrow">{setup?'PRIMEIRO ACESSO':'ENTRAR'}</span>
     <h1>{setup?'Crie o acesso principal':'Entre no estúdio'}</h1>
