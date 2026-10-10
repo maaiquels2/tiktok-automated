@@ -86,10 +86,6 @@ def create_app(config=None):
     storage_key=os.environ.get('FABRICA_SUPABASE_SERVICE_KEY','').strip()
     storage_anon_key=os.environ.get('FABRICA_SUPABASE_ANON_KEY','').strip()
     storage_bucket=(os.environ.get('FABRICA_STORAGE_BUCKET','').strip() or 'fabrica-media')
-    if cloud_mode:
-        # Ver services/net.py: no ambiente atual da Vercel a consulta de DNS
-        # mista do Python falha e derruba todo acesso ao Storage.
-        net.install_ipv4_fallback()
     auth_required=bool(app.config.get('AUTH_REQUIRED',cloud_mode or os.environ.get('FABRICA_AUTH_REQUIRED','0')=='1'))
     secret_path=app.config['DATA_DIR']/'session_secret.txt'
     secret=os.environ.get('FABRICA_SECRET_KEY','').strip()
@@ -1132,7 +1128,17 @@ def create_app(config=None):
             port_i = 5050
         lan = _lan_urls(port_i)
         # ?deep=1 testa se o servidor alcanca o Storage (sem expor host nem chave).
-        extra = {'armazenamento': net.diagnose(storage_url, request.args.get('esperado', ''))} if cloud_mode and request.args.get('deep') == '1' else {}
+        extra = {}
+        if cloud_mode and request.args.get('deep') == '1':
+            report = net.diagnose(storage_url, request.args.get('esperado', ''))
+            try:
+                _storage_get('model-library/model_library.json')
+                report['leitura_com_chave'] = 'ok'
+            except Invalid as exc:
+                report['leitura_com_chave'] = f'erro {exc.status}: {exc.message[:160]}'
+            except Exception as exc:
+                report['leitura_com_chave'] = f'erro: {exc.__class__.__name__}'
+            extra = {'armazenamento': report}
         return jsonify(
             app='fabrica-tiktok',
             version=6,

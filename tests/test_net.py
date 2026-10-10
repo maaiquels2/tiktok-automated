@@ -1,4 +1,3 @@
-import errno
 import socket
 import unittest
 from unittest.mock import patch
@@ -6,48 +5,31 @@ from unittest.mock import patch
 from services import net
 
 
-class Ipv4FallbackTests(unittest.TestCase):
-    def test_busy_mixed_lookup_retries_with_ipv4_only(self):
-        calls = []
-
+class StorageDiagnosisTests(unittest.TestCase):
+    def test_reports_a_host_that_does_not_exist_without_exposing_it(self):
         def fake(host, port, family=0, type=0, proto=0, flags=0):
-            calls.append(family)
-            if family == socket.AF_UNSPEC:
-                raise OSError(errno.EBUSY, 'Device or resource busy')
-            return [('ipv4',)]
-
-        with patch.object(net, '_original_getaddrinfo', fake):
-            self.assertEqual(net._getaddrinfo_with_ipv4_fallback('x.supabase.co', 443), [('ipv4',)])
-        self.assertEqual(calls, [socket.AF_UNSPEC, socket.AF_INET])
-
-    def test_other_errors_are_not_hidden(self):
-        def fake(host, port, family=0, type=0, proto=0, flags=0):
-            raise socket.gaierror(socket.EAI_NONAME, 'Name or service not known')
-
-        with patch.object(net, '_original_getaddrinfo', fake):
-            with self.assertRaises(socket.gaierror):
-                net._getaddrinfo_with_ipv4_fallback('nao-existe.invalid', 443)
-
-    def test_explicit_family_is_never_rewritten(self):
-        def fake(host, port, family=0, type=0, proto=0, flags=0):
-            raise OSError(errno.EBUSY, 'Device or resource busy')
-
-        with patch.object(net, '_original_getaddrinfo', fake):
-            with self.assertRaises(OSError):
-                net._getaddrinfo_with_ipv4_fallback('x.supabase.co', 443, socket.AF_INET6)
-
-    def test_diagnose_reports_without_exposing_the_host(self):
-        def fake(host, port, family=0, type=0, proto=0, flags=0):
-            if family == socket.AF_UNSPEC:
-                raise OSError(errno.EBUSY, 'Device or resource busy')
+            if host == 'projetoantigo123.supabase.co':
+                raise socket.gaierror(socket.EAI_NONAME, 'Name or service not known')
             return [('ok',)]
 
-        with patch.object(net, '_original_getaddrinfo', fake), \
-                patch.object(net.urllib.request, 'urlopen', side_effect=OSError(errno.ECONNREFUSED, 'recusada')):
-            result = net.diagnose('https://segredo123.supabase.co')
-        self.assertEqual(result['dns_misto'], 'erro 16: Device or resource busy')
-        self.assertEqual(result['dns_ipv4'], 'ok')
-        self.assertNotIn('segredo123', str(result))
+        with patch.object(net.socket, 'getaddrinfo', fake), \
+                patch.object(net.urllib.request, 'urlopen', side_effect=OSError(-2, 'Name or service not known')):
+            result = net.diagnose('https://projetoantigo123.supabase.co', 'projetoatual456')
+        self.assertTrue(result['dns_ipv4'].startswith('erro'))
+        self.assertEqual(result['dns_referencia_ipv4'], 'ok')
+        self.assertFalse(result['igual_ao_projeto_informado'])
+        self.assertEqual(result['dns_projeto_informado_ipv4'], 'ok')
+        self.assertEqual(result['tipo_de_host'], 'Project URL do Supabase')
+        self.assertNotIn('projetoantigo123', str(result))
+
+    def test_flags_the_ipv6_only_database_host(self):
+        with patch.object(net.socket, 'getaddrinfo', return_value=[('ok',)]), \
+                patch.object(net.urllib.request, 'urlopen', side_effect=OSError(-2, 'x')):
+            result = net.diagnose('https://db.abc.supabase.co')
+        self.assertIn('banco direto', result['tipo_de_host'])
+        self.assertNotIn('igual_ao_projeto_informado', result)
+
+    def test_not_configured(self):
         self.assertEqual(net.diagnose(''), {'configurado': False})
 
 
