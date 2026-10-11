@@ -32,7 +32,7 @@ from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
-FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
 # continua proibindo letra no quadro). Ficam fora de PROMPTS de proposito:
@@ -48,7 +48,7 @@ EXTRA_PROMPTS = ['cover_text','screen_text']
 # da nuvem, que nao era migrado, respondia 'column does not exist'.
 CAMPAIGN_COLUMNS = {k: "TEXT NOT NULL DEFAULT ''" for k in
                     ['audience','benefit','angle','tone','style','details','movements','body_turns',
-                     'migration_note','niche','objection','offer','motor','video_mode','social_proof']}
+                     'migration_note','niche','objection','offer','motor','video_mode','social_proof','video_style']}
 CAMPAIGN_COLUMNS.update(version='INTEGER NOT NULL DEFAULT 1',
                         layout="TEXT NOT NULL DEFAULT '{}'",
                         checklist="TEXT NOT NULL DEFAULT '{}'",
@@ -1048,6 +1048,11 @@ def create_app(config=None):
         if turn_values-allowed_turns:
             raise Invalid('Escolha somente os giros disponíveis: leve de lado, de lado ou de costas.')
         values['body_turns']=','.join(key for key in ('leve_lado','lado','costas') if key in turn_values)
+        # Estilo do video: closes no produto e/ou movimentos ousados.
+        style_values={part.strip() for part in (values.get('video_style') or '').split(',') if part.strip()}
+        if style_values-{'closes','ousado'}:
+            raise Invalid('Estilo de vídeo inválido: use closes no produto e/ou movimentos ousados.')
+        values['video_style']=','.join(key for key in ('closes','ousado') if key in style_values)
         from services.model_library import NICHE_IDS
         niche = (values.get('niche') or '').strip()
         if niche and niche not in NICHE_IDS:

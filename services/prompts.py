@@ -356,6 +356,8 @@ def _benefit_clause(c):
                 break
             compact.append(clause)
         raw = ', '.join(compact) if compact else ' '.join(words[:12]).rstrip(' ,;:')
+        # Nunca terminar em preposicao/artigo ("um visual marcante para").
+        raw = re.sub(r'(\s+(?:para|pra|de|da|do|com|em|no|na|e|o|a|os|as|um|uma|que))+$', '', raw, flags=re.I)
     raw = re.sub(r'^produto de qualidade\b', 'qualidade', raw, flags=re.I)
     raw = re.sub(r'\s+e\s+versát(?:il|eis)\b', ' e é versátil', raw, flags=re.I)
     raw = raw[0].lower() + raw[1:] if raw else raw
@@ -375,7 +377,9 @@ def _benefit_clause(c):
 
 _OWN_SUBJECT_VERBS = re.compile(
     r'\b(valoriza|valorizam|deixa|deixam|fica|ficam|é|são|tem|têm|ajuda|ajudam|dá|dão|realça|realçam|'
-    r'marca|marcam|cai|caem|veste|vestem|combina|combinam|traz|trazem|mostra|mostram|acompanha|acompanham)\b',
+    r'marca|marcam|cai|caem|veste|vestem|combina|combinam|traz|trazem|mostra|mostram|acompanha|acompanham|'
+    r'cria|criam|garante|garantem|destaca|destacam|alonga|alongam|afina|afinam|levanta|levantam|'
+    r'chama|chamam|transforma|transformam|define|definem)\b',
     re.I)
 
 
@@ -2134,6 +2138,53 @@ def _visual_outfit(c, product):
     return outfit
 
 
+def video_style(c):
+    """Opcoes de estilo escolhidas pelo operador: 'closes' (a camera pode
+    sair do rosto para closes curtos no material) e 'ousado' (movimento
+    maior, conforme a peca)."""
+    return {part.strip() for part in str(c.get('video_style') or '').split(',') if part.strip()}
+
+
+# Movimento ousado por tipo de peca. "giro" marca os que passam pelas costas.
+_BOLD_MOVES = (
+    (('vestido', 'saia', 'saída de praia', 'saida de praia', 'kimono', 'macacão', 'macacao'),
+     'dá um giro completo e rápido, deixando a peça abrir e acompanhar o movimento', True),
+    (('fantasia',), 'faz um gesto característico da fantasia e dá um giro completo e rápido', True),
+    (('legging', 'short', 'bermuda', 'top', 'conjunto fitness'),
+     'faz um agachamento firme e uma passada larga, com energia de treino', False),
+    (('biquíni', 'biquini', 'maiô', 'maio'),
+     'caminha confiante, joga o cabelo para trás e leva a mão à cintura', False),
+    (('calça', 'calca', 'jeans', 'courino', 'colete', 'jaqueta', 'blazer'),
+     'caminha com passos firmes até a câmera, com a mão na cintura', False),
+    (('blusa', 'regata', 'camisa', 'body', 'cropped'),
+     'joga o cabelo para trás e vira o ombro para a lente', False),
+    (('pijama', 'baby doll', 'robe'),
+     'se espreguiça e dá uma voltinha leve', False),
+)
+
+
+def bold_move(c, espelho=False):
+    """(acao, giro_completo) do movimento ousado para esta peca."""
+    text = ' '.join(_phrase(c.get(k)).casefold() for k in ('product', 'outfit'))
+    move, spin = 'faz um movimento amplo e confiante que mostre a peça inteira', False
+    for words, candidate, giro in _BOLD_MOVES:
+        if any(w in text for w in words):
+            move, spin = candidate, giro
+            break
+    if espelho:
+        move = move.replace('até a câmera', 'até o espelho').replace('para a lente', 'para o espelho')
+    return move, spin
+
+
+def close_target(c):
+    """O que a camera mostra de perto nos closes: material ou fato confirmado."""
+    feats = _product_features(c, limit=3)
+    materials = [f for f in feats if f in _MATERIAL_LABELS]
+    alvo = materials[0] if materials else (feats[0] if feats else '')
+    # "no cetim", "nos botões": ja com a contracao de "em".
+    return _with_em(_with_article(alvo)) if alvo else 'no tecido e nos detalhes da peça'
+
+
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta,
                         base_image=False, formato='ugc'):
     """Prompt unico do Grok para a modelo falando: as travas do prompt completo
@@ -2170,7 +2221,10 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     # Cada fato confirmado ganha o gesto que o prova; onde o gerador tem
     # limite de caracteres, dois gestos bem escolhidos cabem e provam.
     gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4), turns=_body_turns(c))
-    gestures = [f'{lab} → {_STAY_IN_FRAME.get(lab, ges)}' for lab, ges in (g.split(' → ', 1) for g in gestures)]
+    estilo = video_style(c)
+    if 'closes' not in estilo:
+        # Sem closes autorizados, a prova acontece no plano, com o rosto no quadro.
+        gestures = [f'{lab} → {_STAY_IN_FRAME.get(lab, ges)}' for lab, ges in (g.split(' → ', 1) for g in gestures)]
     # Motor de persuasao no corpo; tempos proporcionais as falas (4s/12s no padrao).
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook),
                                       f"{anchor} {forms['de']} {forms['piece']}")
@@ -2178,6 +2232,11 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     espelho = formato == 'espelho'
     if espelho:
         turn_direction = turn_direction.replace('à lente', 'ao espelho').replace('a lente', 'o espelho')
+        # O quadro e o reflexo: mostrar de perto = se aproximar do espelho.
+        moves = re.sub(r'\bmostrar de perto\b', 'aproximar-se do espelho e mostrar de perto', moves)
+        if 'espelho' not in moves:
+            alvo = _with_article(features[0]) if features else 'os detalhes da peça'
+            moves = f"aproximar-se do espelho para mostrar {alvo} de perto e voltar; {moves}"
         # Celular no espelho: o quadro e o reflexo; uma mao segura o celular o
         # tempo todo e a outra faz tudo (gesto, prova, carrinho).
         clima = 'fit check no espelho gravado com o celular e postado no TikTok'
@@ -2202,6 +2261,26 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         fecha = (f"já de frente para a lente, com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, como "
                  "quem ajusta a peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta, "
                  "sorrindo, sem parar de falar e sem pose final. ")
+    if 'ousado' in estilo:
+        ousado, giro = bold_move(c, espelho=espelho)
+        moves = f"{ousado}; {moves}"
+        if giro and 'costas' not in _body_turns(c):
+            turn_direction = ('ORIENTAÇÃO CORPORAL: de frente para a ' + ('espelho' if espelho else 'lente')
+                              + ', com um giro completo e rápido no meio; as costas só passam, ela nunca para de costas.')
+            turn_direction = turn_direction.replace('para a espelho', 'para o espelho')
+    if 'closes' in estilo:
+        alvo = close_target(c)
+        if espelho:
+            camera = camera.replace(
+                "O rosto fica sempre inteiro no reflexo enquanto ela fala, olhando para a tela do celular. ",
+                f"No gancho e no fim o rosto fica inteiro no reflexo, olhando para a tela do celular; no meio, ela "
+                f"aproxima o celular da peça para 1 ou 2 closes curtos (1 a 2 s) {alvo}, enquanto a voz continua, "
+                "e volta ao reflexo. ")
+        else:
+            camera = camera.replace(
+                "O rosto fica sempre inteiro no quadro enquanto ela fala. ",
+                f"No gancho e no fim o rosto fica inteiro no quadro; no meio, a câmera faz 1 ou 2 closes curtos "
+                f"(1 a 2 s cada) {alvo}, enquanto a voz dela continua, e volta ao rosto. ")
     proof_block = (
         f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s, '
         'sem interromper a fala: ' + '; '.join(gestures) + '.\n'

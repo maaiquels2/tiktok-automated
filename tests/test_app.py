@@ -1445,6 +1445,57 @@ class WorkflowTests(unittest.TestCase):
         from services.prompts import _video_mode
         self.assertEqual(_video_mode({'video_mode':'celular no espelho'}),'espelho')
 
+    def test_mirror_mode_moves_closer_and_turns_when_allowed(self):
+        # Teste real: no espelho ela ficou estatica (sem se aproximar) e sem giro.
+        from services.prompt_improve import build_compact_video_prompt
+        from services.prompts import _benefit_clause
+        c=dict(model_name='Micaela',product='Vestido mini tomara que caia franzido',outfit='vestido',color='Preto',
+               audience='',benefit='o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite',
+               angle='',tone='',style='',details='tule franzido',movements='dar dois passos; mostrar de perto o franzido',
+               body_turns='leve_lado',generator='grok',niche='casual',video_mode='espelho')
+        g=generate(c)
+        acoes=g['video'].split('AÇÕES',1)[1].split('ENCERRAMENTO',1)[0]
+        self.assertIn('aproximar-se do espelho',acoes)
+        self.assertIn('inclinação de 20 a 30 graus',g['video'])
+        curto=build_compact_video_prompt(c,g,'Preto')
+        self.assertIn('em direção ao espelho para mostrar o tule de perto',curto)
+        self.assertIn('vira o corpo uns 30 graus',curto)
+        self.assertIn('dá dois passos',curto)
+        self.assertNotIn('dar dois passos',curto)
+        beneficio=_benefit_clause({'benefit':'o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite'})
+        self.assertFalse(beneficio.startswith('A peça tem'),beneficio)
+        self.assertFalse(beneficio.rstrip('.').endswith(' para'),beneficio)
+
+    def test_video_style_closes_and_bold_moves_are_opt_in(self):
+        from services.prompt_improve import build_compact_video_prompt
+        base=dict(model_name='Micaela',product='Vestido midi de cetim',outfit='vestido',color='Preto',audience='',
+                  benefit='',angle='',tone='',style='',details='cetim, fenda',movements='caminhar',
+                  generator='grok',niche='casual')
+        padrao=generate(base)['video']
+        self.assertIn('O rosto fica sempre inteiro no quadro',padrao)
+        self.assertNotIn('closes curtos',padrao)
+        self.assertNotIn('giro completo',padrao)
+        ligado={**base,'video_style':'closes,ousado'}
+        g=generate(ligado)
+        self.assertIn('closes curtos (1 a 2 s cada) no cetim',g['video'])
+        self.assertIn('No gancho e no fim o rosto fica inteiro',g['video'])
+        self.assertIn('dá um giro completo e rápido',g['video'])
+        self.assertIn('nunca para de costas',g['video'])
+        self.assertLessEqual(len(g['video']),4000)
+        curto=build_compact_video_prompt(ligado,g,'Preto')
+        self.assertIn('só nos closes do produto ele pode sair do quadro',curto)
+        self.assertIn('giro completo',curto)
+        legging=generate({**base,'product':'Legging cintura alta','outfit':'legging','video_style':'ousado'})['video']
+        self.assertIn('agachamento firme',legging)
+        self.assertNotIn('giro completo',legging)
+
+    def test_video_style_is_saved_and_validated(self):
+        ok=self.client.post('/api/campaigns',json={**self.brief,'video_style':'ousado,closes'},headers=self.headers)
+        self.assertEqual(ok.status_code,201,ok.json)
+        self.assertEqual(ok.json['video_style'],'closes,ousado')
+        ruim=self.client.post('/api/campaigns',json={**self.brief,'video_style':'voar'},headers=self.headers)
+        self.assertEqual(ruim.status_code,400)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)
