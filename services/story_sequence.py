@@ -112,7 +112,9 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             head,
             f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), mesmo rosto, cabelo e corpo, '
             'vestindo exatamente o que aparece nela. Luz: a mesma da imagem.',
-            f'Câmera: na mão, estável, {shot}, take contínuo, sem cortes.',
+            ('Câmera: o celular dela grava o reflexo no espelho de corpo inteiro, sempre na mão, na altura do peito, '
+             'sem cobrir o rosto; take contínuo, sem cortes.' if mode == 'espelho'
+             else f'Câmera: na mão, estável, {shot}, take contínuo, sem cortes.'),
             f'Ela {cena["hook"]}. Ela diz: "{hook}"',
             f'Expressão: {cena["arc"].split(" → ")[0]}.',
             ends_moving,

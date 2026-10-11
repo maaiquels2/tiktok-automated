@@ -355,6 +355,24 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: o rosto nunca aparece; ', 1),
         ])
 
+    if mode == 'espelho':
+        abre = cena['hook'].replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
+        return '\n'.join([
+            f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: fit check no espelho gravado com o celular e postado no TikTok.',
+            first_frame, light,
+            'Câmera: o vídeo é o que o celular dela grava no espelho de corpo inteiro; o quadro é o reflexo, com o '
+            'celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural, um único take '
+            'contínuo, sem cortes nem zoom.',
+            f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, {"em ritmo natural de conversa, sem câmera lenta"}; '
+            'no final, de frente para o espelho, a mão livre aponta uma vez para baixo da tela (o carrinho), sorrindo. '
+            f'{seamless}',
+            f'O que ela diz, olhando para a tela do celular no reflexo, num fôlego só: "{fala}"',
+            f'Expressão: {cena["arc"]}.',
+            'Mãos: uma segura o celular o tempo todo; a outra gesticula enquanto ela fala, toca a peça e volta para ela.',
+            SPEECH,
+            close,
+        ])
+
     if mode == 'movimento':
         return '\n'.join([
             f'Vídeo vertical 9:16, 15 segundos, {res}, sem fala. Clima: {vibe}.',

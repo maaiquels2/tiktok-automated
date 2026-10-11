@@ -181,7 +181,7 @@ export function StorySequence({campaignId,variantId=null,onError}){
   </section>;
 }
 
-const VIDEO_FORMATS=[['','Com fala'],['movimento','Só movimento'],['pov','POV']];
+const VIDEO_FORMATS=[['','Com fala'],['espelho','Espelho'],['movimento','Só movimento'],['pov','POV']];
 
 // Bancada da etapa Criar video: imagem aprovada ao lado, prompt no topo com a
 // acao principal (copiar e abrir o gerador), falas como linha do tempo, o
@@ -1189,6 +1189,10 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             <label className={'generator-option '+(!draft.video_mode?'selected':'')}>
               <input type="radio" name="video_mode" value="" checked={!draft.video_mode} onChange={()=>change('video_mode','')}/>
               <span><strong>UGC com modelo</strong><small>Modelo aparece de frente, como hoje</small></span>
+            </label>
+            <label className={'generator-option '+(draft.video_mode==='espelho'?'selected':'')}>
+              <input type="radio" name="video_mode" value="espelho" checked={draft.video_mode==='espelho'} onChange={()=>change('video_mode','espelho')}/>
+              <span><strong>Celular no espelho</strong><small>Ela grava o próprio look no espelho, com o celular na mão</small></span>
             </label>
             <label className={'generator-option '+(draft.video_mode==='pov'?'selected':'')}>
               <input type="radio" name="video_mode" value="pov" checked={draft.video_mode==='pov'} onChange={()=>change('video_mode','pov')}/>
@@ -2459,6 +2463,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [products,setProducts]=useState([]);
   const [description,setDescription]=useState(null);
   const [colors,setColors]=useState('');
+  const [format,setFormat]=useState('');
   const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
@@ -2470,7 +2475,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     onError?.('');setReading(true);
     try{
       const {brief}=await quickBrief(products,description,niche);
-      const values=briefFromAI(brief,modelName,niche,colors);
+      const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format};
       if(!values.color){onError?.('A IA não achou as cores no print. Escreva as cores do produto e tente de novo.');return}
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
       const message='Campanha automática criada: roteiro e prompts do Grok prontos.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
@@ -2499,6 +2504,12 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
       <Upload size={22}/><strong>Print da descrição</strong><small>Página do produto com tecido, preço e avaliações</small>
       {description&&<span className="quick-thumbs"><img src={urls[products.length]} alt=""/></span>}
     </label>
+    <span className="option-field-title" id="auto-format">Formato do vídeo</span>
+    <div className="quick-niches" role="radiogroup" aria-labelledby="auto-format">
+      {[['','Com fala'],['espelho','Celular no espelho'],['pov','POV'],['movimento','Só movimento']].map(([id,label])=>
+        <button type="button" key={id||'fala'} role="radio" aria-checked={format===id} className="rd-chip-tab"
+          aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>)}
+    </div>
     <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: preto, vermelho — vazio: a IA usa as cores do print" maxLength={200}/></label>
     <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>
     {(!niche||!products.length||!description)&&<small className="help">Falta: {[!niche&&'a moda',!products.length&&'a foto do produto',!description&&'o print da descrição'].filter(Boolean).join(', ')}.</small>}

@@ -368,7 +368,20 @@ def _benefit_clause(c):
         return f'A peça é {raw}'
     if verb_start:
         return f'A peça {raw}'
+    if _own_subject(raw):
+        return raw[0].upper() + raw[1:]
     return f'A peça tem {raw}'
+
+
+_OWN_SUBJECT_VERBS = re.compile(
+    r'\b(valoriza|valorizam|deixa|deixam|fica|ficam|é|são|tem|têm|ajuda|ajudam|dá|dão|realça|realçam|'
+    r'marca|marcam|cai|caem|veste|vestem|combina|combinam|traz|trazem|mostra|mostram|acompanha|acompanham)\b',
+    re.I)
+
+
+def _own_subject(text):
+    """'os drapeados laterais valorizam a silhueta': frase com sujeito proprio."""
+    return bool(re.match(r'^(o|a|os|as|seu|sua|seus|suas)\s+\w+', text, re.I)) and bool(_OWN_SUBJECT_VERBS.search(text))
 
 
 def _sentence(value):
@@ -1142,6 +1155,8 @@ _VIDEO_MODE_ALIASES = {
     'movimento': 'movimento', 'movimentos': 'movimento', 'so_movimento': 'movimento',
     'so-movimento': 'movimento', 'só movimento': 'movimento', 'so movimento': 'movimento',
     'fit': 'movimento', 'fit_check': 'movimento', 'fit check': 'movimento',
+    'espelho': 'espelho', 'celular': 'espelho', 'selfie': 'espelho', 'selfie_espelho': 'espelho',
+    'celular no espelho': 'espelho',
 }
 
 
@@ -1265,7 +1280,7 @@ def _hook_pool(c, detail, forms):
     ]
     # Contraste: minha expectativa era uma, o que vi foi outra.
     contraste = [
-        ('cont-igual', f'Achei que {dem} {piece} fosse igual às outras. Aí vi {det}.'),
+        ('cont-igual', f'Achei que {dem} {piece} fosse igual {"às outras" if art == "a" else "aos outros"}. Aí vi {det}.'),
         ('cont-batido', f'Quase passei batido {prep} {piece}, mas {det} me segurou.'),
         ('cont-esperava', f'Esperava pouco {de} {piece} e me surpreendi com {det}.'),
     ]
@@ -1413,7 +1428,10 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     if benefit_text:
         verbo = '' if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|combina|entrega)\b',
                                benefit_text, re.I) else 'tem '
-        reacoes.append(('re-melhor', f'E o melhor é que {pron} {verbo}{benefit_text}.'))
+        if _own_subject(benefit_text):
+            reacoes.append(('re-melhor', f'E o melhor é que {benefit_text[0].lower() + benefit_text[1:]}.'))
+        else:
+            reacoes.append(('re-melhor', f'E o melhor é que {pron} {verbo}{benefit_text}.'))
     # Depois do que o briefing declarou, a voz da categoria.
     reacoes += _category_lines(c, 'reactions', forms)
     if second and not re.match(r'^(o tecido )?sem\b', second, re.I):
@@ -2116,26 +2134,31 @@ def _visual_outfit(c, product):
     return outfit
 
 
-def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
-    niche = _niche_key(c)
-    dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
+def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta,
+                        base_image=False, formato='ugc'):
+    """Prompt unico do Grok para a modelo falando: as travas do prompt completo
+    (que gerou o video bom no teste real: identidade, cenario, fatos, prova,
+    o que nao inventar, falas marcadas no tempo) somadas ao que o Guia do
+    Grok trouxe de melhor no teste seguinte (clima por referencia, plano do
+    joelho para cima com o rosto grande, maos que gesticulam, acoes emendadas
+    sem parar, arco de expressao e ritmo natural, sem camera lenta)."""
+    from services.prompt_improve import mood, push_target, speech_framing
+    dirn = _VIDEO_NICHE.get(_niche_key(c)) or _VIDEO_NICHE["casual"]
     outfit = _visual_outfit(c, product)
     angle = _pt_br(c.get("angle")) or "mostrar o produto em uso"
-    angle_context = ' '.join(angle.split()[:16])
-    if len(angle.split()) > 16:
-        angle_context += '…'
+    angle_context = ' '.join(angle.split()[:16]) + ('…' if len(angle.split()) > 16 else '')
     style = _pt_br(c.get("style")) or "natural e realista"
-    tone = _pt_br(c.get("tone")) or "conversacional"
     model = _phrase(c.get("model_name")) or "a modelo"
     color_l = _phrase(color) or "a cor escolhida"
     product_l = product or "o produto"
-    benefit_l = _phrase(benefit)
-    benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
-    benefit_l = benefit_l or "somente fatos visíveis da peça"
-    moves = _configured_movement_plan(movements, c) or "movimentos frontais e naturais que mostrem o caimento"
+    benefit_l = re.sub(r'^A peça\s+', '', _phrase(benefit), flags=re.I).strip() or "somente fatos visíveis da peça"
+    moves = _configured_movement_plan(movements, c)
+    # Pose, close e "CTA final" do padrao do nicho contradiziam o rosto sempre
+    # no quadro e o encerramento sem pose; ficam so as acoes.
+    moves = '; '.join(m for m in moves.split('; ') if m and not re.search(
+        r'\bpose\b|\bposar\b|\bclose\b|\bcta\b', m, re.I)) or "movimentos frontais e naturais que mostrem o caimento"
     turn_direction, _turn_action = _turn_direction(c)
     video_notes = _video_details(details)
-    extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
     facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
@@ -2144,31 +2167,49 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
     forms = _piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
-    # Cada fato confirmado ganha o gesto que o prova -- isso nunca e descartado.
-    # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
-    # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
-    # gerador corta o final do prompt sozinho.
-    gestures = _proof_gestures(
-        _product_features(c, limit=2 if _limite_video(c) else 4),
-        turns=_body_turns(c))
-    gestures = [f'{lab} → {_STAY_IN_FRAME.get(lab, ges)}'
-                for lab, ges in (g.split(' → ', 1) for g in gestures)]
-    # Direcao do motor de persuasao: expressao do gancho, arco emocional e o
-    # gesto da chamada; tempos proporcionais as falas (4s/12s no roteiro padrao).
+    # Cada fato confirmado ganha o gesto que o prova; onde o gerador tem
+    # limite de caracteres, dois gestos bem escolhidos cabem e provam.
+    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4), turns=_body_turns(c))
+    gestures = [f'{lab} → {_STAY_IN_FRAME.get(lab, ges)}' for lab, ges in (g.split(' → ', 1) for g in gestures)]
+    # Motor de persuasao no corpo; tempos proporcionais as falas (4s/12s no padrao).
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook),
                                       f"{anchor} {forms['de']} {forms['piece']}")
     t1, t2 = persuasion.timeline(hook, development, cta)
+    espelho = formato == 'espelho'
+    if espelho:
+        turn_direction = turn_direction.replace('à lente', 'ao espelho').replace('a lente', 'o espelho')
+        # Celular no espelho: o quadro e o reflexo; uma mao segura o celular o
+        # tempo todo e a outra faz tudo (gesto, prova, carrinho).
+        clima = 'fit check no espelho gravado com o celular e postado no TikTok'
+        camera = ("o vídeo é o que o celular dela grava no espelho de corpo inteiro: o quadro é o reflexo, com o "
+                  "celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural de mão, "
+                  "um único take contínuo, sem cortes nem zoom. O rosto fica sempre inteiro no reflexo enquanto ela "
+                  "fala, olhando para a tela do celular. ")
+        maos = ("MÃOS: uma segura o celular o tempo todo; a outra gesticula enquanto ela fala — toca a peça, ajusta, "
+                "aponta o detalhe — e volta para a peça; nada de braço duro. Sem movimento artificial de IA. ")
+        abre = cena['hook'].replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
+        fecha = ("já de frente para o espelho, com o celular na mão; a mão livre aponta UMA vez para a parte de baixo "
+                 "da tela (o carrinho) e volta para a peça, sorrindo, sem parar de falar e sem pose final. ")
+    else:
+        clima = mood(c)
+        camera = (f"na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes; "
+                  f"dolly-in suave e contínuo até {push_target(c)} e volta suave ao plano inicial no final. "
+                  "O rosto fica sempre inteiro no quadro enquanto ela fala. ")
+        maos = ("MÃOS: ela gesticula enquanto fala, como quem conversa com uma amiga — abre a mão, aponta a peça, toca o "
+                "tecido quando fala dele e volta a mão para a peça; nada de mãos paradas nem braços duros. "
+                "Sem movimento artificial de IA. ")
+        abre = cena['hook']
+        fecha = (f"já de frente para a lente, com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, como "
+                 "quem ajusta a peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta, "
+                 "sorrindo, sem parar de falar e sem pose final. ")
     proof_block = (
-        f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s: '
-        + '; '.join(gestures) + '.\n'
+        f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s, '
+        'sem interromper a fala: ' + '; '.join(gestures) + '.\n'
     ) if gestures else ''
-    closing_hands = (
-        f"com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, "
-        "como quem ajusta a peça"
-    )
+    words = len((hook + ' ' + development + ' ' + cta).split())
 
     return _montar_video([
-        (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
+        (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. Clima: {clima}. "
             f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
             f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros, "
             f"sem troca de identidade ou redesenho. "
@@ -2176,55 +2217,40 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (4, f"Ângulo de venda (contexto, não criar atributos): {angle_context}. "),
         (0, f"FATOS CONFIRMADOS: {facts}. MATERIAL CONFIRMADO: {materials}. "
             f"Benefício a provar visualmente, só se for demonstrável: {benefit_l}.\n"),
-        (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}. "
-            "Fundo, objetos e luz vêm só dessa foto; descrição genérica de nicho não autoriza substituir. "
-            "Não trocar a locação nem desfocar o fundo; a câmera pode aproximar e acompanhar a modelo, "
-            "voltando ao enquadramento do quadro inicial no encerramento. "),
-        (0, f"CÂMERA: {dirn['camera']}. "),
+        (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}; fundo, objetos e luz só dessa foto, sem trocar "
+            "a locação, escurecer ou desfocar; descrição genérica de nicho não autoriza substituir. "
+            "ENQUADRAMENTO: manter a mesma cena entre os beats. "),
+        (0, f"CÂMERA: {camera}"),
         (0, f"DETALHE PRINCIPAL: {focus}. "),
-        (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
-        (3, f"EVITAR: {dirn['avoid']}; "),
-        (0, "EVITAR TAMBÉM: textos na tela; marcas inventadas; cortes que quebrem a continuidade.\n"),
+        # So no Flow (sem limite apertado): no Grok o espaco vai para o essencial.
+        (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
+            if not _limite_video(c) else ''),
+        (0, "EVITAR: textos na tela; marcas inventadas; cortes; câmera lenta.\n"),
         (0, proof_block),
         (0, turn_direction + "\n"),
-        (0, "MÃOS: uma sempre em contato com a peça (cintura, cós ou barra) e a outra mostra os detalhes; "
-            "as duas só ficam livres juntas num gesto que exija isso, por no máximo 1 segundo. "),
+        (0, maos),
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
-        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s; uma por beat, não precisa usar todas): {moves}. "),
-        (0, f"ENCERRAMENTO ({t2}–15s): de frente para a lente, {closing_hands}. "
-            "Uma mão fica na peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta. "
-            "Corpo parado: só o rosto, o olhar e esse gesto se movem."),
+        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar): {moves}. "),
+        (0, f"ENCERRAMENTO ({t2}–15s): {fecha}"),
         (1, f"EXPRESSÃO: {cena['arc']}. "),
-        (1, extras),
-        (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
-            f"0–{t1}s HOOK: plano médio frontal, olhar na lente, produto visível no corpo; a modelo "
-            f"{cena['hook']}. Fala (PT-BR): \"{hook}\"\n"
-            f"{t1}–{t2}s DESENVOLVIMENTO — uma fala só, contínua, emendada sem pausa na anterior "
-            f"(mesma respiração, mesma cadência); não repetir nem dividir em dois trechos. "
-            f"Fala (PT-BR): \"{development}\"\n"),
-        (3, f"   · {t1}–{t1 + 2}s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
-            f"as mãos tocam o produto com naturalidade.\n"
-            f"   · {t1 + 2}–{t2 - 1}s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
-            f"({benefit_l}) — caminhar, sentar ou agachar conforme as ações e a orientação autorizada. "
-            f"Manter cor {color_l} e caimento fiéis.\n"),
-        (4, f"   · {t2 - 1}–{t2}s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
-        (0, f"{t2}–15s CTA: posição de encerramento, olhar firme na lente, com o gesto de apontar o carrinho. "
-            f"Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
-            f"Fala (PT-BR): \"{cta}\"\n"),
+        (2, f"Notas adicionais do operador (não são falas): {video_notes}. " if video_notes else ''),
+        (0, "\nSHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n"
+            f"0–{t1}s HOOK: olhar {'na tela do celular' if espelho else 'na lente'}, produto visível no corpo; "
+            f"a modelo {abre}. "
+            f"Fala (PT-BR): \"{hook}\"\n"
+            f"{t1}–{t2}s DESENVOLVIMENTO — mesma respiração, enquanto faz a prova e as ações. "
+            f"Fala (PT-BR): \"{development}\"\n"
+            f"{t2}–15s CTA: com o gesto do carrinho, concluindo o mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
-        (0, "ENQUADRAMENTO: manter a mesma cena entre os beats. Sem movimento artificial de IA: gestos e expressões "
-            "seguem o ritmo da fala. "),
-        (3, "Usar movimento lateral quando precisar mostrar a peça inteira no corpo. "),
-        (0, "As três falas são UM discurso contínuo: mesma respiração, sem pausa nem silêncio entre os trechos — "
-            "uma frase longa em três marcações de tempo, nunca três falas separadas. "),
-        (2, f"Estilo visual: {style}. Tom: {tone}. "),
-        (0, "Áudio: voz clara em português do Brasil, ritmo de fala natural (sem correr). "
-            "Fale somente as três falas entre aspas, palavra por palavra; nunca leia títulos, instruções, "
-            "câmera, shot list ou notas. "),
-        (4, f"Total das falas: {len((hook + ' ' + development + ' ' + cta).split())} palavras; "
-            f"se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
+        (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos, como quem conta uma descoberta "
+            "para uma amiga. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, ritmo natural "
+            "sem correr, lábios sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; "
+            "nunca leia títulos, instruções, câmera, shot list ou notas. Som ambiente baixo, sem música. "),
+        (2, f"Estilo visual: {style}. "),
+        (4, f"Total das falas: {words} palavras; se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
         (0, "Sem promessas não demonstradas no vídeo."),
     ], _limite_video(c))
+
 
 def generate_variants(c, audit=None):
     colors = color_variants(c.get('color'))
@@ -2313,6 +2339,65 @@ def _build_pov_image_prompt(c, *, product, color, piece_ref, photos, product_ref
         + "REALISMO: fotografia comum de celular, sem filtro, leve perspectiva de grande-angular; "
         + "caimento, dobras, oclusão pelos dedos e sombras de contato coerentes; sem pose de catálogo. "
         + "Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações. "
+        + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
+        + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
+    )
+
+
+def _build_mirror_image_prompt(c, *, product, color, piece_ref, photos, product_reference,
+                               facts, materials, notes, base_image=False):
+    """Primeiro quadro do formato "Celular no espelho": o fit check que a
+    propria creator grava com o celular no espelho de corpo inteiro. O video
+    anexa esta imagem como primeiro quadro, entao ela ja nasce com o celular
+    na mao e o reflexo; nas outras cores vira edicao localizada da aprovada."""
+    model = c['model_name']
+    mirror_rules = (
+        "SELFIE NO ESPELHO: a imagem é o reflexo num espelho de corpo inteiro. Ela segura o próprio celular com "
+        "uma das mãos, na altura do peito, com a câmera traseira voltada para o espelho; o celular aparece no "
+        "reflexo sem cobrir o rosto, que fica inteiro e visível acima do aparelho. A outra mão toca a peça. "
+        f"Corpo de frente para o espelho, com {piece_ref} inteira visível no reflexo. "
+    )
+    if base_image:
+        attachments = "ORDEM DOS ANEXOS: anexe primeiro a imagem aprovada desta campanha (selfie no espelho)"
+        if photos:
+            attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+        attachments += '. O primeiro anexo é a única base de pose, celular, espelho, cenário e enquadramento. '
+        return (
+            attachments
+            + "EDIÇÃO LOCALIZADA: trate a imagem aprovada como a fotografia-base final. "
+            + f"Produto: {product}. Cor: {color}. "
+            + f"Altere somente a área ocupada por {piece_ref}; mantenha idênticos rosto, cabelo, corpo, pose, "
+            + "o celular na mão, o espelho, o fundo e a luz. "
+            + product_reference
+            + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+            + f"FATOS DO PRODUTO A PRESERVAR: {facts}. MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}. "
+            + "INTEGRAÇÃO FOTOGRÁFICA: caimento, dobras, oclusão pela mão e reflexo coerentes; sem recorte ou colagem. "
+            + "Sem textos nem marcas inventadas; a tela do celular não mostra texto legível. "
+            + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
+            + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
+        )
+    attachments = f"ORDEM DOS ANEXOS: anexe primeiro a foto de referência da modelo (fotografia-base de {model})"
+    if photos:
+        attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+    attachments += ('. O primeiro anexo é a base de identidade, corpo, cenário e luz — mas NÃO de pose nem de '
+                    'enquadramento: esta imagem vira uma selfie no espelho. ')
+    return (
+        attachments
+        + "PRIMEIRO QUADRO DE UM VÍDEO DE FIT CHECK NO ESPELHO: fotografia vertical 9:16, como a foto que a própria "
+        + f"{model} tira de si mesma no espelho com o celular. "
+        + f"Produto: {product}. Cor: {color}. "
+        + mirror_rules
+        + f"IDENTIDADE: preserve 100% o rosto, cabelo, tom de pele, corpo, idade aparente e proporções de {model}. "
+        + product_reference
+        + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+        + f"FATOS DO PRODUTO A PRESERVAR: {facts}. "
+        + f"MATERIAL / COMPOSIÇÃO CONFIRMADA: {materials}; mantenha a textura e o caimento compatíveis com a referência do produto. "
+        + ('MODELAGEM: unissex. ' if _is_unisex(c) else '')
+        + "CENÁRIO: o mesmo ambiente da foto de referência, refletido no espelho — mesmos objetos, luz, balanço de "
+        + "branco e granulação. Não trocar a locação nem inventar um estúdio; a moldura do espelho pode aparecer na borda. "
+        + "REALISMO: foto comum de celular, sem filtro, leve perspectiva de grande-angular; reflexo coerente; "
+        + "sem pose de catálogo. Mantenha o produto fiel à referência; sem textos, marcas inventadas ou deformações; "
+        + "a tela do celular não mostra texto legível. "
         + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
         + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
     )
@@ -2413,10 +2498,16 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
             c, product=product, color=color, piece_ref=piece_ref, photos=photos,
             product_reference=product_reference, facts=facts, materials=materials,
             notes=notes, base_image=base_image)
+    elif _video_mode(c) == 'espelho':
+        image = _build_mirror_image_prompt(
+            c, product=product, color=color, piece_ref=piece_ref, photos=photos,
+            product_reference=product_reference, facts=facts, materials=materials,
+            notes=notes, base_image=base_image)
     resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
     build_video = {
         'pov': _build_pov_video_prompt,
         'movimento': _build_movement_video_prompt,
+        'espelho': lambda *a, **k: _build_video_prompt(*a, formato='espelho', **k),
     }.get(_video_mode(c), _build_video_prompt)
     video = build_video(
         c,
