@@ -74,7 +74,8 @@ export default function App(){
         setMode(notFound?'home':route.mode);
         setHomeView(route.homeView||'ativas');
         setResultsTab(route.resultsTab||'studio');
-        if(location.pathname==='/creator')setModal({type:'create'});
+        // Atalho /creator abre a mesma escolha do botao: Automatica ou Manual.
+        if(location.pathname==='/creator')setModal({type:'choose',title:'Nova campanha'});
         if(notFound){
           setError(`Campanha ${route.campaignId} não encontrada. Mostrando a lista de campanhas.`);
           try{history.replaceState(null,'','#/inicio')}catch(e){location.hash='/inicio'}
