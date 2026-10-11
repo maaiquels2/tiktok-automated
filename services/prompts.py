@@ -356,6 +356,8 @@ def _benefit_clause(c):
                 break
             compact.append(clause)
         raw = ', '.join(compact) if compact else ' '.join(words[:12]).rstrip(' ,;:')
+        # Nunca terminar em preposicao/artigo ("um visual marcante para").
+        raw = re.sub(r'(\s+(?:para|pra|de|da|do|com|em|no|na|e|o|a|os|as|um|uma|que))+$', '', raw, flags=re.I)
     raw = re.sub(r'^produto de qualidade\b', 'qualidade', raw, flags=re.I)
     raw = re.sub(r'\s+e\s+versát(?:il|eis)\b', ' e é versátil', raw, flags=re.I)
     raw = raw[0].lower() + raw[1:] if raw else raw
@@ -375,7 +377,9 @@ def _benefit_clause(c):
 
 _OWN_SUBJECT_VERBS = re.compile(
     r'\b(valoriza|valorizam|deixa|deixam|fica|ficam|é|são|tem|têm|ajuda|ajudam|dá|dão|realça|realçam|'
-    r'marca|marcam|cai|caem|veste|vestem|combina|combinam|traz|trazem|mostra|mostram|acompanha|acompanham)\b',
+    r'marca|marcam|cai|caem|veste|vestem|combina|combinam|traz|trazem|mostra|mostram|acompanha|acompanham|'
+    r'cria|criam|garante|garantem|destaca|destacam|alonga|alongam|afina|afinam|levanta|levantam|'
+    r'chama|chamam|transforma|transformam|define|definem)\b',
     re.I)
 
 
@@ -2178,6 +2182,11 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     espelho = formato == 'espelho'
     if espelho:
         turn_direction = turn_direction.replace('à lente', 'ao espelho').replace('a lente', 'o espelho')
+        # O quadro e o reflexo: mostrar de perto = se aproximar do espelho.
+        moves = re.sub(r'\bmostrar de perto\b', 'aproximar-se do espelho e mostrar de perto', moves)
+        if 'espelho' not in moves:
+            alvo = _with_article(features[0]) if features else 'os detalhes da peça'
+            moves = f"aproximar-se do espelho para mostrar {alvo} de perto e voltar; {moves}"
         # Celular no espelho: o quadro e o reflexo; uma mao segura o celular o
         # tempo todo e a outra faz tudo (gesto, prova, carrinho).
         clima = 'fit check no espelho gravado com o celular e postado no TikTok'

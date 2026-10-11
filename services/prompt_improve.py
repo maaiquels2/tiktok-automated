@@ -23,7 +23,7 @@ import re
 import unicodedata
 
 from services import persuasion
-from services.prompts import shows_unconfirmed_feature
+from services.prompts import _with_article, shows_unconfirmed_feature
 from services.prompts import (
     _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
@@ -106,7 +106,8 @@ def size(c: dict) -> str:
     return '720 × 1280 (720p)' if _clean(c.get('generator')).casefold() == 'grok' else '1080 × 1920 (1080p)'
 
 
-_IRREGULAR = {'ir': 'vai', 'vir': 'vem', 'sair': 'sai', 'subir': 'sobe', 'pôr': 'põe', 'por': 'põe'}
+_IRREGULAR = {'ir': 'vai', 'vir': 'vem', 'sair': 'sai', 'subir': 'sobe', 'pôr': 'põe', 'por': 'põe',
+              'dar': 'dá', 'ver': 'vê', 'ter': 'tem', 'ser': 'é', 'estar': 'está', 'fazer': 'faz', 'trazer': 'traz'}
 
 
 # Verbos que pedem objeto: "ajusta" sozinho nao diz o que ela ajusta.
@@ -245,6 +246,13 @@ def movement_steps(c: dict, spoken: str = '',
     return steps or [default]
 
 
+def mirror_approach(c: dict) -> str:
+    """Passo de aproximacao do espelho para mostrar o detalhe que vende."""
+    feats = _product_features(c, limit=1)
+    alvo = _with_article(feats[0]) if feats else 'os detalhes da peça'
+    return f'dá um passo em direção ao espelho para mostrar {alvo} de perto e volta'
+
+
 def pov_hands(c: dict, spoken: str = '') -> str:
     """Trecho do meio do POV: o gesto de prova visto pelas maos, ou o manuseio
     generico quando o briefing nao confirma nenhum atributo."""
@@ -328,6 +336,12 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     # Sem "devagar" no resumido: o Grok deixava tudo em camera lenta.
     steps = [re.sub(r'\s+devagar\b', '', s)
              for s in movement_steps(c, spoken, limit=3 if falando else MAX_MOVES)]
+    if mode == 'espelho':
+        # No espelho a camera e o reflexo: "mostrar de perto" so acontece se ela
+        # se aproxima do espelho. Sem isso o video saiu estatico no teste real.
+        steps = [re.sub(r'^mostra de perto\b', 'se aproxima do espelho e mostra de perto', s) for s in steps]
+        if not any('aproxima' in s for s in steps):
+            steps.insert(1 if len(steps) > 1 else len(steps), mirror_approach(c))
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     fala = one_breath(hook, development, cta)

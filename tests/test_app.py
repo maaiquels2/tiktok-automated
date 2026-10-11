@@ -1445,6 +1445,27 @@ class WorkflowTests(unittest.TestCase):
         from services.prompts import _video_mode
         self.assertEqual(_video_mode({'video_mode':'celular no espelho'}),'espelho')
 
+    def test_mirror_mode_moves_closer_and_turns_when_allowed(self):
+        # Teste real: no espelho ela ficou estatica (sem se aproximar) e sem giro.
+        from services.prompt_improve import build_compact_video_prompt
+        from services.prompts import _benefit_clause
+        c=dict(model_name='Micaela',product='Vestido mini tomara que caia franzido',outfit='vestido',color='Preto',
+               audience='',benefit='o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite',
+               angle='',tone='',style='',details='tule franzido',movements='dar dois passos; mostrar de perto o franzido',
+               body_turns='leve_lado',generator='grok',niche='casual',video_mode='espelho')
+        g=generate(c)
+        acoes=g['video'].split('AÇÕES',1)[1].split('ENCERRAMENTO',1)[0]
+        self.assertIn('aproximar-se do espelho',acoes)
+        self.assertIn('inclinação de 20 a 30 graus',g['video'])
+        curto=build_compact_video_prompt(c,g,'Preto')
+        self.assertIn('em direção ao espelho para mostrar o tule de perto',curto)
+        self.assertIn('vira o corpo uns 30 graus',curto)
+        self.assertIn('dá dois passos',curto)
+        self.assertNotIn('dar dois passos',curto)
+        beneficio=_benefit_clause({'benefit':'o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite'})
+        self.assertFalse(beneficio.startswith('A peça tem'),beneficio)
+        self.assertFalse(beneficio.rstrip('.').endswith(' para'),beneficio)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)

@@ -2464,6 +2464,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [description,setDescription]=useState(null);
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
+  const [turn,setTurn]=useState(true);
   const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
@@ -2475,7 +2476,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     onError?.('');setReading(true);
     try{
       const {brief}=await quickBrief(products,description,niche);
-      const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format};
+      const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':''};
       if(!values.color){onError?.('A IA não achou as cores no print. Escreva as cores do produto e tente de novo.');return}
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
       const message='Campanha automática criada: roteiro e prompts do Grok prontos.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
@@ -2510,6 +2511,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
         <button type="button" key={id||'fala'} role="radio" aria-checked={format===id} className="rd-chip-tab"
           aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>)}
     </div>
+    <label className="quick-confirm"><input type="checkbox" checked={turn} onChange={e=>setTurn(e.target.checked)}/> Girar um pouco de lado para mostrar a peça (sem mostrar as costas)</label>
     <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: preto, vermelho — vazio: a IA usa as cores do print" maxLength={200}/></label>
     <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>
     {(!niche||!products.length||!description)&&<small className="help">Falta: {[!niche&&'a moda',!products.length&&'a foto do produto',!description&&'o print da descrição'].filter(Boolean).join(', ')}.</small>}
