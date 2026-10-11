@@ -854,3 +854,4 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
 .choice-card.is-auto { border-color: var(--rd-primary); background: var(--rd-primary-soft); }
 .choice-card.is-auto svg { color: var(--rd-primary-ink); }
 .quick-niches .rd-chip-tab[aria-checked="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; opacity: 1; }
+.quick-niches .rd-chip-tab[aria-pressed="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; }

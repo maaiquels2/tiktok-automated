@@ -23,7 +23,7 @@ import re
 import unicodedata
 
 from services import persuasion
-from services.prompts import _with_article, shows_unconfirmed_feature
+from services.prompts import _with_article, bold_move, close_target, shows_unconfirmed_feature, video_style
 from services.prompts import (
     _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
@@ -199,10 +199,17 @@ def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
     genero da peca ("o short ... opaco")."""
     opaque = 'opaca' if _piece_forms(c)['art'] == 'a' else 'opaco'
     parts = []
-    if face:
+    estilo = video_style(c)
+    if face and 'closes' in estilo:
+        parts.append('mesmo rosto em todos os quadros; rosto inteiro no gancho e no fim — só nos closes do produto '
+                     'ele pode sair do quadro')
+    elif face:
         parts.append('mesmo rosto em todos os quadros, sempre inteiro na imagem enquanto ela fala')
     if 'costas' not in _body_turns(c):
-        parts.append('ela nunca fica de costas para a câmera')
+        if 'ousado' in estilo and bold_move(c)[1]:
+            parts.append('ela nunca para de costas para a câmera (no giro, as costas só passam)')
+        else:
+            parts.append('ela nunca fica de costas para a câmera')
     parts.append(f'{product} continua {keeps} e totalmente {opaque}')
     parts.append('sem texto na tela')
     return 'IMPORTANTE: ' + '; '.join(parts) + '.'
@@ -342,6 +349,16 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         steps = [re.sub(r'^mostra de perto\b', 'se aproxima do espelho e mostra de perto', s) for s in steps]
         if not any('aproxima' in s for s in steps):
             steps.insert(1 if len(steps) > 1 else len(steps), mirror_approach(c))
+    estilo = video_style(c)
+    if 'ousado' in estilo and mode != 'pov':
+        steps.insert(1 if steps else 0, bold_move(c, espelho=mode == 'espelho')[0])
+    closes = ''
+    if 'closes' in estilo:
+        alvo = close_target(c)
+        closes = (f' No meio, ela aproxima o celular da peça para 1 ou 2 closes curtos (1 a 2 s) {alvo}, '
+                  'com a voz continuando, e volta ao reflexo.' if mode == 'espelho' else
+                  f' No meio, a câmera faz 1 ou 2 closes curtos (1 a 2 s) {alvo}, com a voz continuando, '
+                  'e volta ao rosto; no gancho e no fim o rosto fica inteiro no quadro.')
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     fala = one_breath(hook, development, cta)
@@ -376,7 +393,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             first_frame, light,
             'Câmera: o vídeo é o que o celular dela grava no espelho de corpo inteiro; o quadro é o reflexo, com o '
             'celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural, um único take '
-            'contínuo, sem cortes nem zoom.',
+            'contínuo, sem cortes nem zoom.' + closes,
             f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, {"em ritmo natural de conversa, sem câmera lenta"}; '
             'no final, de frente para o espelho, a mão livre aponta uma vez para baixo da tela (o carrinho), sorrindo. '
             f'{seamless}',
@@ -403,7 +420,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: {vibe}.',
         first_frame, light,
         f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes; dolly-in suave e '
-        f'contínuo até {push_target(c)} e volta suave ao plano inicial no final. O rosto fica sempre no quadro.',
+        f'contínuo até {push_target(c)} e volta suave ao plano inicial no final.'
+        + (closes or ' O rosto fica sempre no quadro.'),
         f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
         f'no final, já de frente para a lente, ela {cena["cta"]}, sorrindo. {seamless}',
         f'O que ela diz, do começo ao fim do vídeo, num fôlego só e enquanto se move: "{fala}"',

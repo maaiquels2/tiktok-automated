@@ -93,7 +93,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:'',video_style:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -1253,6 +1253,15 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               <span><strong>De costas</strong><small>Somente quando a peça exige</small></span>
             </label>
           </div>
+          <span className="option-field-title" id="video-style-title">Câmera e movimento</span>
+          <div className="quick-niches" role="group" aria-labelledby="video-style-title">
+            {[['closes','Closes no produto'],['ousado','Movimentos ousados']].map(([id,label])=>{
+              const on=String(draft.video_style||'').split(',').includes(id);
+              return <button type="button" key={id} className="rd-chip-tab" aria-pressed={on} aria-checked={on} role="checkbox"
+                onClick={()=>{const set=new Set(String(draft.video_style||'').split(',').filter(Boolean));on?set.delete(id):set.add(id);change('video_style',['closes','ousado'].filter(k=>set.has(k)).join(','))}}>{label}</button>;
+            })}
+          </div>
+          <small className="help">Closes: no meio do vídeo a câmera mostra o material de perto por 1 a 2 s e volta ao rosto. Ousados: giro completo em vestido e saia, agachamento em legging, passos firmes em calça.</small>
           <small className="help">Essa escolha tem prioridade sobre os movimentos automáticos do nicho. “De frente” impede giros inesperados; costas só aparecem quando você autorizar.</small>
         </div>
         </details>
@@ -2465,6 +2474,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
   const [turn,setTurn]=useState(true);
+  const [closes,setCloses]=useState(false);
+  const [bold,setBold]=useState(false);
   const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
@@ -2476,7 +2487,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     onError?.('');setReading(true);
     try{
       const {brief}=await quickBrief(products,description,niche);
-      const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':''};
+      const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':'',
+        video_style:[closes&&'closes',bold&&'ousado'].filter(Boolean).join(',')};
       if(!values.color){onError?.('A IA não achou as cores no print. Escreva as cores do produto e tente de novo.');return}
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
       const message='Campanha automática criada: roteiro e prompts do Grok prontos.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
@@ -2512,6 +2524,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
           aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>)}
     </div>
     <label className="quick-confirm"><input type="checkbox" checked={turn} onChange={e=>setTurn(e.target.checked)}/> Girar um pouco de lado para mostrar a peça (sem mostrar as costas)</label>
+    <label className="quick-confirm"><input type="checkbox" checked={closes} onChange={e=>setCloses(e.target.checked)}/> Closes no material do produto (o rosto sai do quadro por 1 a 2 s)</label>
+    <label className="quick-confirm"><input type="checkbox" checked={bold} onChange={e=>setBold(e.target.checked)}/> Movimentos mais ousados (giro, passada, agachamento — conforme a peça)</label>
     <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: preto, vermelho — vazio: a IA usa as cores do print" maxLength={200}/></label>
     <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>
     {(!niche||!products.length||!description)&&<small className="help">Falta: {[!niche&&'a moda',!products.length&&'a foto do produto',!description&&'o print da descrição'].filter(Boolean).join(', ')}.</small>}
