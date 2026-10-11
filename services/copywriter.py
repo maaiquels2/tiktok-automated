@@ -706,8 +706,19 @@ def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[byte
 CALLERS = {'openai': _call_openai, 'gemini': _call_gemini}
 
 
+def _tidy(text: str) -> str:
+    """Acerta o que a IA erra na pontuacao: inicial minuscula e virgula
+    depois de conectivo no inicio ("Mas, essa aqui")."""
+    text = ' '.join(str(text or '').split())
+    text = re.sub(r'(^|[.!?]\s+)(Mas|E|Aí|Então|Só que),\s+', r'\1\2 ', text)
+    return text[:1].upper() + text[1:]
+
+
 def _clean_pack(dados: dict) -> dict:
-    return {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+    pack = {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+    for k in ('hook', 'development', 'cta'):
+        pack[k] = _tidy(pack[k])
+    return pack
 
 
 def _weak_cta(text: str) -> bool:

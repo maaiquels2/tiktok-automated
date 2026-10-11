@@ -1251,6 +1251,33 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(criado.status_code,201,criado.json)
         self.assertEqual(criado.json['social_proof'],'2 mil vendidos')
 
+    def test_jeans_campaign_prompts_have_no_contradictions(self):
+        # Caso real: calca jeans "dia a dia" com fala de dor escrita pela IA.
+        from services.copywriter import _clean_pack
+        from services.model_library import NICHE_DEFAULTS
+        from services.prompt_improve import build_compact_video_prompt
+        c=dict(model_name='Micaela',product='Calça jeans',outfit=NICHE_DEFAULTS['dia-a-dia']['outfit'],
+               color='azul claro',audience='Mulheres',benefit='tem caimento e ajuste visíveis nos movimentos da rotina',
+               angle='',tone='',style='',details='tecido macio',
+               movements='passar a mão no tecido; ajustar a peça; sentar e levantar mostrando conforto',
+               body_turns='leve_lado',generator='grok',niche='dia-a-dia')
+        falas=_clean_pack({'hook':'Eu tinha medo de calça jeans apertar demais',
+                           'development':'Mas, essa aqui é tão macia! Olha como ela fica enquanto eu me mexo.',
+                           'cta':'corre pro carrinho laranja e confere essa calça!'})
+        self.assertTrue(falas['development'].startswith('Mas essa aqui'))
+        self.assertTrue(falas['cta'].startswith('Corre'))
+        video=generate(c,script=falas)['video']
+        self.assertIn('Visual: Calça jeans.',video)
+        self.assertNotIn('moletom',video)
+        self.assertNotIn('bem perto da lente',video)
+        self.assertNotIn('maciez',video.split('ATRIBUTOS',1)[1].split('.')[0])
+        self.assertIn('com uma das mãos tocando',video)
+        self.assertNotIn('as duas mãos tocando',video)
+        self.assertIn('sorriso de alívio',video)
+        compacto=build_compact_video_prompt(c,falas,'azul claro')
+        self.assertIn('preocupação → alívio',compacto)
+        self.assertNotIn('mostrando conforto',compacto)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)
