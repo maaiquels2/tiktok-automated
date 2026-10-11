@@ -1176,6 +1176,9 @@ def _hook_pool(c, detail, forms):
     de = forms['de']
     det = _phrase(detail)
     det_em = _with_em(det)
+    # "foi os botoes" -> "foram os botoes"
+    plural = bool(re.match(r'^(os|as)\s', det) or re.search(r'\se\s', det))
+    foi, eh = ('foram', 'são') if plural else ('foi', 'é')
     pain, _check = _objection_parts(c)
     offer = _offer_text(c)
 
@@ -1194,9 +1197,9 @@ def _hook_pool(c, detail, forms):
     ]
     # Criterio: o detalhe que decidiu por mim.
     decide = [
-        ('dec-escolhi', f'O que me fez escolher {dem} {piece} foi {det}.'),
+        ('dec-escolhi', f'O que me fez escolher {dem} {piece} {foi} {det}.'),
         ('dec-mudou', f'Reparei {det_em} e mudou o que eu achava {de} {piece}.'),
-        ('dec-criterio', f'Pra mim o que decide {prep} {piece} é {det}.'),
+        ('dec-criterio', f'Pra mim o que decide {prep} {piece} {eh} {det}.'),
     ]
     # Uso: eu com a peca, agora.
     uso = [
@@ -1461,6 +1464,9 @@ def _category_lines(c, kind, forms, det='', occ=''):
         text = speech_bank.fill(item['t'], values)
         if '{' not in text:
             lines.append((f'cat-{kind}-{i}', text))
+            if item.get('for_pain') and item['for_pain'] == slots['pain']:
+                # Molde feito para a objecao do briefing vai para a frente.
+                lines.insert(0, lines.pop())
     return lines
 
 

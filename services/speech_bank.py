@@ -45,9 +45,71 @@ def _norm(text: str) -> str:
 
 # --------------------------------------------------------------------------
 # Categorias. A ordem importa: a mais especifica primeiro ("short legging"
-# antes de "legging", "baby doll" antes de "pijama").
+# antes de "legging", "baby doll" antes de "pijama", "colete de couro"
+# antes do courino).
 # --------------------------------------------------------------------------
 CATEGORIES = [
+    {
+        'id': 'fantasia', 'label': 'Fantasia', 'piece': 'fantasia', 'gender': 'f',
+        'keywords': ['fantasia', 'cosplay'],
+        'occasions': ['no carnaval', 'numa festa à fantasia', 'no Halloween', 'numa festa temática'],
+        'tone': 'Divertido e animado, de quem já está no clima da festa.',
+        'avoid': 'Só citar acessório que vem junto se o briefing listar os itens. Não prometer que serve em todo mundo.',
+        'objections': [
+            {'needles': ['acompanha', 'vem junto', 'acessório', 'acessorio', 'itens', 'incluso', 'completa'],
+             'pain': 'não saber o que vem junto', 'proof': 'Por isso quis te mostrar ela inteira, aqui no corpo.'},
+            {'needles': ['transparen', 'fino', 'fina', 'tecido', 'barat'], 'pain': 'o tecido ser fininho',
+             'proof': 'Por isso tô aqui na luz, pra você ver o tecido.'},
+            {'needles': ['vulgar', 'curt', 'exager'], 'pain': 'ficar curta demais',
+             'proof': 'Por isso quis te mostrar ela no corpo, de frente e de lado.'},
+        ],
+        'hooks': [
+            {'t': 'Achei a fantasia que eu queria pra festa e olha isso.'},
+            {'t': 'Vesti {dem} {piece} e já entrei no clima da festa.'},
+            {'t': 'Gente, olha {dem} {piece} que eu separei pra próxima festa.'},
+            {'t': 'Tô apaixonada por {dem} {piece}, sério, quero ir pra festa agora.'},
+            {'t': 'Se você ainda não sabe do que ir, olha {dem} que eu achei.'},
+            {'t': 'Meu medo com fantasia sempre foi {pain}. Olha {dem} aqui.', 'pain': True},
+        ],
+        'reactions': [
+            {'t': 'E olha como ela fica no corpo, ficou perfeita.'},
+            {'t': 'Sério, me senti pronta pra festa na hora.'},
+            {'t': 'E os detalhes dela são lindos de perto.'},
+        ],
+        'closers': ['Já tô me vendo com ela {occ}.', 'Perfeita pra usar {occ}.'],
+        'ctas': ['Corre pro carrinho laranja e garante {teu}.', 'Tá no carrinho laranja, vai lá ver de pertinho.'],
+        'example': {'det': 'os detalhes', 'pain': 'o tecido ser fininho'},
+    },
+    {
+        'id': 'colete', 'label': 'Colete', 'piece': 'colete', 'gender': 'm',
+        'keywords': ['colete'],
+        'occasions': ['no dia a dia', 'no trabalho', 'pra sair à noite', 'com jeans'],
+        'tone': 'Estiloso e despretensioso, de quem gosta de uma terceira peça no look.',
+        'avoid': 'Só dizer couro legítimo se o briefing disser; sintético é outra coisa. Não prometer que "não descasca".',
+        'objections': [
+            {'needles': ['plástico', 'plastico', 'barat', 'falso', 'brilho'], 'pain': 'parecer plástico',
+             'proof': 'Por isso quis te mostrar ele aqui na luz, pra você ver o acabamento.'},
+            {'needles': ['larg', 'sobra', 'quadrad'], 'pain': 'ficar largo demais',
+             'proof': 'Por isso quis te mostrar ele no corpo, de frente e de lado.'},
+        ],
+        'hooks': [
+            {'t': 'Achei o colete que deixa qualquer look básico mais estiloso.'},
+            {'t': 'Vesti {dem} {piece} por cima de uma camiseta e virou outro look.'},
+            {'t': 'Gente, olha {dem} {piece} que eu achei pra dar cara nova no look.'},
+            {'t': 'Tô apaixonada por {dem} {piece}, sério, combina com tudo que eu tenho.'},
+            {'t': 'Colete com {feat}? Eu precisava te mostrar esse aqui hoje.', 'req': 'bolso'},
+            {'t': 'Meu medo com colete sempre foi {pain}. Olha {dem} aqui.', 'pain': True},
+        ],
+        'reactions': [
+            {'t': 'E olha como ele fica no corpo, bem estiloso.'},
+            {'t': 'Sério, uma peça só e o look muda inteiro.'},
+            {'t': 'E os botões dão um charme a mais nele.', 'req': 'botões'},
+            {'t': 'E o courino tem um brilho bem discreto.', 'req': 'courino'},
+        ],
+        'closers': ['Dá pra usar {occ} numa boa.', 'Combina demais {occ}.'],
+        'ctas': ['Corre pro carrinho laranja e garante {teu}.', 'Tá no carrinho laranja, escolhe {teu} lá.'],
+        'example': {'det': 'os botões', 'pain': 'parecer plástico'},
+    },
     {
         'id': 'short_legging', 'label': 'Short legging', 'piece': 'short', 'gender': 'm',
         'keywords': ['short legging', 'shorts legging', 'short de academia', 'short fitness',
@@ -123,6 +185,39 @@ CATEGORIES = [
         'example': {'det': 'o cós largo', 'pain': 'ficar transparente'},
     },
     {
+        'id': 'calca_jeans', 'label': 'Calça jeans', 'piece': 'calça', 'gender': 'f',
+        'keywords': ['calça jeans', 'calca jeans', 'calça de jeans', 'calca de jeans', 'calça denim',
+                     'calca denim', 'mom jeans', 'wide leg jeans', 'skinny jeans'],
+        'occasions': ['no dia a dia', 'no trabalho', 'pra sair no fim de semana', 'com tênis ou salto'],
+        'tone': 'Prático e confiante, de quem achou o jeans que funciona.',
+        'avoid': 'Não prometer que "não laceia", "levanta o bumbum" ou "não desbota" sem isso no briefing.',
+        'objections': [
+            {'needles': ['cintura', 'sobra', 'abre atrás', 'abre atras'], 'pain': 'sobrar na cintura',
+             'proof': 'Por isso quis te mostrar ela no corpo, de frente e de lado.'},
+            {'needles': ['aperta', 'apertad', 'marca', 'dura'], 'pain': 'apertar demais',
+             'proof': 'Por isso tô me mexendo aqui, pra você ver como ela veste.'},
+            {'needles': ['comprid', 'curt', 'barra'], 'pain': 'errar no comprimento',
+             'proof': 'Por isso quis te mostrar ela inteira, até a barra.'},
+        ],
+        'hooks': [
+            {'t': 'Achei a calça jeans que eu queria pra usar com tudo.'},
+            {'t': 'Vesti {dem} {piece} jeans e já virou minha favorita, sério.'},
+            {'t': 'Gente, olha {dem} {piece} jeans que eu achei pro dia a dia.'},
+            {'t': 'Tô apaixonada por {dem} {piece} jeans, sério, combina com tudo.'},
+            {'t': 'Calça jeans de {feat}? Eu precisava te mostrar essa aqui.', 'req': 'cintura alta'},
+            {'t': 'Meu problema com calça jeans sempre foi {pain}. Olha {dem} aqui.', 'pain': True},
+        ],
+        'reactions': [
+            {'t': 'E olha como ela veste no corpo, bem certinha.'},
+            {'t': 'Sério, é daquelas que vão com tudo que eu tenho.'},
+            {'t': 'E a cintura alta deixa a silhueta lindona.', 'req': 'cintura alta'},
+            {'t': 'E ainda tem {det}, do jeitinho que eu gosto.', 'req': 'bolso'},
+        ],
+        'closers': ['Dá pra usar {occ} numa boa.', 'Já tô pensando nela {occ}.'],
+        'ctas': ['Corre pro carrinho laranja e garante {teu}.', 'Tá no carrinho laranja, vai lá ver de pertinho.'],
+        'example': {'det': 'a cintura alta', 'pain': 'sobrar na cintura'},
+    },
+    {
         'id': 'calca_courino', 'label': 'Calça de courino', 'piece': 'calça', 'gender': 'f',
         'keywords': ['courino', 'couro sintético', 'couro sintetico', 'couro ecológico', 'couro ecologico',
                      'calça de couro', 'calca de couro', 'cirrê', 'cirre'],
@@ -140,7 +235,7 @@ CATEGORIES = [
         'hooks': [
             {'t': 'Achei a calça de courino que salva qualquer look básico.'},
             {'t': 'Vesti {dem} {piece} com uma blusa simples e virou outro look.'},
-            {'t': 'Eu tinha medo de calça de courino {pain}. Olha {dem} aqui.', 'pain': True},
+            {'t': 'Meu medo com calça de courino sempre foi {pain}. Olha {dem} aqui.', 'pain': True},
             {'t': 'Calça de courino com {feat}: vesti e me apaixonei.', 'req': 'cintura alta'},
             {'t': 'Gente, olha {dem} {piece} de courino que eu achei pra sair à noite.'},
             {'t': 'Tô apaixonada por {dem} {piece}, sério, combina com tudo que eu tenho.'},
@@ -412,6 +507,46 @@ CATEGORIES = [
     },
 ]
 
+# Combinacoes que a modelo veste junto (opiniao de estilo, nao fato da peca).
+# Vem dos exemplos de "uma peca, varias combinacoes" do material de vendas,
+# reescritos em primeira pessoa.
+_COMBOS = {
+    'short_legging': ('uma regata soltinha', 'um top de academia'),
+    'legging': ('uma camiseta oversized', 'um cropped'),
+    'calca_jeans': ('uma camiseta básica', 'uma camisa'),
+    'calca_courino': ('uma camiseta básica', 'uma camisa branca'),
+    'colete': ('uma camiseta branca', 'uma calça jeans'),
+    'maio': ('uma saída de praia', 'um short jeans'),
+    'biquini': ('uma saída de praia', 'um short jeans'),
+    'saida_praia': ('um biquíni', 'uma rasteirinha'),
+    'regata': ('uma calça jeans', 'uma saia midi'),
+    'blusa': ('uma calça de alfaiataria', 'uma saia'),
+}
+
+
+def _enrich(cat: dict) -> None:
+    """Moldes comuns a todas as categorias: escolha antes da compra, look
+    combinado, medidas. Tudo em primeira pessoa e sem fato inventado."""
+    fem = cat['gender'] == 'f'
+    pron = 'ela' if fem else 'ele'
+    cat['hooks'].append({'t': 'Antes de escolher {teu} {piece}, olha {dem} que eu achei.'})
+    combos = _COMBOS.get(cat['id'])
+    if combos:
+        cat['hooks'].append({'t': f'Vesti {{dem}} {{piece}} com {combos[0]} e olha como ficou.'})
+        cat['closers'].append(f'Fica lindo com {combos[1]}.')
+    cat['ctas'].append({'t': 'Confere as medidas no carrinho laranja antes de escolher.',
+                        'for_pain': 'errar o tamanho'})
+    # Duvida de tamanho e a objecao que mais aparece em roupa comprada online.
+    cat['objections'].append({
+        'needles': ['tamanho', 'medida', 'numeração', 'numeracao', 'veste pequeno', 'veste grande', 'forma'],
+        'pain': 'errar o tamanho',
+        'proof': f'Por isso quis te mostrar {pron} no corpo, pra você ter noção do tamanho.',
+    })
+
+
+for _cat in CATEGORIES:
+    _enrich(_cat)
+
 _BY_ID = {cat['id']: cat for cat in CATEGORIES}
 
 
@@ -492,7 +627,7 @@ def showcase(cat_id: str, with_article=None) -> list[dict]:
         out.append({
             'hook': fill(hook['t'], with_req(hook)),
             'development': fill(f"{fill(reaction['t'], with_req(reaction))} {closer}", slots),
-            'cta': fill(cta, slots),
+            'cta': fill(cta['t'] if isinstance(cta, dict) else cta, slots),
             'needs': ', '.join(x for x in (hook.get('req'), reaction.get('req'),
                                            'objeção no briefing' if hook.get('pain') else '') if x),
         })

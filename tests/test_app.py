@@ -1097,7 +1097,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         ids={c['id'] for c in response.json['categories']}
         for esperado in ('maio','biquini','saida_praia','calca_courino','legging','short_legging',
-                         'blusa','regata','pijama','baby_doll'):
+                         'blusa','regata','pijama','baby_doll','calca_jeans','colete','fantasia'):
             self.assertIn(esperado,ids)
         self.assertEqual(response.json['detail']['label'],'Biquíni')
         self.assertTrue(response.json['showcase'])
@@ -1135,6 +1135,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(apagado.status_code,200)
         self.assertEqual(self.client.delete(f"/api/speech-bank/{salvo.json['id']}",headers=self.headers).status_code,404)
 
+    def test_size_objection_puts_the_measures_cta_first(self):
+        campanha=dict(model_name='Micaela',product='Calça legging preta',outfit='legging',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='',movements='',
+                      generator='grok',niche='academia',objection='não sei meu tamanho')
+        falas=generate(campanha)
+        self.assertIn('errar o tamanho',falas['hook'])
+        self.assertIn('noção do tamanho',falas['development'])
+        self.assertIn('medidas',falas['cta'])
+
+    def test_plural_detail_keeps_verb_agreement(self):
+        campanha=dict(model_name='Micaela',product='Colete feminino',outfit='colete',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='botões',movements='',
+                      generator='grok',niche='casual',objection='')
+        for indice in range(6):
+            gancho=generate(campanha,variant_index=indice)['hook']
+            self.assertNotIn('foi os',gancho)
+            self.assertNotIn('é os',gancho)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)
@@ -1152,6 +1170,10 @@ class WorkflowTests(unittest.TestCase):
             ('Pijama de cetim','pijama','pijama','esquenta pra dormir'),
             ('Regata feminina canelada','regata','regata','aparece o sutiã'),
             ('Blusa de viscose','blusa','blusa','amassa fácil'),
+            ('Calça jeans cintura alta','calca_jeans','calça','sobra na cintura'),
+            ('Colete de couro sintético','colete','colete','parece plástico'),
+            ('Fantasia de coelhinha','fantasia','fantasia','não sei o que acompanha'),
+            ('Calça legging preta','legging','legging','não sei meu tamanho'),
         ]
         for produto,categoria,peca,objecao in casos:
             self.assertEqual(speech_bank.detect({'product':produto}),categoria,produto)
