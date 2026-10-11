@@ -1307,6 +1307,20 @@ class WorkflowTests(unittest.TestCase):
             os.environ.pop('OPENAI_API_KEY',None)
             self.assertFalse(cw.load_settings(self.config['DATA_DIR'])['enabled'])
 
+    def test_environment_key_is_on_even_with_an_old_disabled_file(self):
+        # Arquivo salvo antes de a chave existir ("enabled": false) nao
+        # desliga a IA; so o desmarcar na tela desliga.
+        import services.copywriter as cw
+        arquivo=Path(self.config['DATA_DIR'])/cw.SETTINGS_FILE
+        arquivo.parent.mkdir(parents=True,exist_ok=True)
+        arquivo.write_text(json.dumps({'provider':'openai','api_key':'','model':'gpt-4o-mini','enabled':False}),encoding='utf-8')
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'sk-proj-teste-de-ambiente-1234567890abcd'}):
+            self.assertTrue(cw.load_settings(self.config['DATA_DIR'])['enabled'])
+            self.client.patch('/api/writer',json={'enabled':False},headers=self.headers)
+            self.assertFalse(cw.load_settings(self.config['DATA_DIR'])['enabled'])
+            self.client.patch('/api/writer',json={'enabled':True},headers=self.headers)
+            self.assertTrue(cw.load_settings(self.config['DATA_DIR'])['enabled'])
+
     def test_writer_key_is_checked_before_it_is_saved(self):
         with patch('services.copywriter.verify_key',return_value=(False,'A chave foi recusada pelo provedor.')) as check:
             response=self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-chave-errada-123456789012','enabled':True},headers=self.headers)
