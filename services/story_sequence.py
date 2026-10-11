@@ -17,7 +17,7 @@ import math
 import re
 
 from services.prompt_improve import (
-    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, push_target, size,
+    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
 from services import persuasion
 from services.prompts import _count_words, _dominant_motor, _focus_parts, _video_mode, _with_em
@@ -53,7 +53,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     silent = mode == 'movimento'
     touch = _touch_point(c)
     touch_em = 'no cós' if touch == 'o cós' else 'na peça'
-    shot = framing(c)
+    shot = framing(c) if mode == 'movimento' else speech_framing(c)
     spoken = f'{hook} {development}'
     steps = ', depois '.join(movement_steps(c, spoken)[:3])
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'

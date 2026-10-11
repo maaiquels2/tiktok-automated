@@ -83,6 +83,15 @@ def framing(c: dict) -> str:
     return 'plano americano, dos joelhos para cima'
 
 
+def speech_framing(c: dict) -> str:
+    """Plano quando a modelo fala. Corpo inteiro deixa o rosto pequeno e o
+    Grok erra identidade e labios: o prompt resumido com "corpo inteiro"
+    rendeu 5/10 contra o completo, que pedia plano medio frontal. Com fala,
+    o mais aberto e o plano americano; a aproximacao vai ao plano medio."""
+    shot = framing(c)
+    return 'plano americano, dos joelhos para cima' if shot.startswith('corpo inteiro') else shot
+
+
 def mood(c: dict) -> str:
     if _video_mode(c) == 'pov':
         return _MOOD_POV
@@ -174,7 +183,7 @@ _PUSH = {
 
 
 def push_target(c: dict) -> str:
-    return _PUSH.get(framing(c), 'um plano um pouco mais fechado')
+    return _PUSH.get(speech_framing(c), 'um plano um pouco mais fechado')
 
 
 def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
@@ -214,16 +223,17 @@ def proof_gesture(c: dict, spoken: str = '') -> str:
 
 
 def movement_steps(c: dict, spoken: str = '',
-                   default: str = 'caminha dois passos e ajeita a peça com uma das mãos') -> list[str]:
+                   default: str = 'caminha dois passos e ajeita a peça com uma das mãos',
+                   limit: int = MAX_MOVES) -> list[str]:
     """Gesto de prova, movimentos do briefing (na ordem escrita) e o giro
-    autorizado -- no maximo 4 acoes no total."""
+    autorizado -- no maximo ``limit`` acoes no total."""
     proof = proof_gesture(c, spoken) if _video_mode(c) != 'pov' else ''
     moves = _moves(c)
     if proof:
         # "agacha" depois de "faz um agachamento" seria a mesma acao duas vezes.
         moves = [m for m in moves if m.split()[0][:5].casefold() not in proof.casefold()]
     turn = _turn(c)
-    room = MAX_MOVES - bool(turn) - bool(proof)
+    room = max(0, limit - bool(turn) - bool(proof))
     steps = ([proof] if proof else []) + moves[:room] + ([turn] if turn else [])
     return steps or [default]
 
@@ -243,9 +253,13 @@ def pov_hands(c: dict, spoken: str = '') -> str:
 # trata cada trecho como um anuncio separado, com pausa e entonacao de
 # locutor. Tom de conversa com amiga, nao de propaganda.
 SPEECH = ('Fala: uma conversa só, do começo ao fim, como quem conta uma descoberta para uma amiga; '
-          'tom espontâneo e animado na medida, entonação que sobe e desce, respiro natural entre as ideias, '
-          'sorriso na voz; nada de locução nem de anúncio. Voz feminina em português do Brasil, lábios '
-          'sincronizados, só o que está entre aspas; som ambiente baixo, sem música.')
+          'tom espontâneo e animado na medida, entonação que sobe e desce, sorriso na voz; nada de locução '
+          'nem de anúncio. Ritmo natural, sem correr. Voz feminina em português do Brasil, lábios '
+          'sincronizados; fala só o que está entre aspas, palavra por palavra; som ambiente baixo, sem música.')
+# Travas do prompt completo que seguravam a qualidade e o guia enxuto
+# tinha cortado: maos na peca e gesto no ritmo da fala.
+HANDS = ('Mãos: uma sempre em contato com a peça; a outra mostra o detalhe. Gestos e expressões seguem o '
+         'ritmo da fala, sem movimento artificial de IA.')
 SPEECH_POV = ('Fala: narração de quem está testando e comentando sozinha, num tom baixo e espontâneo, '
               'como pensando em voz alta; uma conversa só, sem pausa de locutor. Voz feminina em português '
               'do Brasil, só o que está entre aspas; som ambiente baixo, sem música.')
@@ -266,14 +280,19 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     res = size(c)
 
     spoken = f'{hook} {development}'
-    middle = 'Ela ' + ', depois '.join(movement_steps(c, spoken)) + ', em movimentos lentos e contínuos'
+    # Com fala: no maximo 3 acoes no meio (a prova, um movimento e o giro).
+    # Quatro em fila ("passa a mao, ajusta, senta e levanta, gira") deixavam
+    # o video corrido.
+    falando = mode not in ('pov', 'movimento')
+    steps = movement_steps(c, spoken, limit=3 if falando else MAX_MOVES)
+    middle = 'Ela ' + ', depois '.join(steps) + ', em movimentos lentos e contínuos'
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     t1, t2 = persuasion.timeline(hook, development, cta)
 
     first_frame = (
-        f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), com o mesmo rosto, '
-        'cabelo, pele e corpo, vestindo exatamente o que aparece nela.')
+        f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}); preserve 100% o mesmo rosto, '
+        'cabelo, pele e corpo em todos os quadros, vestindo exatamente o que aparece nela.')
     light = 'Luz: a mesma da imagem, sem trocar a cena nem escurecer.'
     close = closing_rules(c, product, keeps)
 
@@ -308,12 +327,13 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     return '\n'.join([
         f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: {vibe}.',
         first_frame, light,
-        f'Câmera: na mão, estável, {shot}, um único take contínuo; dolly-in lento até {push_target(c)} '
+        f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo; dolly-in lento até {push_target(c)} '
         'no meio do vídeo e volta ao plano inicial no final. O rosto fica sempre no quadro enquanto ela fala.',
         f'[0–{t1}s] Ela {cena["hook"]}. Ela começa: "{hook}"',
         f'[{t1}–{t2}s] {middle}. Ela continua, no mesmo fôlego: "{development}"',
         f'[{t2}–15s] De frente para a lente, ela {cena["cta"]}, sorrindo. E fecha: "{cta}"',
         f'Expressão: {cena["arc"]}.',
+        HANDS,
         SPEECH,
         close,
     ])
