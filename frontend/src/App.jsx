@@ -6,7 +6,7 @@ import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, colorList, swatchFor } from './ui';
-import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, QuickCreatePanel} from './components';
+import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, AutoCreatePanel} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 
 
@@ -632,10 +632,12 @@ export default function App(){
   const saveLabel=busy?'Salvando…':(isCloudMode()?'Salvo na nuvem':'Dados no computador');
   const continueItem=activeCampaigns[0];
   const listed=homeView==='publicadas'?publishedCampaigns:activeCampaigns;
-  const newCampaign=()=>{if(discard()){setError('');setModal({type:'create'})}};
-  const quickCampaign=()=>{if(discard()){setError('');setModal({type:'quick',title:'Criar com IA'})}};
-  // Criacao de campanha (formulario completo e Criar com IA usam o mesmo caminho).
-  async function createCampaign(values,photos=[],removed=[],descriptionPhoto=null){
+  // Nova campanha: a pessoa escolhe Automatica (moda + 2 fotos, a IA vai ate
+  // os prompts do Grok) ou Manual (briefing completo, campo por campo).
+  const newCampaign=()=>{if(discard()){setError('');setModal({type:'choose',title:'Nova campanha'})}};
+  // Criacao de campanha (Manual e Automatica usam o mesmo caminho).
+  async function createCampaign(values,photos=[],removed=[],descriptionPhoto=null,opts={}){
+        let generateError='';
         let analysisOutcome=null;
         // Se uma foto de descricao foi anexada, deixa ela "ganhar" de
         // beneficio/angulo/movimentos/detalhes: esses 4 campos, se ainda
@@ -682,6 +684,13 @@ export default function App(){
               await fillFromNiche();
             }
           }
+          if(opts.generate){
+            // Automatica: ja gera imagem, video, roteiro (IA) e legenda. Precisa da
+            // foto padrao da modelo no nicho; sem ela, cai em Definir modelo.
+            try{
+              result=await api(`/campaigns/${result.id}/generate`,{method:'POST',body:{version:result.version},timeoutMs:150000});
+            }catch(e){generateError=e.message||String(e)}
+          }
           setMode('produce');
           const st=nextStage(result)||'model';
           // Sempre respeitar o proximo passo real (nextStage): pular "Definir
@@ -692,7 +701,8 @@ export default function App(){
           setSelected(go);
           syncHash({mode:'produce',campaignId:result.id,stage:go});
           return result;
-        }, photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a produção.');
+        }, opts.message || (photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a produção.'));
+        if(created&&generateError)setError(`Campanha criada, mas os prompts não foram gerados: ${generateError} Confira a foto da modelo e toque em Gerar prompts.`);
         if(created&&analysisOutcome){
           if(analysisOutcome.error)setError(`Campanha criada, mas a análise da IA da foto de descrição falhou: ${analysisOutcome.error}`);
           else if(analysisOutcome.filled.length)flash(`Campanha criada. A IA leu a foto da descrição e preencheu: ${analysisOutcome.filled.map(k=>ANALYSIS_FIELD_LABELS[k]||k).join(', ')}.`);
@@ -745,7 +755,6 @@ export default function App(){
                 <button type="button" role="tab" className="rd-chip-tab" aria-selected={homeView==='ativas'} disabled={busy} onClick={()=>goHomeView('ativas')}>Em andamento · {activeCampaigns.length}</button>
                 <button type="button" role="tab" className="rd-chip-tab" aria-selected={homeView==='publicadas'} disabled={busy} onClick={()=>goHomeView('publicadas')}>Publicadas · {publishedCampaigns.length}</button>
               </div>
-              <button type="button" disabled={busy||loading} onClick={quickCampaign}><Sparkles size={18}/> Criar com IA</button>
               <button type="button" className="primary" disabled={busy||loading} onClick={newCampaign}><Plus size={18}/> Nova campanha</button>
             </div>
           </div>
@@ -894,7 +903,11 @@ export default function App(){
     {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
     {notice&&!error&&<div className="toast" role="status"><Check size={19}/>{notice}</div>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
-      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='bank'?<SpeechBankPanel campaignId={modal.campaignId} onError={setError} onFlash={flash} onApply={modal.onApply?async item=>{if(await modal.onApply(item))setModal(null)}:null}/>:modal.type==='quick'?<QuickCreatePanel modelName={readStoredModel()||identity?.model_name||'Micaela'} busy={busy} onError={setError} onCreate={(values,photos)=>createCampaign(values,photos)} onFull={(values,photos)=>setModal({type:'create',initial:values,photos})}/>:modal.type==='create'?<>{!modal.initial&&<button type="button" className="quick-entry" disabled={busy} onClick={()=>setModal({type:'quick',title:'Criar com IA'})}><Sparkles size={16}/> Prefere só subir as fotos? <strong>Criar com IA</strong></button>}<BriefForm busy={busy} campaign={modal.initial||{model_name:readStoredModel()||identity?.model_name||'Micaela'}} initialPhotos={modal.photos} onCancel={()=>setModal(null)} onSave={createCampaign}/></>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
+      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='bank'?<SpeechBankPanel campaignId={modal.campaignId} onError={setError} onFlash={flash} onApply={modal.onApply?async item=>{if(await modal.onApply(item))setModal(null)}:null}/>:modal.type==='choose'?<div className="create-choice">
+        <button type="button" className="choice-card is-auto" disabled={busy} onClick={()=>setModal({type:'auto',title:'Campanha automática'})}><Sparkles size={22}/><strong>Automática</strong><small>Escolha a moda e suba a foto do produto e o print da descrição. A IA lê tudo, escreve o roteiro e deixa os prompts do Grok prontos.</small></button>
+        <button type="button" className="choice-card" disabled={busy} onClick={()=>setModal({type:'create'})}><Pencil size={22}/><strong>Manual</strong><small>Você preenche o briefing do zero, campo por campo, até os prompts do Grok.</small></button>
+      </div>:modal.type==='auto'?<AutoCreatePanel modelName={readStoredModel()||identity?.model_name||'Micaela'} busy={busy} onError={setError}
+        onCreate={(values,photos,message)=>createCampaign(values,photos,[],null,{generate:true,message})}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={createCampaign}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
       {error&&<p className="inline-error" role="alert">{error}</p>}
     </Dialog>}
   </>;

@@ -36,7 +36,18 @@ from services.prompts import (
 
 SETTINGS_FILE = 'llm.json'
 PROVIDERS = ('openai', 'gemini')
-DEFAULT_MODELS = {'openai': 'gpt-4o-mini', 'gemini': 'gemini-2.0-flash'}
+# Avaliacao de 11/10/2026 (fotos reais de produto + prints de loja, chamadas
+# reais): para LER as fotos, gpt-6-luna acertou tanto quanto Sol e Astra
+# (produto, composicao, oferta e prova social com os numeros exatos, nada
+# inventado) por ~1/15 do custo do Sol. Para ESCREVER as falas, gpt-6.1-sol
+# teve 9/9 opcoes aprovadas, sempre em primeira pessoa (Luna 8/9, mais
+# impessoal; Astra igual ao Sol por ~5x o preco; gpt-4o-mini prometeu
+# "confortavel" sem fato e perdeu parte da oferta).
+DEFAULT_MODELS = {'openai': 'gpt-6.1-sol', 'gemini': 'gemini-2.0-flash'}
+VISION_MODELS = {'openai': 'gpt-6-luna'}
+# Padroes antigos gravados na configuracao: tratados como "padrao" para a
+# troca de modelo valer sem ninguem precisar reconfigurar.
+LEGACY_DEFAULT_MODELS = {'openai': ('gpt-4o-mini',)}
 TIMEOUT = 25
 BATCH_TIMEOUT = 45
 # Teto de tempo da etapa inteira de escrita. Duas tentativas de 25s somavam
@@ -252,10 +263,13 @@ def load_settings(data_dir, storage_get=None) -> dict:
         # Ligada por padrao: o "enabled: false" de um arquivo salvo antes de
         # a chave existir nao conta. So desliga quem desmarcou na tela.
         enabled = not raw.get('disabled_by_user')
+    model = str(raw.get('model') or '')
+    if not model or model in LEGACY_DEFAULT_MODELS.get(provider, ()):
+        model = DEFAULT_MODELS.get(provider, '')
     return {
         'provider': provider,
         'api_key': api_key,
-        'model': str(raw.get('model') or DEFAULT_MODELS.get(provider, '')),
+        'model': model,
         'enabled': enabled and bool(provider) and bool(api_key),
         'key_source': source,
         'disabled_by_user': bool(raw.get('disabled_by_user')),
@@ -622,7 +636,16 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: int = TIMEOUT) -
 # por exemplo, so aceitam temperature no padrao. Em vez de exigir que o operador
 # adivinhe qual modelo aceita o que, o codigo tira o parametro recusado e tenta
 # de novo -- o essencial e o texto, nao o ajuste fino.
-_OPTIONAL_OPENAI = ('temperature', 'response_format', 'top_p')
+_OPTIONAL_OPENAI = ('temperature', 'response_format', 'top_p', 'reasoning_effort')
+# Modelos que raciocinam (gpt-5.x / gpt-6.x / o-series): esforco baixo basta
+# para extrair dados e escrever 3 falas curtas, e corta tempo e custo. Quem
+# nao aceita o parametro tem ele retirado na repeticao (sem custo: o 400 nao
+# consome tokens).
+REASONING_EFFORT = 'low'
+
+
+def _reasoning_model(model: str) -> bool:
+    return bool(re.match(r'^(gpt-5|gpt-6|o\d)', str(model or '')))
 
 
 def _image_data_url(image_bytes: bytes, mime: str) -> str:
@@ -644,6 +667,11 @@ def _call_openai(settings: dict, system: str, user: str, images: list[tuple[byte
         'temperature': 0.9,
         'response_format': {'type': 'json_object'},
     }
+    if _reasoning_model(body['model']):
+        # Modelo que raciocina recusa temperature: nem manda, e economiza a
+        # repeticao.
+        body.pop('temperature')
+        body['reasoning_effort'] = settings.get('reasoning_effort') or REASONING_EFFORT
     for _ in range(len(_OPTIONAL_OPENAI) + 1):
         try:
             post_args=(
@@ -1153,7 +1181,7 @@ def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, contex
     rotulo diz pra IA qual foto e qual (produto ou descricao), na mesma
     ordem descrita no prompt de visao. Usa a mesma configuracao
     (provedor/chave/modelo) das Configuracoes de Escrita com IA - se o
-    modelo suportar visao (gpt-4o-mini e gemini-2.0-flash suportam, e sao
+    modelo suportar visao (gpt-6-luna e gemini-2.0-flash suportam, e sao
     os padroes do app), funciona sem nenhuma chave nova. Devolve
     (campos_sugeridos, motivo_da_falha)."""
     caller = CALLERS.get(settings.get('provider'))
@@ -1168,6 +1196,7 @@ def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, contex
     if context:
         user += f'\n\nContexto adicional (não invente além disso): {context}'
     fotos = [_shrink_for_vision(dados, mime) for dados, mime, _ in images]
+    settings = vision_settings(settings)
     try:
         bruto = _call_with_deadline(
             caller, {**settings, '_request_timeout': min(TIMEOUT, VISION_BUDGET_SECONDS)},
@@ -1251,7 +1280,16 @@ def _parse_quick(raw: str, niches) -> dict:
     return out
 
 
-def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches) -> tuple[dict | None, str]:
+def vision_settings(settings: dict) -> dict:
+    """Leitura de fotos usa o modelo de visao do provedor (mais barato e tao
+    preciso quanto o de escrita para extrair dados), salvo se a configuracao
+    pedir outro."""
+    model = settings.get('vision_model') or VISION_MODELS.get(settings.get('provider'))
+    return {**settings, 'model': model} if model else settings
+
+
+def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches,
+                niche: str = '') -> tuple[dict | None, str]:
     """Briefing inteiro a partir das fotos do produto e do print da pagina
     ("Criar com IA"). Devolve (campos, motivo_da_falha). Nada e gravado aqui:
     a tela mostra o resultado para a pessoa conferir antes de criar."""
@@ -1262,7 +1300,10 @@ def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches) ->
         return None, 'Envie pelo menos uma foto do produto.'
     identificacao = '; '.join(f'Foto {i}: {rotulo}' for i, (_, _, rotulo) in enumerate(images, start=1))
     user = f'Monte o briefing com as fotos anexadas.\n\nIdentificação de cada foto, na ordem: {identificacao}.'
+    if niche in niches:
+        user += f'\n\nNicho escolhido pela pessoa (use este): {niche}.'
     fotos = [_shrink_for_vision(dados, mime) for dados, mime, _ in images]
+    settings = vision_settings(settings)
     try:
         bruto = _call_with_deadline(
             caller, {**settings, '_request_timeout': min(TIMEOUT, VISION_BUDGET_SECONDS)},
@@ -1278,4 +1319,6 @@ def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches) ->
         return None, f'resposta ilegível ({exc})'
     if not campos.get('product'):
         return None, 'a IA não conseguiu identificar o produto nas fotos'
+    if niche in niches:
+        campos['niche'] = niche
     return campos, ''

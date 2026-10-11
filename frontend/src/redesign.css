@@ -833,7 +833,6 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
 .persuasion-preview em { font-style: normal; background: var(--rd-publicar-soft); color: var(--rd-publicar-ink); border-radius: 999px; padding: 2px 10px; }
 
 /* Criar com IA */
-.quick-entry { width: 100%; display: flex; align-items: center; gap: 8px; justify-content: center; margin-bottom: 12px; padding: 12px; border-radius: 12px; border: 1px dashed var(--rd-primary); background: var(--rd-primary-soft); color: var(--rd-primary-ink); }
 .quick-create { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
 .quick-create label { display: flex; flex-direction: column; gap: 6px; }
 .quick-tile { position: relative; border: 1px dashed var(--rd-line-strong); border-radius: 14px; padding: 18px 16px; background: var(--rd-surface-2); cursor: pointer; align-items: center; text-align: center; }
@@ -846,3 +845,12 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
 .quick-confirm { flex-direction: row !important; align-items: center; gap: 8px; font-size: 14px; }
 .quick-actions { display: flex; flex-direction: column; gap: 8px; }
 .quick-reading { align-items: center; text-align: center; padding: 32px 0; }
+
+/* Nova campanha: Automatica ou Manual */
+.create-choice { display: grid; gap: 12px; max-width: 560px; }
+.choice-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; padding: 18px; border-radius: 16px; border: 1px solid var(--rd-line-strong); background: var(--rd-surface); color: var(--rd-ink); min-height: 0; height: auto; white-space: normal; }
+.choice-card strong { font-size: 17px; }
+.choice-card small { color: var(--rd-ink-3); font-size: 14px; line-height: 1.45; font-weight: 400; }
+.choice-card.is-auto { border-color: var(--rd-primary); background: var(--rd-primary-soft); }
+.choice-card.is-auto svg { color: var(--rd-primary-ink); }
+.quick-niches .rd-chip-tab[aria-checked="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; opacity: 1; }
