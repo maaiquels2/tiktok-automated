@@ -198,6 +198,7 @@ export const openCharacterSheet = (body={}) =>
 
 export const writerSettings = () => api('/writer');
 // Banco de falas: voz por categoria de peca + roteiros aprovados pelo estudio.
+export const persuasionPreview = body => api('/persuasion/preview', {method: 'POST', body});
 export const speechBank = (query = '') => api('/speech-bank' + (query ? '?' + query : ''));
 export const saveToSpeechBank = body => api('/speech-bank', {method: 'POST', body});
 export const deleteFromSpeechBank = id => api(`/speech-bank/${encodeURIComponent(id)}`, {method: 'DELETE'});

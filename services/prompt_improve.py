@@ -22,9 +22,10 @@ caracteres.
 import re
 import unicodedata
 
+from services import persuasion
 from services.prompts import (
-    _body_turns, _niche_key, _piece_forms, _pov_proof_gestures, _product_family, _product_features,
-    _proof_gestures, _video_mode,
+    _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures, _product_family,
+    _product_features, _proof_gestures, _video_mode,
 )
 
 # Quantos movimentos cabem no trecho do meio (8 segundos): cerca de 2 segundos
@@ -272,6 +273,9 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
 
     spoken = f'{hook} {development}'
     middle = 'Ela ' + ', depois '.join(movement_steps(c, spoken)) + ', em movimentos lentos e contínuos'
+    # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
+    cena = persuasion.scene_direction(_dominant_motor(c), touch)
+    t1, t2 = persuasion.timeline(hook, development, cta)
 
     first_frame = (
         f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), com o mesmo rosto, '
@@ -286,9 +290,10 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, um único take contínuo com leve balanço natural; '
             'tilt lento para baixo no final.',
-            f'[0–4s] A câmera olha para baixo e as mãos mostram {touch}. Ela começa: "{hook}"',
-            f'[4–12s] {pov_hands(c, spoken)}, devagar. Ela continua, no mesmo fôlego: "{development}"',
-            f'[12–15s] Tilt lento para baixo mostrando a peça inteira no corpo. E fecha: "{cta}"',
+            f'[0–{t1}s] A câmera olha para baixo e as mãos mostram {touch}. Ela começa: "{hook}"',
+            f'[{t1}–{t2}s] {pov_hands(c, spoken)}, devagar. Ela continua, no mesmo fôlego: "{development}"',
+            f'[{t2}–15s] Tilt lento para baixo mostrando a peça inteira no corpo; no fim, o indicador aponta '
+            f'uma vez para a parte de baixo da tela. E fecha: "{cta}"',
             SPEECH_POV,
             closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: o rosto nunca aparece; ', 1),
         ])
@@ -298,9 +303,10 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'Vídeo vertical 9:16, 15 segundos, {res}, sem fala. Clima: {vibe}.',
             first_frame, light,
             f'Câmera: fixa na altura do peito, {shot}, sem zoom, um único take contínuo.',
-            f'[0–4s] Ela olha para a lente e ajusta {touch} com as duas mãos.',
+            f'[0–4s] Ela {cena["hook"]}.',
             f'[4–12s] {middle}.',
-            f'[12–15s] De frente para a lente, mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante.',
+            f'[12–15s] De frente para a lente, ela {cena["cta"]}; corpo parado, sorriso leve e confiante.',
+            f'Expressão: {cena["arc"]}.',
             'Som: sem voz e sem fala; só som ambiente discreto.',
             close,
         ])
@@ -310,9 +316,10 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         first_frame, light,
         f'Câmera: na mão, estável, {shot}, um único take contínuo; dolly-in lento até {push_target(c)} '
         'no meio do vídeo e volta ao plano inicial no final. O rosto fica sempre no quadro enquanto ela fala.',
-        f'[0–4s] Ela dá um passo em direção à câmera, olha para a lente e toca {touch}. Ela começa: "{hook}"',
-        f'[4–12s] {middle}. Ela continua, no mesmo fôlego: "{development}"',
-        f'[12–15s] De frente para a lente, as duas mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante. E fecha: "{cta}"',
+        f'[0–{t1}s] Ela {cena["hook"]}. Ela começa: "{hook}"',
+        f'[{t1}–{t2}s] {middle}. Ela continua, no mesmo fôlego: "{development}"',
+        f'[{t2}–15s] De frente para a lente, ela {cena["cta"]}, sorrindo. E fecha: "{cta}"',
+        f'Expressão: {cena["arc"]}.',
         SPEECH,
         close,
     ])

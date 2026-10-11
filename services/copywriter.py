@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from services import speech_bank
+from services import persuasion, speech_bank
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
     _dominant_motor, _chosen_motor, color_variants,
@@ -151,6 +151,7 @@ REGRAS INEGOCIÁVEIS
 7. "Corre", "aproveita", "agora" e "garante a tua" criam impulso e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "antes que esgote", "acaba hoje", "esse preço vai sumir", "50% off", "promoção relâmpago". Só use essas alegações quando a OFERTA REAL confirmar exatamente isso.
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
 9. ORALIDADE: escreva como se fala no Brasil, não como se escreve. Use "pra", "tá", "tô", "cê" quando soar natural; no máximo uma interjeição curta ("gente", "olha", "sério"); frases curtas ligadas por "e", "aí", "e o melhor". Hook, desenvolvimento e CTA são UM pensamento contínuo: o desenvolvimento continua o hook, não recomeça. Nunca empilhe ordens ("Repara... Olha... Veja..."), nunca liste atributos e nunca repita no desenvolvimento o atributo que o hook já disse.
+10. GATILHOS DE VENDA, SEMPRE COM FATO: curiosidade (o hook abre um "por quê" que o meio responde), especificidade (um detalhe concreto vale mais que três adjetivos), identificação com a dor, imaginação de uso ("imagina…"), prova social e escassez. Prova social (vendidos, nota, avaliações) só com PROVA SOCIAL DECLARADA; escassez (prazo, estoque, desconto, frete, cupom) só com os FATOS DE URGÊNCIA PERMITIDOS, com o número exato. Uma única ação no CTA.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"options": [{"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}]}"""
@@ -365,9 +366,11 @@ def build_brief(c: dict) -> str:
     if check:
         linhas.append(f"COMO A CÂMERA DERRUBA ESSA OBJEÇÃO: {check}")
     if offer:
-        linhas.append(f"OFERTA REAL (pode usar urgência): {offer}")
+        linhas.append(f"OFERTA REAL (pode usar urgência): {c.get('offer')}")
     else:
         linhas.append("OFERTA REAL: não existe — PROIBIDO usar qualquer palavra de urgência.")
+    linhas.extend(persuasion.brief_lines(_dominant_motor(c), c.get('offer') if offer else '',
+                                         c.get('social_proof'), bool(pain)))
     if len(colors) > 1:
         linhas.append(f"O produto tem outras cores ({', '.join(colors)}), mas este vídeo é só da cor {c.get('color')}.")
     previous = c.get('previous_script') or {}
@@ -483,6 +486,10 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
             if achado:
                 problemas.append(f'"{achado.group(0)}" é urgência e não existe oferta real no briefing')
                 break
+    # Com oferta, cada tipo de urgencia precisa do seu fato (prazo, estoque,
+    # desconto com o numero exato...); prova social so se declarada.
+    problemas.extend(persuasion.urgency_problems(
+        falado, c.get('offer') if _offer_text(c) else '', c.get('social_proof')))
 
     for padrao in STAGE_DIRECTION_PATTERNS:
         achado = re.search(padrao, falado)

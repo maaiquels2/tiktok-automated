@@ -32,7 +32,7 @@ from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
-FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
 # continua proibindo letra no quadro). Ficam fora de PROMPTS de proposito:
@@ -48,7 +48,7 @@ EXTRA_PROMPTS = ['cover_text','screen_text']
 # da nuvem, que nao era migrado, respondia 'column does not exist'.
 CAMPAIGN_COLUMNS = {k: "TEXT NOT NULL DEFAULT ''" for k in
                     ['audience','benefit','angle','tone','style','details','movements','body_turns',
-                     'migration_note','niche','objection','offer','motor','video_mode']}
+                     'migration_note','niche','objection','offer','motor','video_mode','social_proof']}
 CAMPAIGN_COLUMNS.update(version='INTEGER NOT NULL DEFAULT 1',
                         layout="TEXT NOT NULL DEFAULT '{}'",
                         checklist="TEXT NOT NULL DEFAULT '{}'",
@@ -1641,6 +1641,40 @@ def create_app(config=None):
             bank_cache['items'] = speech_bank.saved(app.config['DATA_DIR'], **bank_io())
             bank_cache['at'] = now
         return bank_cache['items']
+
+    @app.post('/api/persuasion/preview')
+    def persuasion_preview():
+        # O que o gerador entendeu da oferta e da prova social, para o
+        # operador conferir antes de gerar: so esses fatos viram urgencia.
+        from services import persuasion
+        data = body()
+        offer = data.get('offer') if isinstance(data.get('offer'), str) else ''
+        social = data.get('social_proof') if isinstance(data.get('social_proof'), str) else ''
+        f = persuasion.offer_facts(offer[:500])
+        s = persuasion.social_facts(social[:500])
+        chips = []
+        if f.get('discount'):
+            chips.append(f['discount'])
+        if f.get('price_from'):
+            chips.append(f"de {f['price_from']} por {f['price_to']}")
+        if f.get('deadline'):
+            chips.append('prazo: ' + f['deadline'])
+        if f.get('flash'):
+            chips.append('relâmpago')
+        if f.get('stock'):
+            chips.append('estoque: ' + f['stock'])
+        if f.get('free_shipping'):
+            chips.append('frete grátis')
+        if f.get('coupon'):
+            chips.append('cupom ' + f['coupon'])
+        if f.get('bundle'):
+            chips.append(f['bundle'])
+        social_chips = [x for x in (f"vendeu {s['sold']}" if s.get('sold') else '',
+                                    f"nota {s['rating']}" if s.get('rating') else '',
+                                    f"{s['reviews']} avaliações" if s.get('reviews') else '') if x]
+        return jsonify(offer=chips, social=social_chips,
+                       offer_unread=bool(offer.strip()) and not chips,
+                       social_unread=bool(social.strip()) and not social_chips)
 
     @app.get('/api/speech-bank')
     def speech_bank_index():

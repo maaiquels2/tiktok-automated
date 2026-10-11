@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank, persuasionPreview } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -93,7 +93,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -1176,6 +1176,11 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
         </label>
+        <label>Prova social real (se existir)
+          <input value={draft.social_proof||''} onChange={e=>change('social_proof',e.target.value)} placeholder="Ex.: mais de 2 mil vendidos · nota 4,8" maxLength={500}/>
+          <small className="help">Copie da página do produto. Sem isso, o roteiro nunca fala em vendidos, nota ou avaliações.</small>
+        </label>
+        <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''}/>
         {/* O formato (UGC, POV, Só movimento) muda o vídeo inteiro: fica sempre
             à vista. Escondido em "Mais opções" parecia que tinha sumido. */}
         <div className="option-field">
@@ -1222,7 +1227,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               <span><strong>Desejo de posse</strong><small>"Eu quero ter isso"</small></span>
             </label>
           </div>
-          <small className="help">Define o gatilho que comanda o hook e o CTA. Sem oferta real preenchida, "Escassez" usa só descoberta honesta (achei e não esperava) — nunca prazo ou estoque inventado.</small>
+          <small className="help">Necessidade: dor → agitação → prova. Desejo: encanto → "imagina…" → posse. Escassez: novidade → prova → prazo/estoque. O motor também muda a expressão da modelo no vídeo. Sem oferta real, "Escassez" usa só descoberta honesta — nunca prazo ou estoque inventado.</small>
         </div>
         <div className="option-field">
           <span className="option-field-title" id="body-turns-title">Orientação corporal no vídeo</span>
@@ -2414,5 +2419,22 @@ export function SpeechBankPanel({campaignId,onApply,onError,onFlash}){
         {data.showcase.map((item,i)=>card({...item,id:''},`ex-${i}`,item.needs?<small className="speech-card-meta">Precisa no briefing: {item.needs}</small>:null))}
       </>}
     </>}
+  </div>;
+}
+
+// Mostra o que o gerador entendeu da oferta e da prova social: so esses
+// fatos viram urgencia ou "ja vendeu" no roteiro.
+export function PersuasionPreview({offer,social}){
+  const [data,setData]=useState(null);
+  useEffect(()=>{
+    if(!offer.trim()&&!social.trim()){setData(null);return}
+    let alive=true;
+    const timer=setTimeout(()=>{persuasionPreview({offer,social_proof:social}).then(res=>{if(alive)setData(res)}).catch(()=>{})},400);
+    return()=>{alive=false;clearTimeout(timer)};
+  },[offer,social]);
+  if(!data)return null;
+  return <div className="persuasion-preview" aria-live="polite">
+    {(data.offer.length>0||data.offer_unread)&&<div><span>O roteiro pode usar</span>{data.offer.map(x=><em key={x}>{x}</em>)}{data.offer_unread&&<small className="field-error">Não entendi a oferta. Escreva como “20% até domingo”, “últimas 30 peças” ou “frete grátis”.</small>}</div>}
+    {(data.social.length>0||data.social_unread)&&<div><span>Prova social</span>{data.social.map(x=><em key={x}>{x}</em>)}{data.social_unread&&<small className="field-error">Não entendi. Escreva como “2 mil vendidos” ou “nota 4,8”.</small>}</div>}
   </div>;
 }

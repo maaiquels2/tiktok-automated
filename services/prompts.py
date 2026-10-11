@@ -3,7 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from services import speech_bank
+from services import persuasion, speech_bank
 
 
 def _phrase(value):
@@ -1209,18 +1209,22 @@ def _hook_pool(c, detail, forms):
     necessidade = []
     if pain:
         necessidade = [
-            ('nec-medo', f'Meu medo {de} {piece} sempre foi {pain}. Olha {det}.'),
-            ('nec-segurava', f'O que me segurava {prep} {piece} era {pain}. Repara {det_em}.'),
+            ('nec-medo', f'Meu medo {de} {piece} sempre foi {pain}. Olha {dem} aqui.'),
+            ('nec-segurava', f'O que me segurava {prep} {piece} era {pain}, até eu testar {dem}.'),
             ('nec-desisti', f'Eu já desisti {de} {piece} quando o problema era {pain}.'),
             ('nec-testei', f'Testei {dem} {piece} justamente porque meu medo era {pain}.'),
         ]
     # Escassez com oferta real declarada no briefing.
+    # Cada fala de urgencia usa um fato da oferta com o numero exato
+    # (services/persuasion); o texto cru da oferta so entra se nada casou.
     escassez = []
     if offer:
-        escassez = [
+        escassez = persuasion.scarcity_hooks(persuasion.offer_facts(c.get('offer')), forms) or [
             ('esc-oferta', f'{_sentence(offer[0].upper() + offer[1:])} E eu reparei {det_em}.'),
             ('esc-antes', f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes.'),
         ]
+    # Prova social so quando declarada no briefing.
+    prova = persuasion.social_hooks(persuasion.social_facts(c.get('social_proof')), forms)
 
     # Banco de falas: moldes da categoria, separados pelo que sustentam.
     cat = speech_bank.category(speech_bank.detect(c))
@@ -1241,6 +1245,7 @@ def _hook_pool(c, detail, forms):
         'desejo': [cat_fato, decide, cat_livre, uso, descoberta, contraste, cat_dor, necessidade],
         'escassez': [escassez, descoberta, cat_fato, contraste, decide, cat_livre, uso],
     }[motor]
+    order.insert(2 if motor == 'necessidade' else 1, prova)
     if offer and motor != 'escassez':
         order.insert(1, escassez)
     pool = []
@@ -1313,9 +1318,24 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     second = _with_article(feats[1]) if len(feats) > 1 else ''
 
     reacoes = []
+    motor = _dominant_motor(c)
+    # A dor so e retomada ("por isso", agitacao) quando o gancho falou dela;
+    # depois de um gancho de oferta ou de detalhe, a prova entra direta.
+    dor_no_gancho = bool(pain) and pain.casefold() in (hook or '').casefold()
     if pain:
+        prova_falada = spoken_check or 'Por isso fiz questão de te mostrar aqui.'
+        if not dor_no_gancho and hook:
+            prova_falada = re.sub(r'^Por isso\s+', '', prova_falada)
+            prova_falada = prova_falada[:1].upper() + prova_falada[1:]
+        if motor == 'necessidade' and (dor_no_gancho or not hook):
+            # Dor -> agitacao -> prova: uma frase curta do incomodo antes da prova.
+            agita = persuasion.AGITATION[int(index or 0) % len(persuasion.AGITATION)]
+            reacoes.append(('re-agita', f'{agita} {prova_falada}'))
         # O gancho ja disse a dor; o meio continua dali, sem repeti-la.
-        reacoes.append(('re-porisso', spoken_check or 'Por isso fiz questão de te mostrar aqui.'))
+        reacoes.append(('re-porisso', prova_falada))
+    social = persuasion.social_facts(c.get('social_proof'))
+    reacoes += [r for r in persuasion.social_reactions(social, forms)
+                if not any(v and v in (hook or '') for v in (social.get('sold'), social.get('rating')))]
     if benefit_text:
         verbo = '' if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|combina|entrega)\b',
                                benefit_text, re.I) else 'tem '
@@ -1348,6 +1368,17 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
             ('fe-usar', f'Dá pra usar {occasion} numa boa.'),
             ('fe-serve', f'Serve {occasion}, sem pensar muito.'),
         ]
+    if motor == 'desejo':
+        # Desejo: quem assiste se imagina usando a peca na ocasiao.
+        # O detalhe do angulo de venda (o que o operador pediu para mostrar)
+        # continua na frente.
+        imagina = persuasion.future_pacing((cat['occasions'][0] if cat else occasion), forms)
+        frente = 1 if fechos and fechos[0][0] == 'fe-repara' else 0
+        fechos = fechos[:frente] + imagina + fechos[frente:]
+    oferta = persuasion.offer_facts(c.get('offer')) if _offer_text(c) else {}
+    if oferta:
+        # Escassez real lembrada no meio: prazo, estoque, frete ou cupom.
+        fechos = persuasion.scarcity_closers(oferta, forms) + fechos
     if not fechos:
         fechos.append(('fe-cara', 'Achei a cara do meu dia a dia.'))
 
@@ -1407,10 +1438,10 @@ def _cta_pool(c, forms):
         ('cta-confere', 'Confere essa solução agora no carrinho laranja.'),
     ] if pain else []
     offer_short = ' '.join(offer.split()[:5]).rstrip('.,;:')
-    if offer and re.search(r'últim|ultim|estoque|esgot|peças|pecas|unidades',offer.casefold()):
-        escassez = [('cta-ofestoque',f'Corre pro carrinho laranja: {offer_short}.')]
-    else:
-        escassez = [('cta-oferta',f'Aproveita {offer_short} no carrinho laranja.')] if offer else []
+    escassez = (persuasion.scarcity_ctas(persuasion.offer_facts(c.get('offer')), {**forms, 'teu': possessive})
+                if offer else [])
+    if offer and not escassez:
+        escassez = [('cta-oferta', f'Aproveita {offer_short} no carrinho laranja.')]
     posse = [
         ('cta-garante', f'Corre pro carrinho laranja e garante {possessive} agora.'),
         ('cta-escolhe', f'Abre o carrinho laranja e escolhe {possessive}.'),
@@ -1999,8 +2030,12 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     gestures = _proof_gestures(
         _product_features(c, limit=2 if _limite_video(c) else 4),
         turns=_body_turns(c))
+    # Direcao do motor de persuasao: expressao do gancho, arco emocional e o
+    # gesto da chamada; tempos proporcionais as falas (4s/12s no roteiro padrao).
+    cena = persuasion.scene_direction(_dominant_motor(c), f"{anchor} {forms['de']} {forms['piece']}")
+    t1, t2 = persuasion.timeline(hook, development, cta)
     proof_block = (
-        'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s: '
+        f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s: '
         + '; '.join(gestures) + '.\n'
     ) if gestures else ''
     closing_hands = (
@@ -2031,26 +2066,26 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (0, "MÃOS: uma sempre em contato com a peça (cintura, cós ou barra) e a outra mostra os detalhes; "
             "as duas só ficam livres juntas num gesto que exija isso, por no máximo 1 segundo. "),
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
-        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; uma por beat, não precisa usar todas): {moves}. "),
-        (0, f"ENCERRAMENTO (12–15s): de frente para a lente, {closing_hands}. "
-            "As mãos ficam nessa posição durante todo o CTA, com UM único ajuste pequeno e natural (um leve "
-            "reposicionamento dos dedos) — sem soltar a peça nem repetir o gesto. "
-            "Corpo parado: só o rosto, o olhar e esse ajuste se movem."),
+        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s; uma por beat, não precisa usar todas): {moves}. "),
+        (0, f"ENCERRAMENTO ({t2}–15s): de frente para a lente, {closing_hands}. "
+            "Uma mão fica na peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta. "
+            "Corpo parado: só o rosto, o olhar e esse gesto se movem."),
+        (3, f"EXPRESSÃO: {cena['arc']}. "),
         (1, extras),
         (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
-            f"0–4s HOOK: a modelo se aproxima um passo, plano médio frontal, olhar na lente, "
-            f"produto visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
-            f"4–12s DESENVOLVIMENTO — uma fala só, contínua, emendada sem pausa na anterior "
+            f"0–{t1}s HOOK: plano médio frontal, olhar na lente, produto visível no corpo; a modelo "
+            f"{cena['hook']}. Fala (PT-BR): \"{hook}\"\n"
+            f"{t1}–{t2}s DESENVOLVIMENTO — uma fala só, contínua, emendada sem pausa na anterior "
             f"(mesma respiração, mesma cadência); não repetir nem dividir em dois trechos. "
             f"Fala (PT-BR): \"{development}\"\n"),
-        (3, f"   · 4–6s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
+        (3, f"   · {t1}–{t1 + 2}s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
             f"as mãos tocam o produto com naturalidade.\n"
-            f"   · 6–11s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
+            f"   · {t1 + 2}–{t2 - 1}s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
             f"({benefit_l}) — caminhar, sentar ou agachar conforme as ações e a orientação autorizada. "
             f"Manter cor {color_l} e caimento fiéis.\n"),
-        (4, "   · 11–12s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
-        (0, f"12–15s CTA: manter a posição de encerramento, olhar firme na lente; o produto marcado é "
-            f"indicado só com o olhar. Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
+        (4, f"   · {t2 - 1}–{t2}s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
+        (0, f"{t2}–15s CTA: posição de encerramento, olhar firme na lente, com o gesto de apontar o carrinho. "
+            f"Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
             f"Fala (PT-BR): \"{cta}\"\n"),
         (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, "
             "secagem, suporte ou composição — nada fora dos FATOS CONFIRMADOS. "
