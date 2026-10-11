@@ -26,6 +26,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from services import speech_bank
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
     _dominant_motor, _chosen_motor, color_variants,
@@ -105,11 +106,13 @@ WEAK_CTA_PATTERNS = (
 # obviamente pessoais ("reparei", "gostei", "pra mim") e por isso reprovava
 # texto correto -- era parte do motivo de o gerador local nunca passar aqui.
 FIRST_PERSON_PATTERNS = (
-    r'\beu\b', r'\bme\b', r'\bmim\b', r'\bminh[ao]s?\b', r'\bcomigo\b',
+    r'\beu\b', r'\bme\b', r'\bmim\b', r'\bminh[ao]s?\b', r'\bmeus?\b', r'\bcomigo\b', r'\btô\b',
     r'\bachei\b', r'\bvesti\b', r'\busei\b', r'\buso\b',
     r'\btestei\b', r'\bexperimentei\b', r'\bpercebi\b',
     r'\breparei\b', r'\bolhei\b', r'\bpeguei\b', r'\bgostei\b',
     r'\bencontrei\b', r'\bsurpreendi\b',
+    # Preterito de primeira pessoa em geral: agachei, amei, fiquei, separei.
+    r'\b\w{2,}ei\b', r'\bfiz\b', r'\bquis\b', r'\bsenti\b',
 )
 
 SYSTEM_PROMPT = """Você é uma roteirista sênior de resposta direta para vídeos UGC de 15 segundos no TikTok Shop, em português do Brasil.
@@ -370,8 +373,37 @@ def build_brief(c: dict) -> str:
             f"- desenvolvimento atual: {previous.get('development') or ''}",
             f"- CTA atual: {previous.get('cta') or ''}",
         ])
+    linhas.extend(_category_lines(c))
     linhas.extend(_learning_lines(c.get('learning')))
     return '\n'.join(linhas)
+
+
+def _category_lines(c: dict) -> list[str]:
+    """Voz da categoria (banco de falas) e falas que o estudio aprovou.
+
+    Exemplo e direcao de ritmo e de jeito de falar. Fato continua vindo so
+    dos FATOS CONFIRMADOS: uma fala aprovada de outro biquini nao autoriza
+    dizer "tem bojo" deste.
+    """
+    cat = speech_bank.category(speech_bank.detect(c))
+    linhas = []
+    if cat:
+        linhas.append(f"CATEGORIA DA PEÇA: {cat['label']}. Como quem usa fala dela: {cat['tone']} "
+                      f"Cuidado: {cat['avoid']}")
+        linhas.append('OCASIÕES QUE COMBINAM COM ESSA PEÇA (no máximo uma, e só se servir ao nicho): '
+                      + ', '.join(cat['occasions']))
+    salvas = [i for i in (c.get('speech_bank') or []) if isinstance(i, dict) and i.get('hook')][:4]
+    if salvas:
+        linhas.append('FALAS APROVADAS PELO ESTÚDIO (siga o ritmo e o jeito de falar; '
+                      'nunca copie a frase nem traga fato de outra peça):')
+        linhas.extend(f"- \"{i.get('hook')}\" / \"{i.get('development')}\" / \"{i.get('cta')}\""
+                      for i in salvas)
+    elif cat:
+        exemplos = [e for e in speech_bank.showcase(cat['id']) if not e.get('needs')][:2]
+        if exemplos:
+            linhas.append('EXEMPLOS DE VOZ DESSA CATEGORIA (ritmo e naturalidade; não copie):')
+            linhas.extend(f"- \"{e['hook']}\" / \"{e['development']}\" / \"{e['cta']}\"" for e in exemplos)
+    return linhas
 
 
 def _learning_lines(learning: dict | None) -> list[str]:
@@ -721,6 +753,10 @@ def _parse_batch_candidates(raw: str) -> dict[str, list[dict]]:
     return parsed
 
 
+ORAL_MARKERS = (r'\bpra\b', r'\btá\b', r'\btô\b', r'\bgente\b', r'\bsério\b',
+                r'\bnuma boa\b', r'\bdemais\b', r'\bjeitinho\b', r'\baí\b')
+
+
 def _creative_score(pack: dict, c: dict) -> int:
     """Desempata candidatos validos pela naturalidade e especificidade."""
     hook = (pack.get('hook') or '').casefold()
@@ -739,6 +775,12 @@ def _creative_score(pack: dict, c: dict) -> int:
         score += 2
     repeated = set(re.findall(r'\b\w{5,}\b', hook)) & set(re.findall(r'\b\w{5,}\b', development))
     score -= len(repeated)
+    # Marcas de fala de verdade ("pra", "tô", "gente", "sério") contam a favor.
+    falado = f'{hook} {development}'
+    score += min(3, sum(1 for m in ORAL_MARKERS if re.search(m, falado)))
+    # Meio que vira fila de ordens ("Repara... Olha... Confere...") soa locutor.
+    ordens = len(re.findall(r'(?:^|[.!?]\s+)(?:e\s+)?(?:repara|olha|confere|veja|note|observe)\b', development))
+    score -= 2 * max(0, ordens - 1)
     if 'carrinho laranja' in cta:
         score += 3
     if re.match(r'^(corre|abre|toca|escolhe|garante|aproveita|não deixa)',cta):

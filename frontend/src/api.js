@@ -197,5 +197,9 @@ export const openCharacterSheet = (body={}) =>
   api('/model-library/character-sheet/open', { method: 'POST', body });
 
 export const writerSettings = () => api('/writer');
+// Banco de falas: voz por categoria de peca + roteiros aprovados pelo estudio.
+export const speechBank = (query = '') => api('/speech-bank' + (query ? '?' + query : ''));
+export const saveToSpeechBank = body => api('/speech-bank', {method: 'POST', body});
+export const deleteFromSpeechBank = id => api(`/speech-bank/${encodeURIComponent(id)}`, {method: 'DELETE'});
 export const saveWriterSettings = (body) => api('/writer',{method:'PATCH',body});
 export const testWriter = () => api('/writer/test',{method:'POST',body:{}});

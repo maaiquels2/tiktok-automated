@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank } from './api';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
@@ -274,7 +274,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator,onSaveToBank,onOpenBank}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -348,6 +348,11 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
             <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
           </>}
         </div>
+        {(onSaveToBank||onOpenBank)&&<div className="variant-actions speech-bank-actions">
+          <span className="help">Banco de falas:</span>
+          {onSaveToBank&&<button type="button" disabled={busy||!p.hook||!p.development||!p.cta} onClick={()=>onSaveToBank(variant.id,{hook:p.hook,development:p.development,cta:p.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}
+          {onOpenBank&&!immutable&&<button type="button" disabled={busy} onClick={()=>onOpenBank(variant.id)}><BookOpen size={16}/> Ver falas aprovadas</button>}
+        </div>}
         <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
         <div className="script-budget" aria-label="Palavras por trecho">{[['hook','0–4s',14],['development','4–12s',26],['cta','12–15s',10]].map(([key,time,high])=>{const words=String(p[key]||'').trim().split(/\s+/).filter(Boolean).length;return <span key={key} className={'budget-chip is-'+(!words||words>high?'off':'ok')} title={`${time}: até ${high} palavras`}><em>{time}</em>{words}<small>/máx {high}</small></span>})}</div>
         {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
@@ -2338,4 +2343,76 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       )}
     </section>
   );
+}
+
+// Banco de falas: como uma pessoa real fala de cada tipo de peca, mais os
+// roteiros que o estudio aprovou. As falas aprovadas viram exemplo de voz
+// para a escrita por IA nas proximas campanhas da mesma categoria.
+export function SpeechBankPanel({campaignId,onApply,onError,onFlash}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [working,setWorking]=useState('');
+  const [confirmId,setConfirmId]=useState('');
+  const load=async(category)=>{
+    setLoading(true);
+    try{
+      const query=category?`category=${encodeURIComponent(category)}`:(campaignId&&category===undefined?`campaign=${campaignId}`:'');
+      setData(await speechBank(query));
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load(undefined)},[campaignId]);
+  const remove=async item=>{
+    if(confirmId!==item.id){setConfirmId(item.id);return}
+    setWorking(item.id);
+    try{await deleteFromSpeechBank(item.id);setConfirmId('');onFlash?.('Fala removida do banco.');await load(data?.category||'')}
+    catch(e){onError?.(e.message||String(e))}
+    finally{setWorking('')}
+  };
+  const apply=async item=>{
+    setWorking('apply');
+    try{await onApply?.(item)}finally{setWorking('')}
+  };
+  const current=data?.category||'';
+  const detail=data?.detail;
+  const saved=data?.saved||[];
+  const card=(item,key,extra)=>{
+    const full=[item.hook,item.development,item.cta].filter(Boolean).join(' ');
+    return <article className="speech-card" key={key}>
+      <p><em>0–4s</em>{item.hook}</p>
+      <p><em>4–12s</em>{item.development}</p>
+      <p><em>12–15s</em>{item.cta}</p>
+      {extra}
+      <div className="speech-card-actions">
+        <CopyButton text={full} onError={onError} label="Copiar fala"/>
+        {onApply&&<button type="button" disabled={!!working} onClick={()=>apply(item)}>Usar no roteiro</button>}
+        {item.id&&<button type="button" className={confirmId===item.id?'danger':''} disabled={!!working} onClick={()=>remove(item)}><Trash2 size={15}/>{confirmId===item.id?'Confirmar remoção':'Remover'}</button>}
+      </div>
+    </article>;
+  };
+  return <div className="speech-bank">
+    <p className="help">Cada tipo de peça tem um jeito próprio de ser falado. O gerador local usa estas vozes, e a IA recebe as falas aprovadas pelo estúdio como exemplo de ritmo.</p>
+    <div className="rd-tabs speech-bank-tabs" role="tablist" aria-label="Categoria">
+      <button type="button" role="tab" className="rd-chip-tab" aria-selected={!current} disabled={loading} onClick={()=>load('')}>Todas{data?` · ${data.total}`:''}</button>
+      {(data?.categories||[]).map(cat=><button type="button" role="tab" key={cat.id} className="rd-chip-tab" aria-selected={current===cat.id} disabled={loading} onClick={()=>load(cat.id)}>{cat.label}{cat.saved?` · ${cat.saved}`:''}</button>)}
+    </div>
+    {loading&&!data?<p className="help">Carregando o banco de falas…</p>:<>
+      {detail&&<section className="speech-bank-voice">
+        <strong>Como falar de {detail.label.toLowerCase()}</strong>
+        <p>{detail.tone}</p>
+        <p className="help">Cuidado: {detail.avoid}</p>
+        <div className="speech-bank-tags"><span>Ocasiões</span>{detail.occasions.map(o=><em key={o}>{o}</em>)}</div>
+        <div className="speech-bank-tags"><span>Objeções comuns</span>{detail.objections.map(o=><em key={o}>{o}</em>)}</div>
+      </section>}
+      {onApply&&<p className="rd-alert">Ao usar uma fala, confira se cada detalhe citado (bojo, forro, bolso…) existe neste produto. Falas de outras peças podem citar o que esta não tem.</p>}
+      <h3 className="speech-bank-heading">Aprovadas pelo estúdio · {saved.length}</h3>
+      {saved.length?saved.map(item=>card(item,item.id,<small className="speech-card-meta">{[item.product,item.color,item.author,item.note].filter(Boolean).join(' · ')}</small>))
+        :<p className="help">Nenhuma fala guardada{detail?` para ${detail.label.toLowerCase()}`:''} ainda. Na etapa Roteiro, use “Guardar no banco” nas falas que soaram naturais.</p>}
+      {(data?.showcase||[]).length>0&&<>
+        <h3 className="speech-bank-heading">Exemplos da categoria</h3>
+        <p className="help">Exemplos ilustrativos. Os que citam um detalhe só são usados pelo gerador quando o briefing confirma esse detalhe.</p>
+        {data.showcase.map((item,i)=>card({...item,id:''},`ex-${i}`,item.needs?<small className="speech-card-meta">Precisa no briefing: {item.needs}</small>:null))}
+      </>}
+    </>}
+  </div>;
 }

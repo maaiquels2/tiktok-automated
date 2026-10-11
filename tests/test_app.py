@@ -1092,6 +1092,82 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(limpo.json['has_key'])
         self.assertFalse(limpo.json['enabled'])
 
+    def test_speech_bank_lists_categories_with_ready_examples(self):
+        response=self.client.get('/api/speech-bank?category=biquini',headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        ids={c['id'] for c in response.json['categories']}
+        for esperado in ('maio','biquini','saida_praia','calca_courino','legging','short_legging',
+                         'blusa','regata','pijama','baby_doll'):
+            self.assertIn(esperado,ids)
+        self.assertEqual(response.json['detail']['label'],'Biquíni')
+        self.assertTrue(response.json['showcase'])
+        for exemplo in response.json['showcase']:
+            for campo in ('hook','development','cta'):
+                self.assertNotIn('{',exemplo[campo],exemplo)
+        self.assertEqual(self.client.get('/api/speech-bank?category=xyz',headers=self.headers).status_code,400)
+
+    def test_speech_bank_saves_a_script_and_feeds_the_ai_brief(self):
+        criado=self.client.post('/api/campaigns',json={**self.brief,'product':'Biquíni de amarração com bojo',
+                                                       'outfit':'biquíni','details':'bojo, amarração'},headers=self.headers)
+        cid=criado.json['id']
+        roteiro={'hook':'Achei o biquíni que eu quero levar pra todas as viagens.',
+                 'development':'E o bojo me deixa tranquila pra entrar no mar.','cta':'Tá no carrinho laranja, escolhe o teu lá.'}
+        salvo=self.client.post('/api/speech-bank',json={'campaign_id':cid,'note':'ficou natural',**roteiro},headers=self.headers)
+        self.assertEqual(salvo.status_code,201,salvo.json)
+        self.assertEqual(salvo.json['category'],'biquini')
+        self.assertTrue(salvo.json['hook'])
+        self.assertEqual(salvo.json['product'],'Biquíni de amarração com bojo')
+        repetido=self.client.post('/api/speech-bank',json={'campaign_id':cid,**roteiro},headers=self.headers)
+        self.assertEqual(repetido.status_code,409)
+        lista=self.client.get(f'/api/speech-bank?campaign={cid}',headers=self.headers).json
+        self.assertEqual(lista['category'],'biquini')
+        self.assertEqual([i['id'] for i in lista['saved']],[salvo.json['id']])
+        # A proxima escrita por IA da mesma categoria recebe a fala como exemplo de voz.
+        with self.app.app_context():
+            contexto=self.app.extensions['with_learning']({'product':'Biquíni cortininha','color':'Azul'})
+        self.assertEqual(contexto['speech_bank'][0]['id'],salvo.json['id'])
+        from services.copywriter import build_brief
+        brief=build_brief(contexto)
+        self.assertIn('CATEGORIA DA PEÇA: Biquíni',brief)
+        self.assertIn('FALAS APROVADAS',brief)
+        self.assertIn(salvo.json['hook'],brief)
+        apagado=self.client.delete(f"/api/speech-bank/{salvo.json['id']}",headers=self.headers)
+        self.assertEqual(apagado.status_code,200)
+        self.assertEqual(self.client.delete(f"/api/speech-bank/{salvo.json['id']}",headers=self.headers).status_code,404)
+
+    def test_speech_bank_rejects_incomplete_script(self):
+        response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
+        self.assertEqual(response.status_code,400)
+
+    def test_category_voice_keeps_the_right_piece_and_passes_the_audit(self):
+        from services import speech_bank
+        casos=[
+            ('Short legging cintura alta','short_legging','short','sobe na coxa'),
+            ('Calça legging cintura alta','legging','legging','fica transparente'),
+            ('Calça de courino feminina','calca_courino','calça','parece plástico'),
+            ('Maiô feminino com bojo','maio','maiô','marca a barriga'),
+            ('Biquíni de amarração','biquini','biquíni','não segura em cima'),
+            ('Saída de praia de crochê','saida_praia','saída de praia','transparente demais'),
+            ('Baby doll de renda','baby_doll','baby doll','fica vulgar'),
+            ('Pijama de cetim','pijama','pijama','esquenta pra dormir'),
+            ('Regata feminina canelada','regata','regata','aparece o sutiã'),
+            ('Blusa de viscose','blusa','blusa','amassa fácil'),
+        ]
+        for produto,categoria,peca,objecao in casos:
+            self.assertEqual(speech_bank.detect({'product':produto}),categoria,produto)
+            for com_objecao in (False,True):
+                campanha=dict(model_name='Micaela',product=produto,outfit=produto.lower(),color='Preto',
+                              audience='Mulheres',benefit='',angle='',tone='',style='',details='',movements='',
+                              generator='grok',niche='casual',objection=objecao if com_objecao else '')
+                for indice in range(3):
+                    falas=generate(campanha,variant_index=indice)
+                    texto=' '.join(falas[k] for k in ('hook','development','cta'))
+                    self.assertNotIn('{',texto)
+                    self.assertNotIn('detalhes visíveis',falas['hook'])
+                    self.assertEqual(copywriter_audit({k:falas[k] for k in ('hook','development','cta')},campanha,require_caption=False),[],texto)
+                    if categoria=='short_legging':
+                        self.assertNotIn('legging',falas['hook'].casefold().replace('short legging',''))
+
     def test_writer_key_is_checked_before_it_is_saved(self):
         with patch('services.copywriter.verify_key',return_value=(False,'A chave foi recusada pelo provedor.')) as check:
             response=self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-chave-errada-123456789012','enabled':True},headers=self.headers)
@@ -2134,7 +2210,8 @@ class WorkflowTests(unittest.TestCase):
                       movements='',generator='flow')
         prompts=generate(campaign)
         self.assertNotIn('bolso lateral', prompts['image'].split('FATOS DO PRODUTO A PRESERVAR:')[1].split('.')[0])
-        self.assertIn('caimento', prompts['hook'].lower())
+        # O gancho fala da peca (voz da categoria), nunca do bolso que ela nao tem.
+        self.assertNotIn('bolso', prompts['hook'].lower())
         self.assertIn('não inventar', prompts['video'].lower())
 
     def test_playbook_caption_seed_always_keeps_a_shop_action(self):

@@ -3,6 +3,8 @@ import difflib
 import re
 import unicodedata
 
+from services import speech_bank
+
 
 def _phrase(value):
     return ' '.join(str(value or '').strip().rstrip('.').split())
@@ -54,7 +56,18 @@ _PRODUCT_FEATURES = (
     ('secagem rápida', ('secagem rápida', 'secagem rapida')),
     ('compressão', ('compressão', 'compressao')),
     ('sem transparência', ('sem transparência', 'sem transparencia')),
+    ('bojo', ('bojo', 'bojos')),
+    ('renda', ('renda',)),
+    ('cetim', ('cetim',)),
+    ('viscose', ('viscose',)),
+    ('canelado', ('canelado', 'canelada', 'ribana')),
+    ('amarração', ('amarração', 'amarracao', 'de amarrar', 'lacinho')),
+    ('fenda', ('fenda',)),
+    ('crochê', ('crochê', 'croche')),
+    ('tule', ('tule',)),
+    ('decote nas costas', ('decote nas costas', 'costas abertas', 'costas nuas')),
     ('decote', ('decote',)),
+    ('alça regulável', ('alça regulável', 'alca regulavel', 'alças reguláveis', 'alcas regulaveis')),
     ('alça', ('alça', 'alca')),
     ('manga', ('manga',)),
     ('barra', ('barra',)),
@@ -78,7 +91,7 @@ _PRODUCT_FEATURES = (
     ('poliéster', ('poliéster', 'poliester')),
 )
 
-_MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster'}
+_MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster', 'viscose', 'cetim'}
 
 
 def _product_features(c, limit=3):
@@ -134,6 +147,9 @@ def _feature_present(source: str, needle: str, label: str = '') -> bool:
     return not re.search(negative, source, re.I)
 
 
+_FALLBACK_DETAIL = 'o caimento e os detalhes visíveis'
+
+
 def _focus_parts(c):
     """Turn the angle and explicit product attributes into readable focus text."""
     features = _product_features(c, limit=2)
@@ -159,7 +175,7 @@ def _focus_parts(c):
         if len(features) == 2:
             return f'{features[0]} e {features[1]}', features
         return f'{features[0]}, {features[1]} e {features[2]}', features
-    return 'o caimento e os detalhes visíveis', []
+    return _FALLBACK_DETAIL, []
 
 
 def _focus_is_contradictory(c, focus: str) -> bool:
@@ -236,6 +252,9 @@ def _with_article(value):
         'elástico': 'o', 'capuz': 'o', 'gola': 'a', 'punho': 'o',
         'botões': 'os', 'poliamida': 'a', 'courino': 'o', 'algodão': 'o',
         'lã': 'a', 'elastano': 'o', 'poliéster': 'o',
+        'bojo': 'o', 'renda': 'a', 'cetim': 'o', 'viscose': 'a', 'canelado': 'o',
+        'amarração': 'a', 'fenda': 'a', 'crochê': 'o', 'tule': 'o',
+        'decote nas costas': 'o', 'alça regulável': 'a',
     }
     if value.casefold() in articles:
         return f"{articles[value.casefold()]} {value}"
@@ -469,6 +488,16 @@ _PROOF_GESTURES = {
     'punho': 'aproxima o punho da lente',
     'cordão': 'puxa o cordão e solta',
     'capuz': 'ajusta o capuz com uma das mãos, sem erguer os dois braços',
+    'bojo': 'ajusta a alça com um dedo, deixando o bojo à vista',
+    'renda': 'passa o dedo devagar pela renda',
+    'cetim': 'passa a mão no tecido e deixa ele cair, mostrando o brilho do cetim',
+    'canelado': 'passa a mão no tecido canelado, de cima para baixo',
+    'amarração': 'ajusta o laço da amarração e solta',
+    'fenda': 'dá um passo à frente, deixando a fenda aparecer',
+    'crochê': 'abre levemente a peça com as mãos, mostrando o crochê',
+    'tule': 'levanta um pouco o tule com a ponta dos dedos e solta',
+    'alça regulável': 'ajusta a alça regulável com um dedo e solta',
+    'decote nas costas': 'vira o ombro de leve, deixando o decote das costas aparecer',
 }
 
 
@@ -954,6 +983,9 @@ def _product_family(c):
 
 def _piece_noun(c):
     # Substantivo real do produto, usado tanto na fala quanto no prompt de imagem.
+    cat = speech_bank.category(speech_bank.detect(c))
+    if cat:
+        return cat['piece']
     product = _pt_br(c.get('product')).casefold()
     outfit = _pt_br(c.get('outfit')).casefold()
     # O campo "produto" manda: o "outfit" costuma descrever o look inteiro
@@ -971,7 +1003,8 @@ def _piece_noun(c):
 
 def _piece_forms(c):
     piece = _piece_noun(c)
-    gender = _PIECE_GENDER.get(piece) or _FAMILY_VOCAB[_product_family(c)]['gender']
+    cat = speech_bank.category(speech_bank.detect(c))
+    gender = (cat['gender'] if cat else '') or _PIECE_GENDER.get(piece) or _FAMILY_VOCAB[_product_family(c)]['gender']
     if gender == 'f':
         return dict(piece=piece, art='a', de='da', dem='essa', prep='nessa', pron='ela')
     return dict(piece=piece, art='o', de='do', dem='esse', prep='nesse', pron='ele')
@@ -982,6 +1015,9 @@ def _objection_parts(c):
     raw = _phrase(c.get('objection'))
     if not raw or _is_meta_field(raw):
         return '', ''
+    hit = speech_bank.objection(speech_bank.category(speech_bank.detect(c)), raw)
+    if hit:
+        return hit['pain'], hit['proof']
     low = raw.casefold()
     for _key, needles, pain, check in _OBJECTION_PRESETS:
         if any(n in low for n in needles):
@@ -1183,11 +1219,24 @@ def _hook_pool(c, detail, forms):
             ('esc-antes', f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes.'),
         ]
 
+    # Banco de falas: moldes da categoria, separados pelo que sustentam.
+    cat = speech_bank.category(speech_bank.detect(c))
+    cat_dor, cat_fato, cat_livre = [], [], []
+    for tid, text in (_category_lines(c, 'hooks', forms, det) if not offer else []):
+        item = cat['hooks'][int(tid.rsplit('-', 1)[1])]
+        item = item if isinstance(item, dict) else {}
+        (cat_dor if item.get('pain') else cat_fato if item.get('req') else cat_livre).append((tid, text))
+    if det == _FALLBACK_DETAIL:
+        # Sem atributo nem angulo, os moldes genericos so repetiriam o texto
+        # de reserva; a voz da categoria vem antes deles.
+        descoberta, contraste, decide, uso = cat_livre + descoberta, [], [], uso + decide + contraste
+        cat_livre = []
+
     motor = _dominant_motor(c)
     order = {
-        'necessidade': [necessidade, contraste, decide, descoberta, uso],
-        'desejo': [decide, uso, descoberta, contraste, necessidade],
-        'escassez': [escassez, descoberta, contraste, decide, uso],
+        'necessidade': [cat_dor, necessidade, cat_fato, contraste, decide, descoberta, cat_livre, uso],
+        'desejo': [cat_fato, decide, cat_livre, uso, descoberta, contraste, cat_dor, necessidade],
+        'escassez': [escassez, descoberta, cat_fato, contraste, decide, cat_livre, uso],
     }[motor]
     if offer and motor != 'escassez':
         order.insert(1, escassez)
@@ -1234,7 +1283,7 @@ _SPOKEN_OCCASION = {
 }
 
 
-def _development_line(c, detail, features, forms, index, used_keys=()):
+def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     """O meio da fala, como gente fala: uma reacao em primeira pessoa que
     continua o gancho, e nao tres ordens soltas.
 
@@ -1252,7 +1301,8 @@ def _development_line(c, detail, features, forms, index, used_keys=()):
     hook_fact = (feats[0] if feats else '').casefold()
     dem, piece, pron = forms['dem'], forms['piece'], forms['pron']
     pain, _check = _objection_parts(c)
-    spoken_check = _SPOKEN_CHECK.get(_objection_key(c), '')
+    cat_hit = speech_bank.objection(speech_bank.category(speech_bank.detect(c)), _phrase(c.get('objection')))
+    spoken_check = cat_hit['proof'] if cat_hit else _SPOKEN_CHECK.get(_objection_key(c), '')
     benefit = _benefit_clause(c)
     benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
     if benefit_text and hook_fact and hook_fact.split()[-1] in benefit_text.casefold():
@@ -1267,8 +1317,11 @@ def _development_line(c, detail, features, forms, index, used_keys=()):
         verbo = '' if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|combina|entrega)\b',
                                benefit_text, re.I) else 'tem '
         reacoes.append(('re-melhor', f'E o melhor é que {pron} {verbo}{benefit_text}.'))
+    # Depois do que o briefing declarou, a voz da categoria.
+    reacoes += _category_lines(c, 'reactions', forms)
     if second and not re.match(r'^(o tecido )?sem\b', second, re.I):
         reacoes.append(('re-tambem', f'E ainda tem {second}, que era bem o que eu procurava.'))
+    cat = speech_bank.category(speech_bank.detect(c))
     reacoes += [
         ('re-veste', f'E olha como {pron} veste, fiquei com vontade de usar todo dia.'),
         ('re-gostei', 'Sinceramente, gostei muito mais do que eu imaginava.'),
@@ -1278,13 +1331,16 @@ def _development_line(c, detail, features, forms, index, used_keys=()):
     partes = [p.strip() for p in re.split(r'\s+e\s+|,\s*', _phrase(detail)) if p.strip()]
     hook_words = set(re.findall(r'\w{3,}', hook_fact))
     novas = [p for p in partes if not (hook_words & set(re.findall(r'\w{3,}', p.casefold())))
-             and not re.match(r'^(o tecido )?sem\b|^o caimento', p, re.I)]
+             and not re.match(r'^(o tecido )?sem\b|^o caimento|^os detalhes', p, re.I)]
     fechos = []
     if novas:
         alvo = _with_em(novas[0])
         fechos.append(('fe-repara', f'E repara {alvo}, ficou um charme.'))
+    if cat:
+        for n, occ in enumerate(cat['occasions'][:2]):
+            fechos += _category_lines(c, 'closers', forms, occ=occ)
     occasion = _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), '')
-    if occasion:
+    if occasion and not cat:
         fechos += [
             ('fe-usar', f'Dá pra usar {occasion} numa boa.'),
             ('fe-serve', f'Serve {occasion}, sem pensar muito.'),
@@ -1292,18 +1348,30 @@ def _development_line(c, detail, features, forms, index, used_keys=()):
     if not fechos:
         fechos.append(('fe-cara', 'Achei a cara do meu dia a dia.'))
 
+    hook_low = (hook or '').casefold()
+    ja_ditos = [f for f in _product_features(c, limit=50) if f.casefold() in hook_low]
+    if ja_ditos:
+        def repete(texto):
+            return any(f.casefold() in texto.casefold() for f in ja_ditos)
+        reacoes = [r for r in reacoes if not repete(r[1])] or reacoes
+        fechos = [f for f in fechos if not repete(f[1])] or fechos
     candidates = []
-    for rid, reacao in reacoes:
-        for fid, fecho in fechos:
+    for ri, (rid, reacao) in enumerate(reacoes):
+        for fi, (fid, fecho) in enumerate(fechos):
             # "E o melhor e que ela tem tecido macio. E repara no tecido macio"
             if fid == 'fe-repara' and novas and novas[0].split()[-1].casefold() in reacao.casefold():
                 continue
             texto = f'{reacao} {fecho}'
             if _count_words(texto) > 26:
                 texto = reacao
-            candidates.append((f'{rid}+{fid}', texto))
+            candidates.append(((ri + fi, ri), (f'{rid}+{fid}', texto)))
+    # Com objecao, a prova abre todas as variantes; sem ela, cada variante
+    # troca reacao e fechamento juntos, e nao so o fim da frase.
+    if not pain:
+        candidates.sort(key=lambda item: item[0])
+    candidates = [item[1] for item in candidates]
     # Sem piso alto: frase natural curta vale mais que enchimento.
-    return _pick_in_budget(candidates, index, 8, 26, used_keys)
+    return _pick_in_budget(candidates, index, 10, 26, used_keys)
 
 
 def _cta_pool(c, forms):
@@ -1344,6 +1412,7 @@ def _cta_pool(c, forms):
         ('cta-garante', f'Corre pro carrinho laranja e garante {possessive} agora.'),
         ('cta-escolhe', f'Abre o carrinho laranja e escolhe {possessive}.'),
     ]
+    categoria = _category_lines(c, 'ctas', forms) if not offer else []
     descoberta = [
         ('cta-achado', 'Salva esse achado agora no carrinho laranja.'),
         ('cta-detalhes', 'Toca no carrinho laranja e confere os detalhes.'),
@@ -1357,12 +1426,42 @@ def _cta_pool(c, forms):
         order = [posse, direto, descoberta, condicional]
     if offer:
         order.insert(0, escassez)
-    pool = []
+    pool = list(categoria)
     for group in order:
         for item in group:
             if item and item not in pool:
                 pool.append(item)
     return pool
+
+
+def _bank_slots(c, forms):
+    pain, _check = _objection_parts(c)
+    return {**forms, 'teu': 'a tua' if forms['art'] == 'a' else 'o teu', 'pain': pain}
+
+
+def _category_lines(c, kind, forms, det='', occ=''):
+    """Moldes da categoria (banco de falas) que os fatos do briefing sustentam."""
+    cat = speech_bank.category(speech_bank.detect(c))
+    if not cat:
+        return []
+    feats = set(_product_features(c, limit=50))
+    slots = _bank_slots(c, forms)
+    lines = []
+    for i, item in enumerate(cat.get(kind, [])):
+        item = item if isinstance(item, dict) else {'t': item}
+        req = item.get('req')
+        if req and req not in feats:
+            continue
+        if item.get('pain') and not slots['pain']:
+            continue
+        values = {**slots, 'det': _with_article(req) if req else det, 'occ': occ,
+                  'feat': req or re.sub(r'^(o|a|os|as)\s+', '', det or '')}
+        if '{det}' in item['t'] and not values['det']:
+            continue
+        text = speech_bank.fill(item['t'], values)
+        if '{' not in text:
+            lines.append((f'cat-{kind}-{i}', text))
+    return lines
 
 
 def _sem_artigo(value):
@@ -1437,7 +1536,7 @@ def _script_variation(c, color, index=0):
     selected_hook = _pick_in_budget(_hook_pool(c, hook_detail, forms), i, 10, 13,
                                     _used_keys(c, 'hook'))
     selected_development = _development_line(c, detail, features, forms, i,
-                                             _used_keys(c, 'development'))
+                                             _used_keys(c, 'development'), hook=selected_hook)
     selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10,
                                    _used_keys(c, 'cta'), fuzzy=False)
 

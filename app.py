@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import sys
 import threading
+import time
 import tempfile
 import subprocess
 import uuid
@@ -26,7 +27,8 @@ from services.media import inspect_media
 from services.prompts import (color_variants, generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import copywriter
+from services import copywriter, speech_bank
+from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
@@ -1616,11 +1618,111 @@ def create_app(config=None):
 
     def with_learning(campaign):
         """Briefing + memoria de falas + o que a conta ja aprendeu."""
-        return {**with_line_memory(campaign), 'learning': learning_context()}
+        extra = {}
+        try:
+            extra['speech_bank'] = speech_bank.style_examples(saved_lines(), speech_bank.detect(campaign))
+        except Exception as exc:
+            # Banco fora do ar nao pode impedir a escrita do roteiro.
+            app.logger.info('banco de falas indisponivel: %s', exc)
+        return {**with_line_memory(campaign), 'learning': learning_context(), **extra}
+
+    # ---------------------------------------------------------- banco de falas
+    # Falas aprovadas ficam num JSON do Storage (nuvem) ou em data/ (PC).
+    # A escrita por IA le em toda geracao; uma copia de 30s evita ir ao
+    # Storage a cada cor do lote.
+    bank_cache = {'at': 0.0, 'items': None}
+
+    def bank_io():
+        return {'storage_get': _storage_get if cloud_mode else None}
+
+    def saved_lines():
+        now = time.monotonic()
+        if bank_cache['items'] is None or now - bank_cache['at'] > 30:
+            bank_cache['items'] = speech_bank.saved(app.config['DATA_DIR'], **bank_io())
+            bank_cache['at'] = now
+        return bank_cache['items']
+
+    @app.get('/api/speech-bank')
+    def speech_bank_index():
+        cat_id = (request.args.get('category') or '').strip()
+        cid = request.args.get('campaign', type=int)
+        if not cat_id and cid:
+            cat_id = speech_bank.detect(campaign(cid))
+        cat = speech_bank.category(cat_id)
+        if cat_id and not cat:
+            raise Invalid('Categoria desconhecida.')
+        items = speech_bank.saved(app.config['DATA_DIR'], **bank_io())
+        bank_cache.update(items=items, at=time.monotonic())
+        counts = {}
+        for item in items:
+            counts[item.get('category') or ''] = counts.get(item.get('category') or '', 0) + 1
+        detail_out = None
+        if cat:
+            detail_out = {'label': cat['label'], 'tone': cat['tone'], 'avoid': cat['avoid'],
+                          'occasions': cat['occasions'], 'objections': [o['pain'] for o in cat['objections']]}
+        return jsonify(
+            categories=[{'id': c['id'], 'label': c['label'], 'saved': counts.get(c['id'], 0)}
+                        for c in speech_bank.CATEGORIES],
+            category=cat_id, detail=detail_out,
+            showcase=speech_bank.showcase(cat_id, _with_article) if cat else [],
+            saved=[i for i in items if not cat_id or i.get('category') == cat_id],
+            total=len(items),
+        )
+
+    @app.post('/api/speech-bank')
+    def speech_bank_add():
+        data = body()
+        texts = {k: data.get(k) if isinstance(data.get(k), str) else '' for k in ('hook', 'development', 'cta')}
+        entry = {'note': data.get('note') if isinstance(data.get('note'), str) else ''}
+        c = None
+        if data.get('campaign_id') is not None:
+            try:
+                cid = int(data['campaign_id'])
+                vid = int(data['variant_id']) if data.get('variant_id') is not None else None
+            except (TypeError, ValueError):
+                raise Invalid('Campanha inválida.')
+            c = campaign(cid)
+            entry.update(campaign_id=cid, product=c.get('product') or '', color=c.get('color') or '')
+            if vid is not None:
+                row = db().execute('SELECT color,prompts FROM campaign_variants WHERE id=? AND campaign_id=?',
+                                   (vid, cid)).fetchone()
+                if not row:
+                    raise Invalid('Variação não encontrada.', 404)
+                stored = json.loads(row['prompts'] or '{}')
+                entry['color'] = row['color']
+            else:
+                stored = {r['kind']: r['content'] for r in
+                          db().execute('SELECT kind,content FROM prompts WHERE campaign_id=?', (cid,))}
+            # O texto da tela vale quando veio; senao, o que esta salvo.
+            texts = {k: v.strip() or str(stored.get(k) or '') for k, v in texts.items()}
+        entry.update(texts)
+        chosen = data.get('category') if isinstance(data.get('category'), str) else ''
+        entry['category'] = chosen if speech_bank.category(chosen) else (speech_bank.detect(c) if c else '')
+        user = getattr(g, 'current_user', None) or {}
+        entry['author'] = user.get('display_name') or user.get('username') or ''
+        try:
+            record = speech_bank.add(app.config['DATA_DIR'], entry, storage_put=_storage_put if cloud_mode else None,
+                                     **bank_io())
+        except ValueError as exc:
+            raise Invalid(str(exc), 409 if 'já está' in str(exc) else 400)
+        bank_cache['items'] = None
+        return jsonify(record), 201
+
+    @app.delete('/api/speech-bank/<item_id>')
+    def speech_bank_delete(item_id):
+        if not re.fullmatch(r'[0-9a-f]{12}', item_id or ''):
+            raise Invalid('Fala não encontrada.', 404)
+        removed = speech_bank.remove(app.config['DATA_DIR'], item_id,
+                                     storage_put=_storage_put if cloud_mode else None, **bank_io())
+        if not removed:
+            raise Invalid('Fala não encontrada.', 404)
+        bank_cache['items'] = None
+        return jsonify(ok=True)
 
     # Exposto para os testes inspecionarem o ranking sem precisar de um
     # endpoint novo so para isso.
     app.extensions['learning_context'] = learning_context
+    app.extensions['with_learning'] = with_learning
 
     def write_scripts_parallel(campaigns):
         """Escreve as falas de varias cores ao mesmo tempo.
