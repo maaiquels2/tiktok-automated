@@ -1184,3 +1184,98 @@ def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, contex
     if not any(campos.values()):
         return None, 'a IA não conseguiu identificar nada de útil nas fotos'
     return campos, ''
+
+
+# --------------------------------------------------------------------------- criar com IA
+QUICK_VISION_PROMPT = """Você monta o briefing de um vídeo UGC de TikTok Shop a partir de fotos.
+
+Você recebe, nesta ordem: uma a três fotos do produto/roupa e, por último (se houver), o print da
+página do produto no TikTok Shop ou na loja (título, especificações, preço, avaliações).
+Cada foto vem identificada na mensagem do usuário.
+
+Olhe SOMENTE o que está visível ou escrito nas fotos e devolva um JSON com estes campos, em
+português do Brasil:
+
+- "product": nome curto e claro da peça, como a cliente falaria (ex.: "Biquíni de amarração com bojo",
+  "Calça jeans wide leg"). Sem marca, sem código, no máximo 8 palavras.
+- "colors": as cores da peça, separadas por vírgula. Se o print listar várias cores à venda, use
+  essas; senão, a cor que aparece na foto.
+- "niche": exatamente um destes: "praia", "academia", "casual", "dia-a-dia", "intima", "fantasia".
+- "details": fatos do produto que estão escritos ou claramente visíveis (tecido/composição, forro,
+  bojo, bolso, cintura alta, amarração, renda, zíper...), separados por vírgula. Nada de opinião.
+- "benefit": o principal benefício real, uma frase curta, só com o que está visível ou escrito.
+- "angle": o ângulo de venda mais forte para esta peça, uma frase curta.
+- "movements": de 3 a 5 movimentos corporais simples para mostrar esta peça em vídeo, separados por
+  ponto e vírgula (ex.: "ajustar a alça; dar dois passos; virar de leve para o lado").
+- "objection": a dúvida que mais segura a compra DESTE tipo de peça, do jeito que a cliente pensa
+  (ex.: "fica transparente no agachamento", "não segura em cima", "parece plástico de perto").
+- "offer": SOMENTE se o print mostrar desconto, preço de/por, prazo, estoque, frete grátis ou cupom
+  escritos na página. Copie os números exatamente (ex.: "20% off, de R$ 89 por R$ 69, frete grátis").
+  Se não estiver escrito, "".
+- "social_proof": SOMENTE se o print mostrar vendidos, nota ou número de avaliações. Copie os números
+  exatamente (ex.: "2 mil vendidos, nota 4,8"). Se não estiver escrito, "".
+
+Nunca invente característica (elasticidade, compressão, proteção UV, "não marca"...), desconto,
+prazo, estoque ou avaliação. Campo sem informação confiável volta como "".
+Responda SOMENTE com o JSON, sem texto antes ou depois."""
+
+QUICK_FIELDS = ('product', 'colors', 'niche', 'details', 'benefit', 'angle', 'movements',
+                'objection', 'offer', 'social_proof')
+QUICK_LIMITS = {'product': 120, 'colors': 200, 'niche': 20, 'details': 1500, 'benefit': 300,
+                'angle': 300, 'movements': 800, 'objection': 200, 'offer': 300, 'social_proof': 200}
+
+
+def _parse_quick(raw: str, niches) -> dict:
+    texto = re.sub(r'^```(?:json)?|```$', '', (raw or '').strip(), flags=re.M).strip()
+    inicio, fim = texto.find('{'), texto.rfind('}')
+    if inicio >= 0 and fim > inicio:
+        texto = texto[inicio:fim + 1]
+    dados = json.loads(texto)
+    if not isinstance(dados, dict):
+        raise ValueError('resposta não é um objeto')
+    out = {}
+    for campo in QUICK_FIELDS:
+        valor = dados.get(campo)
+        if isinstance(valor, list):
+            valor = ', '.join(str(v) for v in valor)
+        if isinstance(valor, str) and valor.strip():
+            out[campo] = ' '.join(valor.split())[:QUICK_LIMITS[campo]]
+    if out.get('niche') not in niches:
+        out.pop('niche', None)
+    # Oferta e prova social so passam com numero ou fato reconhecivel: texto
+    # vago ("preço ótimo") nao vira urgencia.
+    if out.get('offer') and not persuasion.offer_facts(out['offer']).keys() - {'raw'}:
+        out.pop('offer')
+    if out.get('social_proof') and not persuasion.social_facts(out['social_proof']):
+        out.pop('social_proof')
+    return out
+
+
+def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches) -> tuple[dict | None, str]:
+    """Briefing inteiro a partir das fotos do produto e do print da pagina
+    ("Criar com IA"). Devolve (campos, motivo_da_falha). Nada e gravado aqui:
+    a tela mostra o resultado para a pessoa conferir antes de criar."""
+    caller = CALLERS.get(settings.get('provider'))
+    if not caller or not settings.get('api_key'):
+        return None, 'A escrita por IA não está configurada.'
+    if not images:
+        return None, 'Envie pelo menos uma foto do produto.'
+    identificacao = '; '.join(f'Foto {i}: {rotulo}' for i, (_, _, rotulo) in enumerate(images, start=1))
+    user = f'Monte o briefing com as fotos anexadas.\n\nIdentificação de cada foto, na ordem: {identificacao}.'
+    fotos = [_shrink_for_vision(dados, mime) for dados, mime, _ in images]
+    try:
+        bruto = _call_with_deadline(
+            caller, {**settings, '_request_timeout': min(TIMEOUT, VISION_BUDGET_SECONDS)},
+            QUICK_VISION_PROMPT, user, fotos, orcamento_s=VISION_BUDGET_SECONDS)
+        campos = _parse_quick(bruto, niches)
+    except ProviderError as exc:
+        if exc.status:
+            return None, f'o provedor respondeu {exc.status}: {exc.message[:300]}'
+        return None, exc.message[:300]
+    except urllib.error.URLError as exc:
+        return None, f'não foi possível falar com o provedor ({exc.reason})'
+    except (ValueError, KeyError, IndexError) as exc:
+        return None, f'resposta ilegível ({exc})'
+    if not campos.get('product'):
+        return None, 'a IA não conseguiu identificar o produto nas fotos'
+    return campos, ''

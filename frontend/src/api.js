@@ -198,6 +198,33 @@ export const openCharacterSheet = (body={}) =>
 
 export const writerSettings = () => api('/writer');
 // Banco de falas: voz por categoria de peca + roteiros aprovados pelo estudio.
+// Foto do celular reduzida no aparelho antes de enviar: a nuvem (Vercel)
+// recusa envios acima de 4,5 MB e a IA nao precisa de mais que 1600 px.
+export async function shrinkImage(file, max = 1600, quality = 0.85) {
+  try {
+    if (!file || !String(file.type || '').startsWith('image/')) return file;
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < 1500000) return file;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+    return blob ? new File([blob], String(file.name || 'foto').replace(/\.\w+$/, '') + '.jpg', {type: 'image/jpeg'}) : file;
+  } catch {
+    return file;
+  }
+}
+
+// Criar com IA: fotos do produto + print da descricao -> briefing sugerido.
+export async function quickBrief(products, description) {
+  const form = new FormData();
+  for (const file of products) form.append('product', await shrinkImage(file));
+  if (description) form.set('description', await shrinkImage(description));
+  return api('/quick-brief', {method: 'POST', body: form, timeoutMs: 90000});
+}
+
 export const persuasionPreview = body => api('/persuasion/preview', {method: 'POST', body});
 export const speechBank = (query = '') => api('/speech-bank' + (query ? '?' + query : ''));
 export const saveToSpeechBank = body => api('/speech-bank', {method: 'POST', body});
