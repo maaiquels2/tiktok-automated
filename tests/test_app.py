@@ -1278,6 +1278,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('preocupação → alívio',compacto)
         self.assertNotIn('mostrando conforto',compacto)
 
+    def test_compact_prompt_flows_without_breaks_between_beats(self):
+        # Tres blocos [0-3s][3-12s][12-15s] com tres falas separadas deixavam
+        # o video travado nas emendas: agora e uma acao continua e uma fala so.
+        from services.prompt_improve import build_compact_video_prompt, one_breath
+        self.assertEqual(one_breath('Eu tinha medo de calça jeans apertar demais','Mas essa aqui é tão macia!',
+                                    'Corre pro carrinho laranja.'),
+                         'Eu tinha medo de calça jeans apertar demais, mas essa aqui é tão macia! Corre pro carrinho laranja.')
+        falas={'hook':'Eu tinha medo de calça jeans apertar demais','development':'Mas essa aqui é tão macia!',
+               'cta':'Corre pro carrinho laranja.'}
+        c={'product':'Calça jeans','details':'tecido macio','movements':'ajustar a peça','body_turns':'leve_lado'}
+        texto=build_compact_video_prompt(c,falas,'Azul')
+        self.assertNotIn('[0–',texto)
+        self.assertNotIn(', depois ',texto)
+        self.assertIn('Ação contínua, sem pausas',texto)
+        self.assertEqual(texto.count('"'),2)
+        self.assertIn('apertar demais, mas essa aqui',texto)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)
@@ -1409,7 +1426,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('pega a',texto)
         self.assertNotIn('vestir',texto)
         self.assertIn('ajusta a peça',texto)
-        self.assertIn('senta e levanta',texto)
+        # Com fala cabem 3 acoes no meio (prova, um movimento e o giro):
+        # 'sentar e levantar' fica de fora quando ja ha prova e giro.
+        self.assertNotIn('senta e levanta',texto)
         self.assertIn('sem mostrar as costas',texto)
         self.assertIn('nunca fica de costas',texto)
         self.assertNotIn('perto da lente',texto)
@@ -1587,7 +1606,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         changed=next(v for v in response.json['variants'] if v['id']==variant['id'])['prompts']
         video=changed['video']
-        self.assertLess(len(video),1800)
+        self.assertLess(len(video),2200)
         self.assertIn('720 × 1280',video)
         self.assertIn(changed['hook'].replace('"',"'"),video)
         self.assertIn(changed['cta'].replace('"',"'"),video)
@@ -1609,20 +1628,28 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('sem fala',mudo)
         ugc=build_compact_video_prompt({**base,'body_turns':'costas'},falas,'Preto')
         self.assertIn('vira de costas por um instante',ugc)
-        self.assertIn('Ela agacha',ugc)
+        self.assertIn('sem parar, agacha',ugc)
         self.assertNotIn('girar',ugc)
 
-    def test_compact_prompt_uses_every_listed_movement_up_to_four(self):
+    def test_compact_prompt_caps_actions_three_with_speech_four_silent(self):
         from services.prompt_improve import build_compact_video_prompt
         falas={'hook':'Olha isso.','development':'Veste muito bem.','cta':'Confere no carrinho.'}
         tres=build_compact_video_prompt({'product':'Legging','movements':'caminhar, agachar, alongar'},falas,'Preto')
         # Narrado na terceira pessoa: "Ela caminha", nao "Ela caminhar".
-        self.assertIn('Ela caminha, depois agacha, depois alonga',tres)
+        self.assertIn('caminha, emendando em seguida: agacha, e no mesmo embalo alonga',tres)
+        # Acoes emendadas, nunca 'depois... depois': no Grok isso travava as emendas.
+        self.assertNotIn(', depois ',tres)
         seis=build_compact_video_prompt({'product':'Legging','body_turns':'lado',
                                          'movements':'caminhar; agachar; alongar; sentar; pular; dançar'},falas,'Preto')
-        self.assertIn('alonga',seis)
+        # Com fala: 3 acoes (duas do briefing e o giro). Quatro em fila deixavam
+        # o video corrido no teste real.
+        self.assertNotIn('alonga',seis)
         self.assertNotIn('senta',seis)
         self.assertIn('vira de perfil',seis)
+        mudo=build_compact_video_prompt({'product':'Legging','body_turns':'lado','video_mode':'movimento',
+                                         'movements':'caminhar; agachar; alongar; sentar; pular; dançar'},falas,'Preto')
+        self.assertIn('alonga',mudo)
+        self.assertNotIn('senta',mudo)
 
     def test_compact_prompt_follows_the_grok_guide_formula(self):
         # Guia do Grok: camera e luz nomeadas, clima por referencia, plano
@@ -1630,7 +1657,12 @@ class WorkflowTests(unittest.TestCase):
         from services.prompt_improve import build_compact_video_prompt
         falas={'hook':'Olha isso.','development':'Veste muito bem.','cta':'Confere no carrinho.'}
         legging=build_compact_video_prompt({'product':'Legging','niche':'academia'},falas,'Preto')
-        self.assertIn('corpo inteiro',legging)
+        # Com fala, nada de corpo inteiro: o rosto pequeno piorou identidade
+        # e labios no teste real (5/10). Plano americano e aproximacao.
+        self.assertIn('plano americano, dos joelhos para cima',legging)
+        self.assertNotIn('corpo inteiro',legging)
+        self.assertIn('Mãos: uma sempre em contato com a peça',legging)
+        self.assertIn('palavra por palavra',legging)
         self.assertIn('dolly-in lento',legging)
         self.assertIn('Luz: a mesma da imagem',legging)
         self.assertIn('fit check de academia',legging)
@@ -1642,7 +1674,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('dos joelhos para cima',mudo)
         self.assertIn('fixa',mudo)
         for texto in (legging,top,mudo):
-            self.assertLess(len(texto),1600)
+            self.assertLess(len(texto),2000)
 
     def test_compact_prompt_proves_what_the_hook_promises(self):
         # Com dois fatos confirmados, a prova do meio segue o que a fala
