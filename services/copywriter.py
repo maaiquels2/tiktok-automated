@@ -26,6 +26,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from services import persuasion, speech_bank
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
     _dominant_motor, _chosen_motor, color_variants,
@@ -75,7 +76,14 @@ URGENCY_PATTERNS = (
     r'\b\d{1,3}\s*%\s*(?:off|de\s+desconto)\b',
 )
 
-BUDGET = {'hook': (9, 14), 'development': (18, 26), 'cta': (6, 10)}
+# Tetos cabem em 15 s; os pisos sao baixos de proposito: piso alto obrigava
+# o texto a encher linguica ("com calma", "e o tipo de detalhe que procuro").
+# Faixas de ritmo: o piso evita fala rasa; o teto e so referencia. Contagem
+# de palavras nao reprova roteiro -- fala natural vale mais que caber num
+# numero (pedido do estudio depois de os roteiros soarem robóticos).
+BUDGET = {'hook': (6, 20), 'development': (10, 45), 'cta': (4, 16)}
+# Acima disso a fala passa de ~15 s num clipe so; a tela sugere a sequencia
+# de clipes (Extend) em vez de barrar.
 TOTAL_MAX = 45
 
 STAGE_DIRECTION_PATTERNS = (
@@ -103,11 +111,13 @@ WEAK_CTA_PATTERNS = (
 # obviamente pessoais ("reparei", "gostei", "pra mim") e por isso reprovava
 # texto correto -- era parte do motivo de o gerador local nunca passar aqui.
 FIRST_PERSON_PATTERNS = (
-    r'\beu\b', r'\bme\b', r'\bmim\b', r'\bminh[ao]s?\b', r'\bcomigo\b',
+    r'\beu\b', r'\bme\b', r'\bmim\b', r'\bminh[ao]s?\b', r'\bmeus?\b', r'\bcomigo\b', r'\btô\b',
     r'\bachei\b', r'\bvesti\b', r'\busei\b', r'\buso\b',
     r'\btestei\b', r'\bexperimentei\b', r'\bpercebi\b',
     r'\breparei\b', r'\bolhei\b', r'\bpeguei\b', r'\bgostei\b',
     r'\bencontrei\b', r'\bsurpreendi\b',
+    # Preterito de primeira pessoa em geral: agachei, amei, fiquei, separei.
+    r'\b\w{2,}ei\b', r'\bfiz\b', r'\bquis\b', r'\bsenti\b',
 )
 
 SYSTEM_PROMPT = """Você é uma roteirista sênior de resposta direta para vídeos UGC de 15 segundos no TikTok Shop, em português do Brasil.
@@ -122,9 +132,9 @@ OBJETIVO CRIATIVO
 - A direção de câmera e os movimentos acontecem na imagem. A pessoa NÃO fala "aproximo a câmera", "mostrando o caimento", "faço um giro", "close" ou qualquer instrução de produção.
 
 ESTRUTURA (obrigatória)
-- hook (0–4s, 10 a 12 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
-- development (4–12s, 20 a 24 palavras): linguagem falada em primeira pessoa. Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
-- cta (12–15s, 7 a 10 palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
+- hook (abertura, de 10 a 18 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
+- development (meio, de 20 a 40 palavras): linguagem falada em primeira pessoa, com as pausas e emendas de quem conversa ("e olha", "sério", "aí"). Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
+- cta (fechamento, de 7 a 14 palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
 - caption: uma frase de gancho + o que é o produto, e no máximo 5 hashtags no fim.
 
 EXEMPLO DE TRANSFORMAÇÃO (aprenda o princípio, não copie as palavras)
@@ -137,9 +147,11 @@ REGRAS INEGOCIÁVEIS
 3. Nunca repita a mesma expressão em duas batidas. Se o hook usou uma palavra-chave, o desenvolvimento usa outra.
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
-6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Não afirme ter comprado, testado ou usado por um período (isso não está confirmado no briefing) e não narre gestos nem movimentos que o público já está vendo.
+6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Pode falar do momento que o vídeo mostra ("tô usando agora", "olha como ela fica no corpo", "fiquei com vontade de usar todo dia"). Não invente história que ninguém pode verificar ("uso há meses", "lavei vinte vezes", "comprei mês passado").
 7. "Corre", "aproveita", "agora" e "garante a tua" criam impulso e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "antes que esgote", "acaba hoje", "esse preço vai sumir", "50% off", "promoção relâmpago". Só use essas alegações quando a OFERTA REAL confirmar exatamente isso.
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
+9. ORALIDADE: escreva como se fala no Brasil, não como se escreve. Use "pra", "tá", "tô", "cê" quando soar natural; no máximo uma interjeição curta ("gente", "olha", "sério"); frases curtas ligadas por "e", "aí", "e o melhor". Hook, desenvolvimento e CTA são UM pensamento contínuo: o desenvolvimento continua o hook, não recomeça. Nunca empilhe ordens ("Repara... Olha... Veja..."), nunca liste atributos e nunca repita no desenvolvimento o atributo que o hook já disse.
+10. GATILHOS DE VENDA, SEMPRE COM FATO: curiosidade (o hook abre um "por quê" que o meio responde), especificidade (um detalhe concreto vale mais que três adjetivos), identificação com a dor, imaginação de uso ("imagina…"), prova social e escassez. Prova social (vendidos, nota, avaliações) só com PROVA SOCIAL DECLARADA; escassez (prazo, estoque, desconto, frete, cupom) só com os FATOS DE URGÊNCIA PERMITIDOS, com o número exato. Uma única ação no CTA.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"options": [{"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}]}"""
@@ -233,6 +245,57 @@ def load_settings(data_dir, storage_get=None) -> dict:
     }
 
 
+# Formato de cada chave. Conferir antes de gravar evita o caso mais comum:
+# colar so um pedaco da chave, ou a chave do outro provedor.
+KEY_FORMATS = {
+    'openai': (r'^sk-[A-Za-z0-9_\-]{20,}$', 'A chave da OpenAI começa com "sk-" e é bem mais longa.'),
+    'gemini': (r'^AIza[0-9A-Za-z_\-]{30,}$', 'A chave do Gemini começa com "AIza".'),
+}
+VERIFY_TIMEOUT = 12
+
+
+def verify_key(provider: str, key: str, model: str = '') -> tuple[bool, str]:
+    """Confere a chave (e o modelo) direto no provedor, sem gastar créditos.
+
+    Listar os modelos da conta e gratuito e responde 401/403 para chave
+    invalida. Antes a chave era gravada e ligada sem nenhuma conferencia: o
+    erro so aparecia na hora de escrever um roteiro, longe da configuracao.
+    """
+    if provider not in KEY_FORMATS:
+        return False, 'Escolha OpenAI ou Gemini.'
+    pattern, hint = KEY_FORMATS[provider]
+    if not re.match(pattern, key or ''):
+        return False, f'Chave em formato inválido. {hint}'
+    if provider == 'openai':
+        request = urllib.request.Request('https://api.openai.com/v1/models',
+                                         headers={'Authorization': f'Bearer {key}'})
+    else:
+        request = urllib.request.Request('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+                                         headers={'x-goog-api-key': key})
+    try:
+        with urllib.request.urlopen(request, timeout=VERIFY_TIMEOUT) as response:
+            data = json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403) or (provider == 'gemini' and exc.code == 400):
+            return False, ('A chave foi recusada pelo provedor. Confira se copiou a chave inteira '
+                           'e se ela continua ativa na sua conta.')
+        if exc.code == 429:
+            return False, 'O provedor recusou por limite de uso ou falta de créditos na conta (429).'
+        return False, f'O provedor respondeu {exc.code} ao conferir a chave. Tente de novo em instantes.'
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return False, 'Não foi possível falar com o provedor para conferir a chave. Verifique a internet e tente de novo.'
+    model = (model or '').strip()
+    if model:
+        if provider == 'openai':
+            names = {str(item.get('id') or '') for item in data.get('data') or [] if isinstance(item, dict)}
+        else:
+            names = {str(item.get('name') or '').removeprefix('models/') for item in data.get('models') or []
+                     if isinstance(item, dict)}
+        if names and model not in names:
+            return False, f'O modelo "{model}" não está disponível para esta chave. Confira o nome do modelo.'
+    return True, ''
+
+
 def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) -> dict:
     current = load_settings(data_dir, storage_get=storage_get)
     provider = values.get('provider')
@@ -303,9 +366,11 @@ def build_brief(c: dict) -> str:
     if check:
         linhas.append(f"COMO A CÂMERA DERRUBA ESSA OBJEÇÃO: {check}")
     if offer:
-        linhas.append(f"OFERTA REAL (pode usar urgência): {offer}")
+        linhas.append(f"OFERTA REAL (pode usar urgência): {c.get('offer')}")
     else:
         linhas.append("OFERTA REAL: não existe — PROIBIDO usar qualquer palavra de urgência.")
+    linhas.extend(persuasion.brief_lines(_dominant_motor(c), c.get('offer') if offer else '',
+                                         c.get('social_proof'), bool(pain)))
     if len(colors) > 1:
         linhas.append(f"O produto tem outras cores ({', '.join(colors)}), mas este vídeo é só da cor {c.get('color')}.")
     previous = c.get('previous_script') or {}
@@ -316,8 +381,37 @@ def build_brief(c: dict) -> str:
             f"- desenvolvimento atual: {previous.get('development') or ''}",
             f"- CTA atual: {previous.get('cta') or ''}",
         ])
+    linhas.extend(_category_lines(c))
     linhas.extend(_learning_lines(c.get('learning')))
     return '\n'.join(linhas)
+
+
+def _category_lines(c: dict) -> list[str]:
+    """Voz da categoria (banco de falas) e falas que o estudio aprovou.
+
+    Exemplo e direcao de ritmo e de jeito de falar. Fato continua vindo so
+    dos FATOS CONFIRMADOS: uma fala aprovada de outro biquini nao autoriza
+    dizer "tem bojo" deste.
+    """
+    cat = speech_bank.category(speech_bank.detect(c))
+    linhas = []
+    if cat:
+        linhas.append(f"CATEGORIA DA PEÇA: {cat['label']}. Como quem usa fala dela: {cat['tone']} "
+                      f"Cuidado: {cat['avoid']}")
+        linhas.append('OCASIÕES QUE COMBINAM COM ESSA PEÇA (no máximo uma, e só se servir ao nicho): '
+                      + ', '.join(cat['occasions']))
+    salvas = [i for i in (c.get('speech_bank') or []) if isinstance(i, dict) and i.get('hook')][:4]
+    if salvas:
+        linhas.append('FALAS APROVADAS PELO ESTÚDIO (siga o ritmo e o jeito de falar; '
+                      'nunca copie a frase nem traga fato de outra peça):')
+        linhas.extend(f"- \"{i.get('hook')}\" / \"{i.get('development')}\" / \"{i.get('cta')}\""
+                      for i in salvas)
+    elif cat:
+        exemplos = [e for e in speech_bank.showcase(cat['id']) if not e.get('needs')][:2]
+        if exemplos:
+            linhas.append('EXEMPLOS DE VOZ DESSA CATEGORIA (ritmo e naturalidade; não copie):')
+            linhas.extend(f"- \"{e['hook']}\" / \"{e['development']}\" / \"{e['cta']}\"" for e in exemplos)
+    return linhas
 
 
 def _learning_lines(learning: dict | None) -> list[str]:
@@ -374,11 +468,6 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
         n = _count_words(texto)
         if strict_style and n < low:
             problemas.append(f'{campo} tem {n} palavras, precisa de pelo menos {low}')
-        elif n > high:
-            problemas.append(f'{campo} tem {n} palavras, o teto é {high}')
-    total = sum(_count_words(pack.get(k) or '') for k in BUDGET)
-    if total > TOTAL_MAX:
-        problemas.append(f'as três falas somam {total} palavras; o teto para 15 segundos é {TOTAL_MAX}')
 
     checked_fields = ('hook', 'development', 'cta', 'caption') if require_caption else ('hook', 'development', 'cta')
     falado = ' '.join((pack.get(k) or '') for k in checked_fields).casefold()
@@ -397,6 +486,10 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
             if achado:
                 problemas.append(f'"{achado.group(0)}" é urgência e não existe oferta real no briefing')
                 break
+    # Com oferta, cada tipo de urgencia precisa do seu fato (prazo, estoque,
+    # desconto com o numero exato...); prova social so se declarada.
+    problemas.extend(persuasion.urgency_problems(
+        falado, c.get('offer') if _offer_text(c) else '', c.get('social_proof')))
 
     for padrao in STAGE_DIRECTION_PATTERNS:
         achado = re.search(padrao, falado)
@@ -667,6 +760,10 @@ def _parse_batch_candidates(raw: str) -> dict[str, list[dict]]:
     return parsed
 
 
+ORAL_MARKERS = (r'\bpra\b', r'\btá\b', r'\btô\b', r'\bgente\b', r'\bsério\b',
+                r'\bnuma boa\b', r'\bdemais\b', r'\bjeitinho\b', r'\baí\b')
+
+
 def _creative_score(pack: dict, c: dict) -> int:
     """Desempata candidatos validos pela naturalidade e especificidade."""
     hook = (pack.get('hook') or '').casefold()
@@ -685,6 +782,12 @@ def _creative_score(pack: dict, c: dict) -> int:
         score += 2
     repeated = set(re.findall(r'\b\w{5,}\b', hook)) & set(re.findall(r'\b\w{5,}\b', development))
     score -= len(repeated)
+    # Marcas de fala de verdade ("pra", "tô", "gente", "sério") contam a favor.
+    falado = f'{hook} {development}'
+    score += min(3, sum(1 for m in ORAL_MARKERS if re.search(m, falado)))
+    # Meio que vira fila de ordens ("Repara... Olha... Confere...") soa locutor.
+    ordens = len(re.findall(r'(?:^|[.!?]\s+)(?:e\s+)?(?:repara|olha|confere|veja|note|observe)\b', development))
+    score -= 2 * max(0, ordens - 1)
     if 'carrinho laranja' in cta:
         score += 3
     if re.match(r'^(corre|abre|toca|escolhe|garante|aproveita|não deixa)',cta):
@@ -866,7 +969,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
                     pack={**pack,'cta':_strong_cta(campaign,key_index+candidate_index)}
                 # Em lote, estilo e comprimento minimo orientam o modelo, mas
                 # nao anulam todas as cores. A auditoria ainda bloqueia riscos
-                # concretos e o teto que precisa caber nos 15 segundos.
+                # concretos (fato inventado, urgencia falsa, camera falada).
                 problemas = audit(
                     pack, campaign, require_caption=False, strict_style=False)
                 if problemas:

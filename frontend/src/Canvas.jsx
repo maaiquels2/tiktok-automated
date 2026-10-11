@@ -28,13 +28,17 @@ export default function Canvas({ campaign, selected, onSelect, busy, stages = st
           // Abrir uma fase leva a etapa em andamento dela; numa fase ja
           // concluida, a primeira etapa; numa futura, a primeira tambem.
           const target = p.stages.find(id => stateOf(id) === 'current') || p.stages[0];
+          // Fase que ainda nao comecou nao abre: antes dava para pular para
+          // Criar video sem imagem aprovada e o app so avisava la dentro.
+          const locked = !done && !current;
           return (
             <li key={p.id}>
               <button
                 type="button"
-                className={`rd-phase is-${p.id}${done ? ' is-done' : ''}${current ? ' is-current' : ''}${open ? ' is-open' : ''}`}
+                className={`rd-phase is-${p.id}${done ? ' is-done' : ''}${current ? ' is-current' : ''}${open ? ' is-open' : ''}${locked ? ' is-locked' : ''}`}
                 aria-current={open ? 'step' : undefined}
-                disabled={busy}
+                disabled={busy || locked}
+                title={locked ? 'Conclua a fase atual para liberar esta.' : undefined}
                 onClick={() => onSelect(target)}
               >
                 <span className="rd-phase-mark" aria-hidden="true">{done ? <Check size={14} strokeWidth={3} /> : i + 1}</span>
@@ -55,7 +59,8 @@ export default function Canvas({ campaign, selected, onSelect, busy, stages = st
               role="tab"
               aria-selected={selected === id}
               className={`rd-substep is-${state}${selected === id ? ' is-selected' : ''}`}
-              disabled={busy}
+              disabled={busy || state === 'waiting'}
+              title={state === 'waiting' ? 'Conclua a etapa atual para liberar esta.' : undefined}
               onClick={() => onSelect(id)}
             >
               {state === 'done' && <Check size={14} strokeWidth={3} aria-hidden="true" />}

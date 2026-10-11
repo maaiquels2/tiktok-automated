@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw } from 'lucide-react';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank, persuasionPreview } from './api';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
@@ -93,7 +93,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -274,7 +274,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator,onSaveToBank,onOpenBank}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -348,7 +348,13 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
             <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
           </>}
         </div>
+        {(onSaveToBank||onOpenBank)&&<div className="variant-actions speech-bank-actions">
+          <span className="help">Banco de falas:</span>
+          {onSaveToBank&&<button type="button" disabled={busy||!p.hook||!p.development||!p.cta} onClick={()=>onSaveToBank(variant.id,{hook:p.hook,development:p.development,cta:p.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}
+          {onOpenBank&&!immutable&&<button type="button" disabled={busy} onClick={()=>onOpenBank(variant.id)}><BookOpen size={16}/> Ver falas aprovadas</button>}
+        </div>}
         <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
+        <div className="script-budget" aria-label="Palavras por trecho">{[['hook','abertura'],['development','meio'],['cta','fechamento']].map(([key,time])=>{const words=String(p[key]||'').trim().split(/\s+/).filter(Boolean).length;return <span key={key} className={'budget-chip is-'+(!words?'off':'ok')} title={`${time}: sem limite de palavras`}><em>{time}</em>{words}<small> palavras</small></span>})}</div>
         {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
           <div className="variant-prompt" key={key}>
             <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
@@ -1025,8 +1031,13 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
 }
 const MOTOR_LABELS={'':'Motor automático',necessidade:'Necessidade',escassez:'Escassez',desejo_posse:'Desejo de posse'};
 const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',costas:'De costas'};
+// Campos sem os quais o servidor nao gera prompts. Antes so nome, modelo e
+// produto eram exigidos aqui, e a falta de cor ou publico so aparecia depois,
+// como erro, ao clicar em Gerar.
+const REQUIRED_BRIEF={name:'nome da campanha',product:'produto',color:'cores',model_name:'modelo',outfit:'roupa',audience:'público',benefit:'benefício'};
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
+  const [briefError,setBriefError]=useState('');
   const [nicheOptions,setNicheOptions]=useState(NICHES);
   const [nicheError,setNicheError]=useState(false);
   const [modelOptions,setModelOptions]=useState([]);
@@ -1089,14 +1100,21 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   },[]);
   const field=(key,label,placeholder)=>(
     <div key={key} className={key==='product'?'product-field':''}>
-      <label>{label}{['name','model_name','product'].includes(key)&&' *'}
+      <label>{label}{REQUIRED_BRIEF[key]&&' *'}
         <input value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>
         {key==='color'&&<small className="help">Separe as cores por vírgulas para criar uma variação de cada uma.</small>}
       </label>
       {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
     </div>
   );
-  return <form className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);return}onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
+  return <form className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);return}
+    const missing=Object.entries(REQUIRED_BRIEF).filter(([key])=>!String(draft[key]||'').trim());
+    if(missing.length){
+      setBriefError('Preencha antes de salvar: '+missing.map(([,label])=>label).join(', ')+'.');
+      if(missing.some(([key])=>advanced.some(([k])=>k===key)))setShowAdvanced(true);
+      return;
+    }
+    setBriefError('');onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
     <fieldset disabled={busy||published}>
       {/* Antes era um <select>: a lista nativa do navegador não mostra
           imagem, e ficava difícil lembrar qual roupa cada moda usa. */}
@@ -1158,6 +1176,11 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
         </label>
+        <label>Prova social real (se existir)
+          <input value={draft.social_proof||''} onChange={e=>change('social_proof',e.target.value)} placeholder="Ex.: mais de 2 mil vendidos · nota 4,8" maxLength={500}/>
+          <small className="help">Copie da página do produto. Sem isso, o roteiro nunca fala em vendidos, nota ou avaliações.</small>
+        </label>
+        <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''}/>
         {/* O formato (UGC, POV, Só movimento) muda o vídeo inteiro: fica sempre
             à vista. Escondido em "Mais opções" parecia que tinha sumido. */}
         <div className="option-field">
@@ -1204,7 +1227,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               <span><strong>Desejo de posse</strong><small>"Eu quero ter isso"</small></span>
             </label>
           </div>
-          <small className="help">Define o gatilho que comanda o hook e o CTA. Sem oferta real preenchida, "Escassez" usa só descoberta honesta (achei e não esperava) — nunca prazo ou estoque inventado.</small>
+          <small className="help">Necessidade: dor → agitação → prova. Desejo: encanto → "imagina…" → posse. Escassez: novidade → prova → prazo/estoque. O motor também muda a expressão da modelo no vídeo. Sem oferta real, "Escassez" usa só descoberta honesta — nunca prazo ou estoque inventado.</small>
         </div>
         <div className="option-field">
           <span className="option-field-title" id="body-turns-title">Orientação corporal no vídeo</span>
@@ -1259,6 +1282,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         </div>
       )}
     </fieldset>
+    {briefError&&<p className="rd-alert" role="alert">{briefError}</p>}
     <div className="form-actions">
       {onCancel&&<button type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
       <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?.id?'Salvar':'Criar campanha'}</button>
@@ -1325,6 +1349,14 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
   useEffect(()=>{writerSettings().then(setData).catch(e=>onError?.(e.message))},[]);
   if(!data) return null;
   const change=(patch)=>setData(d=>({...d,...patch}));
+  // Formato conferido enquanto digita; a conferencia de verdade (a chave
+  // existe e o modelo esta disponivel) acontece no servidor ao salvar.
+  const typed=key.trim();
+  const keyError=!typed||!data.provider?''
+    :data.provider==='openai'&&!/^sk-[A-Za-z0-9_-]{20,}$/.test(typed)?'A chave da OpenAI começa com "sk-" e é bem mais longa. Confira se copiou a chave inteira.'
+    :data.provider==='gemini'&&!/^AIza[0-9A-Za-z_-]{30,}$/.test(typed)?'A chave do Gemini começa com "AIza". Confira se copiou a chave inteira.'
+    :'';
+  const missingKey=data.enabled&&!data.has_key&&!typed;
   async function save(extra={}){
     setSaving(true);setSample(null);
     try{
@@ -1373,7 +1405,8 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       <label>Chave de API
         <input type="password" value={key} disabled={busy||saving} onChange={e=>setKey(e.target.value)}
           placeholder={data.has_key?`Chave guardada ${data.key_hint} — deixe vazio para manter`:'Cole a chave aqui'} maxLength={400} autoComplete="off"/>
-        <small className="help">Fica só neste computador, em data/llm.json. Nunca é enviada para o GitHub nem aparece na tela depois de salva.</small>
+        {keyError&&<small className="field-error" role="alert">{keyError}</small>}
+        <small className="help">{isCloudMode()?'Fica guardada no armazenamento privado da Fábrica.':'Fica só neste computador, em data/llm.json.'} Nunca aparece na tela depois de salva. Ao salvar, a Fábrica confere a chave e o modelo direto no provedor.</small>
       </label>
       <label className="check-row">
         <input type="checkbox" checked={!!data.enabled} disabled={busy||saving||!data.has_key&&!key.trim()} onChange={e=>change({enabled:e.target.checked})}/>
@@ -1383,8 +1416,9 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
     <div className="form-actions">
       {data.has_key&&<button type="button" disabled={busy||saving} onClick={()=>save({clear_key:true,enabled:false})}>Remover chave</button>}
       {data.provider&&data.has_key&&<button type="button" disabled={busy||testing} onClick={test}>{testing?'Testando…':'Testar conexão'}</button>}
-      <button type="button" className="primary" disabled={busy||saving} onClick={()=>save()}>{saving?'Salvando…':'Salvar escrita por IA'}</button>
+      <button type="button" className="primary" disabled={busy||saving||!!keyError||missingKey} onClick={()=>save()}>{saving?'Conferindo a chave…':'Salvar escrita por IA'}</button>
     </div>
+    {missingKey&&<small className="field-error">Cole a chave da API para ligar a escrita por IA.</small>}
     {sample&&<div className="notice writer-sample">
       <strong>Exemplo gerado agora:</strong>
       <p><em>Hook:</em> {sample.hook}</p>
@@ -2314,4 +2348,93 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
       )}
     </section>
   );
+}
+
+// Banco de falas: como uma pessoa real fala de cada tipo de peca, mais os
+// roteiros que o estudio aprovou. As falas aprovadas viram exemplo de voz
+// para a escrita por IA nas proximas campanhas da mesma categoria.
+export function SpeechBankPanel({campaignId,onApply,onError,onFlash}){
+  const [data,setData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [working,setWorking]=useState('');
+  const [confirmId,setConfirmId]=useState('');
+  const load=async(category)=>{
+    setLoading(true);
+    try{
+      const query=category?`category=${encodeURIComponent(category)}`:(campaignId&&category===undefined?`campaign=${campaignId}`:'');
+      setData(await speechBank(query));
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setLoading(false)}
+  };
+  useEffect(()=>{load(undefined)},[campaignId]);
+  const remove=async item=>{
+    if(confirmId!==item.id){setConfirmId(item.id);return}
+    setWorking(item.id);
+    try{await deleteFromSpeechBank(item.id);setConfirmId('');onFlash?.('Fala removida do banco.');await load(data?.category||'')}
+    catch(e){onError?.(e.message||String(e))}
+    finally{setWorking('')}
+  };
+  const apply=async item=>{
+    setWorking('apply');
+    try{await onApply?.(item)}finally{setWorking('')}
+  };
+  const current=data?.category||'';
+  const detail=data?.detail;
+  const saved=data?.saved||[];
+  const card=(item,key,extra)=>{
+    const full=[item.hook,item.development,item.cta].filter(Boolean).join(' ');
+    return <article className="speech-card" key={key}>
+      <p><em>0–4s</em>{item.hook}</p>
+      <p><em>4–12s</em>{item.development}</p>
+      <p><em>12–15s</em>{item.cta}</p>
+      {extra}
+      <div className="speech-card-actions">
+        <CopyButton text={full} onError={onError} label="Copiar fala"/>
+        {onApply&&<button type="button" disabled={!!working} onClick={()=>apply(item)}>Usar no roteiro</button>}
+        {item.id&&<button type="button" className={confirmId===item.id?'danger':''} disabled={!!working} onClick={()=>remove(item)}><Trash2 size={15}/>{confirmId===item.id?'Confirmar remoção':'Remover'}</button>}
+      </div>
+    </article>;
+  };
+  return <div className="speech-bank">
+    <p className="help">Cada tipo de peça tem um jeito próprio de ser falado. O gerador local usa estas vozes, e a IA recebe as falas aprovadas pelo estúdio como exemplo de ritmo.</p>
+    <div className="rd-tabs speech-bank-tabs" role="tablist" aria-label="Categoria">
+      <button type="button" role="tab" className="rd-chip-tab" aria-selected={!current} disabled={loading} onClick={()=>load('')}>Todas{data?` · ${data.total}`:''}</button>
+      {(data?.categories||[]).map(cat=><button type="button" role="tab" key={cat.id} className="rd-chip-tab" aria-selected={current===cat.id} disabled={loading} onClick={()=>load(cat.id)}>{cat.label}{cat.saved?` · ${cat.saved}`:''}</button>)}
+    </div>
+    {loading&&!data?<p className="help">Carregando o banco de falas…</p>:<>
+      {detail&&<section className="speech-bank-voice">
+        <strong>Como falar de {detail.label.toLowerCase()}</strong>
+        <p>{detail.tone}</p>
+        <p className="help">Cuidado: {detail.avoid}</p>
+        <div className="speech-bank-tags"><span>Ocasiões</span>{detail.occasions.map(o=><em key={o}>{o}</em>)}</div>
+        <div className="speech-bank-tags"><span>Objeções comuns</span>{detail.objections.map(o=><em key={o}>{o}</em>)}</div>
+      </section>}
+      {onApply&&<p className="rd-alert">Ao usar uma fala, confira se cada detalhe citado (bojo, forro, bolso…) existe neste produto. Falas de outras peças podem citar o que esta não tem.</p>}
+      <h3 className="speech-bank-heading">Aprovadas pelo estúdio · {saved.length}</h3>
+      {saved.length?saved.map(item=>card(item,item.id,<small className="speech-card-meta">{[item.product,item.color,item.author,item.note].filter(Boolean).join(' · ')}</small>))
+        :<p className="help">Nenhuma fala guardada{detail?` para ${detail.label.toLowerCase()}`:''} ainda. Na etapa Roteiro, use “Guardar no banco” nas falas que soaram naturais.</p>}
+      {(data?.showcase||[]).length>0&&<>
+        <h3 className="speech-bank-heading">Exemplos da categoria</h3>
+        <p className="help">Exemplos ilustrativos. Os que citam um detalhe só são usados pelo gerador quando o briefing confirma esse detalhe.</p>
+        {data.showcase.map((item,i)=>card({...item,id:''},`ex-${i}`,item.needs?<small className="speech-card-meta">Precisa no briefing: {item.needs}</small>:null))}
+      </>}
+    </>}
+  </div>;
+}
+
+// Mostra o que o gerador entendeu da oferta e da prova social: so esses
+// fatos viram urgencia ou "ja vendeu" no roteiro.
+export function PersuasionPreview({offer,social}){
+  const [data,setData]=useState(null);
+  useEffect(()=>{
+    if(!offer.trim()&&!social.trim()){setData(null);return}
+    let alive=true;
+    const timer=setTimeout(()=>{persuasionPreview({offer,social_proof:social}).then(res=>{if(alive)setData(res)}).catch(()=>{})},400);
+    return()=>{alive=false;clearTimeout(timer)};
+  },[offer,social]);
+  if(!data)return null;
+  return <div className="persuasion-preview" aria-live="polite">
+    {(data.offer.length>0||data.offer_unread)&&<div><span>O roteiro pode usar</span>{data.offer.map(x=><em key={x}>{x}</em>)}{data.offer_unread&&<small className="field-error">Não entendi a oferta. Escreva como “20% até domingo”, “últimas 30 peças” ou “frete grátis”.</small>}</div>}
+    {(data.social.length>0||data.social_unread)&&<div><span>Prova social</span>{data.social.map(x=><em key={x}>{x}</em>)}{data.social_unread&&<small className="field-error">Não entendi. Escreva como “2 mil vendidos” ou “nota 4,8”.</small>}</div>}
+  </div>;
 }

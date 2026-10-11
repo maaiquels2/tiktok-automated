@@ -3,6 +3,8 @@ import difflib
 import re
 import unicodedata
 
+from services import persuasion, speech_bank
+
 
 def _phrase(value):
     return ' '.join(str(value or '').strip().rstrip('.').split())
@@ -54,7 +56,18 @@ _PRODUCT_FEATURES = (
     ('secagem rápida', ('secagem rápida', 'secagem rapida')),
     ('compressão', ('compressão', 'compressao')),
     ('sem transparência', ('sem transparência', 'sem transparencia')),
+    ('bojo', ('bojo', 'bojos')),
+    ('renda', ('renda',)),
+    ('cetim', ('cetim',)),
+    ('viscose', ('viscose',)),
+    ('canelado', ('canelado', 'canelada', 'ribana')),
+    ('amarração', ('amarração', 'amarracao', 'de amarrar', 'lacinho')),
+    ('fenda', ('fenda',)),
+    ('crochê', ('crochê', 'croche')),
+    ('tule', ('tule',)),
+    ('decote nas costas', ('decote nas costas', 'costas abertas', 'costas nuas')),
     ('decote', ('decote',)),
+    ('alça regulável', ('alça regulável', 'alca regulavel', 'alças reguláveis', 'alcas regulaveis')),
     ('alça', ('alça', 'alca')),
     ('manga', ('manga',)),
     ('barra', ('barra',)),
@@ -78,7 +91,7 @@ _PRODUCT_FEATURES = (
     ('poliéster', ('poliéster', 'poliester')),
 )
 
-_MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster'}
+_MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster', 'viscose', 'cetim'}
 
 
 def _product_features(c, limit=3):
@@ -134,6 +147,9 @@ def _feature_present(source: str, needle: str, label: str = '') -> bool:
     return not re.search(negative, source, re.I)
 
 
+_FALLBACK_DETAIL = 'o caimento e os detalhes visíveis'
+
+
 def _focus_parts(c):
     """Turn the angle and explicit product attributes into readable focus text."""
     features = _product_features(c, limit=2)
@@ -159,7 +175,7 @@ def _focus_parts(c):
         if len(features) == 2:
             return f'{features[0]} e {features[1]}', features
         return f'{features[0]}, {features[1]} e {features[2]}', features
-    return 'o caimento e os detalhes visíveis', []
+    return _FALLBACK_DETAIL, []
 
 
 def _focus_is_contradictory(c, focus: str) -> bool:
@@ -236,6 +252,9 @@ def _with_article(value):
         'elástico': 'o', 'capuz': 'o', 'gola': 'a', 'punho': 'o',
         'botões': 'os', 'poliamida': 'a', 'courino': 'o', 'algodão': 'o',
         'lã': 'a', 'elastano': 'o', 'poliéster': 'o',
+        'bojo': 'o', 'renda': 'a', 'cetim': 'o', 'viscose': 'a', 'canelado': 'o',
+        'amarração': 'a', 'fenda': 'a', 'crochê': 'o', 'tule': 'o',
+        'decote nas costas': 'o', 'alça regulável': 'a',
     }
     if value.casefold() in articles:
         return f"{articles[value.casefold()]} {value}"
@@ -469,6 +488,16 @@ _PROOF_GESTURES = {
     'punho': 'aproxima o punho da lente',
     'cordão': 'puxa o cordão e solta',
     'capuz': 'ajusta o capuz com uma das mãos, sem erguer os dois braços',
+    'bojo': 'ajusta a alça com um dedo, deixando o bojo à vista',
+    'renda': 'passa o dedo devagar pela renda',
+    'cetim': 'passa a mão no tecido e deixa ele cair, mostrando o brilho do cetim',
+    'canelado': 'passa a mão no tecido canelado, de cima para baixo',
+    'amarração': 'ajusta o laço da amarração e solta',
+    'fenda': 'dá um passo à frente, deixando a fenda aparecer',
+    'crochê': 'abre levemente a peça com as mãos, mostrando o crochê',
+    'tule': 'levanta um pouco o tule com a ponta dos dedos e solta',
+    'alça regulável': 'ajusta a alça regulável com um dedo e solta',
+    'decote nas costas': 'vira o ombro de leve, deixando o decote das costas aparecer',
 }
 
 
@@ -954,6 +983,9 @@ def _product_family(c):
 
 def _piece_noun(c):
     # Substantivo real do produto, usado tanto na fala quanto no prompt de imagem.
+    cat = speech_bank.category(speech_bank.detect(c))
+    if cat:
+        return cat['piece']
     product = _pt_br(c.get('product')).casefold()
     outfit = _pt_br(c.get('outfit')).casefold()
     # O campo "produto" manda: o "outfit" costuma descrever o look inteiro
@@ -971,7 +1003,8 @@ def _piece_noun(c):
 
 def _piece_forms(c):
     piece = _piece_noun(c)
-    gender = _PIECE_GENDER.get(piece) or _FAMILY_VOCAB[_product_family(c)]['gender']
+    cat = speech_bank.category(speech_bank.detect(c))
+    gender = (cat['gender'] if cat else '') or _PIECE_GENDER.get(piece) or _FAMILY_VOCAB[_product_family(c)]['gender']
     if gender == 'f':
         return dict(piece=piece, art='a', de='da', dem='essa', prep='nessa', pron='ela')
     return dict(piece=piece, art='o', de='do', dem='esse', prep='nesse', pron='ele')
@@ -982,6 +1015,9 @@ def _objection_parts(c):
     raw = _phrase(c.get('objection'))
     if not raw or _is_meta_field(raw):
         return '', ''
+    hit = speech_bank.objection(speech_bank.category(speech_bank.detect(c)), raw)
+    if hit:
+        return hit['pain'], hit['proof']
     low = raw.casefold()
     for _key, needles, pain, check in _OBJECTION_PRESETS:
         if any(n in low for n in needles):
@@ -1140,6 +1176,9 @@ def _hook_pool(c, detail, forms):
     de = forms['de']
     det = _phrase(detail)
     det_em = _with_em(det)
+    # "foi os botoes" -> "foram os botoes"
+    plural = bool(re.match(r'^(os|as)\s', det) or re.search(r'\se\s', det))
+    foi, eh = ('foram', 'são') if plural else ('foi', 'é')
     pain, _check = _objection_parts(c)
     offer = _offer_text(c)
 
@@ -1158,38 +1197,55 @@ def _hook_pool(c, detail, forms):
     ]
     # Criterio: o detalhe que decidiu por mim.
     decide = [
-        ('dec-escolhi', f'O que me fez escolher {dem} {piece} foi {det}.'),
+        ('dec-escolhi', f'O que me fez escolher {dem} {piece} {foi} {det}.'),
         ('dec-mudou', f'Reparei {det_em} e mudou o que eu achava {de} {piece}.'),
-        ('dec-criterio', f'Pra mim o que decide {prep} {piece} é {det}.'),
+        ('dec-criterio', f'Pra mim o que decide {prep} {piece} {eh} {det}.'),
     ]
     # Uso: eu com a peca, agora.
     uso = [
         ('uso-gostei', f'Vesti {dem} {piece} e {det} foi o que mais gostei.'),
-        ('uso-volto', f'Uso {dem} {piece} e sempre acabo voltando {det_em}.'),
     ]
     # Necessidade: a dor que o briefing declarou, na minha voz.
     necessidade = []
     if pain:
         necessidade = [
-            ('nec-medo', f'Meu medo {de} {piece} sempre foi {pain}. Olha {det}.'),
-            ('nec-segurava', f'O que me segurava {prep} {piece} era {pain}. Repara {det_em}.'),
+            ('nec-medo', f'Meu medo {de} {piece} sempre foi {pain}. Olha {dem} aqui.'),
+            ('nec-segurava', f'O que me segurava {prep} {piece} era {pain}, até eu testar {dem}.'),
             ('nec-desisti', f'Eu já desisti {de} {piece} quando o problema era {pain}.'),
             ('nec-testei', f'Testei {dem} {piece} justamente porque meu medo era {pain}.'),
         ]
     # Escassez com oferta real declarada no briefing.
+    # Cada fala de urgencia usa um fato da oferta com o numero exato
+    # (services/persuasion); o texto cru da oferta so entra se nada casou.
     escassez = []
     if offer:
-        escassez = [
+        escassez = persuasion.scarcity_hooks(persuasion.offer_facts(c.get('offer')), forms) or [
             ('esc-oferta', f'{_sentence(offer[0].upper() + offer[1:])} E eu reparei {det_em}.'),
             ('esc-antes', f'{_sentence(offer[0].upper() + offer[1:])} Olha {det} antes.'),
         ]
+    # Prova social so quando declarada no briefing.
+    prova = persuasion.social_hooks(persuasion.social_facts(c.get('social_proof')), forms)
+
+    # Banco de falas: moldes da categoria, separados pelo que sustentam.
+    cat = speech_bank.category(speech_bank.detect(c))
+    cat_dor, cat_fato, cat_livre = [], [], []
+    for tid, text in (_category_lines(c, 'hooks', forms, det) if not offer else []):
+        item = cat['hooks'][int(tid.rsplit('-', 1)[1])]
+        item = item if isinstance(item, dict) else {}
+        (cat_dor if item.get('pain') else cat_fato if item.get('req') else cat_livre).append((tid, text))
+    if det == _FALLBACK_DETAIL:
+        # Sem atributo nem angulo, os moldes genericos so repetiriam o texto
+        # de reserva; a voz da categoria vem antes deles.
+        descoberta, contraste, decide, uso = cat_livre + descoberta, [], [], uso + decide + contraste
+        cat_livre = []
 
     motor = _dominant_motor(c)
     order = {
-        'necessidade': [necessidade, contraste, decide, descoberta, uso],
-        'desejo': [decide, uso, descoberta, contraste, necessidade],
-        'escassez': [escassez, descoberta, contraste, decide, uso],
+        'necessidade': [cat_dor, necessidade, cat_fato, contraste, decide, descoberta, cat_livre, uso],
+        'desejo': [cat_fato, decide, cat_livre, uso, descoberta, contraste, cat_dor, necessidade],
+        'escassez': [escassez, descoberta, cat_fato, contraste, decide, cat_livre, uso],
     }[motor]
+    order.insert(2 if motor == 'necessidade' else 1, prova)
     if offer and motor != 'escassez':
         order.insert(1, escassez)
     pool = []
@@ -1200,69 +1256,156 @@ def _hook_pool(c, detail, forms):
     return pool
 
 
-def _development_line(c, detail, features, forms, index, used_keys=()):
-    # Tres batidas: prova (4-6s), objecao quebrada (6-10s), posse (10-12s).
-    # A auditoria pede de 18 a 26 palavras: as combinacoes de prova e
-    # fechamento existem para o trecho cair dentro da faixa em vez de sair
-    # curto demais, que era o defeito antigo ("development tem 17 palavras").
+# Prova falada de cada objecao: primeira pessoa, presente, sobre o que o
+# video mostra. As versoes de _OBJECTION_PRESETS sao direcao de camera
+# ("Olha contra a luz e confira a cobertura") e, lidas em voz alta, viravam
+# ordem de locutor.
+_SPOKEN_CHECK = {
+    'transparencia': 'Por isso tô aqui contra a luz, pra você conferir.',
+    'desce': 'Por isso tô me mexendo aqui, pra você ver se o cós segura.',
+    'tamanho': 'Por isso quis mostrar ela inteira no corpo.',
+    'qualidade': 'Por isso quis te mostrar o acabamento e a costura.',
+    'durabilidade': 'Por isso quis te mostrar a costura e o acabamento.',
+    'conforto': 'Por isso tô em movimento, pra você ver como ela acompanha.',
+    'preco': 'E olha quantas combinações saem da mesma peça.',
+    'marca': 'Por isso mostro de frente e de lado, pra você conferir.',
+}
+
+
+def _objection_key(c):
+    low = _phrase(c.get('objection')).casefold()
+    for key, needles, _pain, _check in _OBJECTION_PRESETS:
+        if low and any(n in low for n in needles):
+            return key
+    return ''
+
+
+# Ocasioes como se fala (as de _NICHE_OCCASION seguem no briefing da IA).
+_SPOKEN_OCCASION = {
+    'academia': 'no treino e depois na rua',
+    'praia': 'na praia e na piscina',
+    'casual': 'no dia a dia',
+    'dia-a-dia': 'em casa ou pra sair correndo',
+    'intima': 'no dia a dia',
+    'fantasia': 'na festa',
+}
+
+
+def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
+    """O meio da fala, como gente fala: uma reacao em primeira pessoa que
+    continua o gancho, e nao tres ordens soltas.
+
+    A versao anterior colava "Repara no X com calma." + a instrucao de camera
+    da objecao + "Da para usar ...". O primeiro video gerado com ela soou como
+    locucao: o atributo do gancho repetido, direcao de camera lida em voz alta
+    e "com calma" so para alcancar um minimo de palavras.
+
+    Ordem do que ela fala: a objecao do briefing (com a prova que o video
+    mostra), senao o beneficio escolhido, senao outro atributo. Depois, o
+    detalhe do angulo de venda que o gancho ainda nao disse, ou a ocasiao de
+    uso. Nada fora dos fatos do briefing; opiniao declarada e livre.
+    """
     feats = list(features or [])
-    benefit_preview = _benefit_clause(c).casefold()
-    # Se o beneficio ja cita o primeiro fato, a prova usa o segundo. Repetir a
-    # mesma palavra em duas batidas queima segundos sem acrescentar argumento.
-    if feats and len(feats) > 1 and feats[0].casefold() in benefit_preview:
-        det = _with_article(feats[1])
-    else:
-        det = _phrase(detail)
-    det_em = _with_em(det)
-    provas = [
-        ('prv-olha', f'Olha {det} de perto.'),
-        ('prv-repara', f'Repara {det_em} com calma.'),
-        ('prv-aqui', f'Aqui aparece {det}.'),
-        ('prv-reparei', f'Eu reparei {det_em} primeiro.'),
-        ('prv-fui', f'Fui ver {det} de perto.'),
-        ('prv-parte', f'A parte que eu mais olho é {det}.'),
-    ]
-    _pain, check = _objection_parts(c)
+    hook_fact = (feats[0] if feats else '').casefold()
+    dem, piece, pron = forms['dem'], forms['piece'], forms['pron']
+    pain, _check = _objection_parts(c)
+    cat_hit = speech_bank.objection(speech_bank.category(speech_bank.detect(c)), _phrase(c.get('objection')))
+    spoken_check = cat_hit['proof'] if cat_hit else _SPOKEN_CHECK.get(_objection_key(c), '')
     benefit = _benefit_clause(c)
     benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
-    if check:
-        meio = _sentence(check)
-    elif benefit_text:
-        if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega)\b', benefit_text, re.I):
-            meio = _sentence(f'{forms["dem"].capitalize()} {forms["piece"]} {benefit_text}')
-        else:
-            meio = _sentence(f'{forms["dem"].capitalize()} {forms["piece"]} tem {benefit_text}')
-    else:
-        meio = ''
-    occasion = _NICHE_OCCASION.get((c.get('niche') or '').strip(), '')
-    fechamentos = []
-    if occasion:
-        fechamentos = [
-            ('fec-da', _sentence(f'Dá para usar {occasion}')),
-            ('fec-eu', _sentence(f'Eu mesma uso {occasion}')),
+    if benefit_text and hook_fact and hook_fact.split()[-1] in benefit_text.casefold():
+        benefit_text = ''
+    second = _with_article(feats[1]) if len(feats) > 1 else ''
+
+    reacoes = []
+    motor = _dominant_motor(c)
+    # A dor so e retomada ("por isso", agitacao) quando o gancho falou dela;
+    # depois de um gancho de oferta ou de detalhe, a prova entra direta.
+    dor_no_gancho = bool(pain) and pain.casefold() in (hook or '').casefold()
+    if pain:
+        prova_falada = spoken_check or 'Por isso fiz questão de te mostrar aqui.'
+        if not dor_no_gancho and hook:
+            prova_falada = re.sub(r'^Por isso\s+', '', prova_falada)
+            prova_falada = prova_falada[:1].upper() + prova_falada[1:]
+        if motor == 'necessidade' and (dor_no_gancho or not hook):
+            # Dor -> agitacao -> prova: uma frase curta do incomodo antes da prova.
+            agita = persuasion.AGITATION[int(index or 0) % len(persuasion.AGITATION)]
+            reacoes.append(('re-agita', f'{agita} {prova_falada}'))
+        # O gancho ja disse a dor; o meio continua dali, sem repeti-la.
+        reacoes.append(('re-porisso', prova_falada))
+    social = persuasion.social_facts(c.get('social_proof'))
+    reacoes += [r for r in persuasion.social_reactions(social, forms)
+                if not any(v and v in (hook or '') for v in (social.get('sold'), social.get('rating')))]
+    if benefit_text:
+        verbo = '' if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|combina|entrega)\b',
+                               benefit_text, re.I) else 'tem '
+        reacoes.append(('re-melhor', f'E o melhor é que {pron} {verbo}{benefit_text}.'))
+    # Depois do que o briefing declarou, a voz da categoria.
+    reacoes += _category_lines(c, 'reactions', forms)
+    if second and not re.match(r'^(o tecido )?sem\b', second, re.I):
+        reacoes.append(('re-tambem', f'E ainda tem {second}, que era bem o que eu procurava.'))
+    cat = speech_bank.category(speech_bank.detect(c))
+    reacoes += [
+        ('re-veste', f'E olha como {pron} veste, fiquei com vontade de usar todo dia.'),
+        ('re-gostei', 'Sinceramente, gostei muito mais do que eu imaginava.'),
+    ]
+
+    # Detalhe do angulo de venda que o gancho ainda nao citou ("o cós").
+    partes = [p.strip() for p in re.split(r'\s+e\s+|,\s*', _phrase(detail)) if p.strip()]
+    hook_words = set(re.findall(r'\w{3,}', hook_fact))
+    novas = [p for p in partes if not (hook_words & set(re.findall(r'\w{3,}', p.casefold())))
+             and not re.match(r'^(o tecido )?sem\b|^o caimento|^os detalhes', p, re.I)]
+    fechos = []
+    if novas:
+        alvo = _with_em(novas[0])
+        fechos.append(('fe-repara', f'E repara {alvo}, ficou um charme.'))
+    if cat:
+        for n, occ in enumerate(cat['occasions'][:2]):
+            fechos += _category_lines(c, 'closers', forms, occ=occ)
+    occasion = _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), '')
+    if occasion and not cat:
+        fechos += [
+            ('fe-usar', f'Dá pra usar {occasion} numa boa.'),
+            ('fe-serve', f'Serve {occasion}, sem pensar muito.'),
         ]
-    # Fechamento de opiniao: nao afirma desempenho, so declara preferencia.
-    # Serve para o trecho alcancar o piso de 18 palavras sem inventar atributo.
-    fechamentos.append(('fec-tipo', 'É o tipo de detalhe que eu procuro.'))
+    if motor == 'desejo':
+        # Desejo: quem assiste se imagina usando a peca na ocasiao.
+        # O detalhe do angulo de venda (o que o operador pediu para mostrar)
+        # continua na frente.
+        imagina = persuasion.future_pacing((cat['occasions'][0] if cat else occasion), forms)
+        frente = 1 if fechos and fechos[0][0] == 'fe-repara' else 0
+        fechos = fechos[:frente] + imagina + fechos[frente:]
+    oferta = persuasion.offer_facts(c.get('offer')) if _offer_text(c) else {}
+    if oferta:
+        # Escassez real lembrada no meio: prazo, estoque, frete ou cupom.
+        fechos = persuasion.scarcity_closers(oferta, forms) + fechos
+    if not fechos:
+        fechos.append(('fe-cara', 'Achei a cara do meu dia a dia.'))
 
-    def _primeira(texto):
-        palavras = _phrase(texto).split()
-        return palavras[0].casefold() if palavras else ''
-
+    hook_low = (hook or '').casefold()
+    ja_ditos = [f for f in _product_features(c, limit=50) if f.casefold() in hook_low]
+    if ja_ditos:
+        def repete(texto):
+            return any(f.casefold() in texto.casefold() for f in ja_ditos)
+        reacoes = [r for r in reacoes if not repete(r[1])] or reacoes
+        fechos = [f for f in fechos if not repete(f[1])] or fechos
     candidates = []
-    for ptid, prova in provas:
-        # Duas batidas seguidas comecando pela mesma palavra ("Olha o coso de
-        # perto. Olha contra a luz...") soam como gagueira em 15 segundos.
-        colide = bool(meio) and _primeira(prova) == _primeira(meio)
-        for ftid, fecho in fechamentos:
-            beats = [b for b in (_sentence(prova), meio, fecho) if b]
-            texto = ' '.join(beats)
-            if _count_words(texto) > 26:
-                texto = ' '.join(beats[:-1])
-            candidates.append((f'{ptid}+{ftid}', texto, colide))
-    limpos = [(tid, txt) for tid, txt, colide in candidates if not colide]
-    escolha = limpos or [(tid, txt) for tid, txt, _c in candidates]
-    return _pick_in_budget(escolha, index, 18, 26, used_keys)
+    for ri, (rid, reacao) in enumerate(reacoes):
+        for fi, (fid, fecho) in enumerate(fechos):
+            # "E o melhor e que ela tem tecido macio. E repara no tecido macio"
+            if fid == 'fe-repara' and novas and novas[0].split()[-1].casefold() in reacao.casefold():
+                continue
+            texto = f'{reacao} {fecho}'
+            if _count_words(texto) > 36:
+                texto = reacao
+            candidates.append(((ri + fi, ri), (f'{rid}+{fid}', texto)))
+    # Com objecao, a prova abre todas as variantes; sem ela, cada variante
+    # troca reacao e fechamento juntos, e nao so o fim da frase.
+    if not pain:
+        candidates.sort(key=lambda item: item[0])
+    candidates = [item[1] for item in candidates]
+    # Sem piso alto: frase natural curta vale mais que enchimento.
+    return _pick_in_budget(candidates, index, 10, 36, used_keys)
 
 
 def _cta_pool(c, forms):
@@ -1282,6 +1425,8 @@ def _cta_pool(c, forms):
         ('cta-aproveita', 'Aproveita e garante a sua versão no carrinho laranja.'),
         ('cta-agora', 'Não deixa pra depois: confere no carrinho laranja agora.'),
         ('cta-toca', 'Toca no carrinho laranja e vê todos os detalhes.'),
+        ('cta-tala', 'Tá no carrinho laranja, corre lá e vê de pertinho.'),
+        ('cta-deixei', 'Deixei no carrinho laranja pra você, corre lá.'),
     ]
     if len(colors) > 1:
         direto = [
@@ -1293,14 +1438,15 @@ def _cta_pool(c, forms):
         ('cta-confere', 'Confere essa solução agora no carrinho laranja.'),
     ] if pain else []
     offer_short = ' '.join(offer.split()[:5]).rstrip('.,;:')
-    if offer and re.search(r'últim|ultim|estoque|esgot|peças|pecas|unidades',offer.casefold()):
-        escassez = [('cta-ofestoque',f'Corre pro carrinho laranja: {offer_short}.')]
-    else:
-        escassez = [('cta-oferta',f'Aproveita {offer_short} no carrinho laranja.')] if offer else []
+    escassez = (persuasion.scarcity_ctas(persuasion.offer_facts(c.get('offer')), {**forms, 'teu': possessive})
+                if offer else [])
+    if offer and not escassez:
+        escassez = [('cta-oferta', f'Aproveita {offer_short} no carrinho laranja.')]
     posse = [
         ('cta-garante', f'Corre pro carrinho laranja e garante {possessive} agora.'),
         ('cta-escolhe', f'Abre o carrinho laranja e escolhe {possessive}.'),
     ]
+    categoria = _category_lines(c, 'ctas', forms) if not offer else []
     descoberta = [
         ('cta-achado', 'Salva esse achado agora no carrinho laranja.'),
         ('cta-detalhes', 'Toca no carrinho laranja e confere os detalhes.'),
@@ -1314,12 +1460,45 @@ def _cta_pool(c, forms):
         order = [posse, direto, descoberta, condicional]
     if offer:
         order.insert(0, escassez)
-    pool = []
+    pool = list(categoria)
     for group in order:
         for item in group:
             if item and item not in pool:
                 pool.append(item)
     return pool
+
+
+def _bank_slots(c, forms):
+    pain, _check = _objection_parts(c)
+    return {**forms, 'teu': 'a tua' if forms['art'] == 'a' else 'o teu', 'pain': pain}
+
+
+def _category_lines(c, kind, forms, det='', occ=''):
+    """Moldes da categoria (banco de falas) que os fatos do briefing sustentam."""
+    cat = speech_bank.category(speech_bank.detect(c))
+    if not cat:
+        return []
+    feats = set(_product_features(c, limit=50))
+    slots = _bank_slots(c, forms)
+    lines = []
+    for i, item in enumerate(cat.get(kind, [])):
+        item = item if isinstance(item, dict) else {'t': item}
+        req = item.get('req')
+        if req and req not in feats:
+            continue
+        if item.get('pain') and not slots['pain']:
+            continue
+        values = {**slots, 'det': _with_article(req) if req else det, 'occ': occ,
+                  'feat': req or re.sub(r'^(o|a|os|as)\s+', '', det or '')}
+        if '{det}' in item['t'] and not values['det']:
+            continue
+        text = speech_bank.fill(item['t'], values)
+        if '{' not in text:
+            lines.append((f'cat-{kind}-{i}', text))
+            if item.get('for_pain') and item['for_pain'] == slots['pain']:
+                # Molde feito para a objecao do briefing vai para a frente.
+                lines.insert(0, lines.pop())
+    return lines
 
 
 def _sem_artigo(value):
@@ -1394,7 +1573,7 @@ def _script_variation(c, color, index=0):
     selected_hook = _pick_in_budget(_hook_pool(c, hook_detail, forms), i, 10, 13,
                                     _used_keys(c, 'hook'))
     selected_development = _development_line(c, detail, features, forms, i,
-                                             _used_keys(c, 'development'))
+                                             _used_keys(c, 'development'), hook=selected_hook)
     selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10,
                                    _used_keys(c, 'cta'), fuzzy=False)
 
@@ -1402,9 +1581,9 @@ def _script_variation(c, color, index=0):
     # desenvolvimento pela ultima batida, nunca pela prova.
     def total():
         return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
-    if total() > 45:
+    if total() > 60:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 45:
+        while len(sentences) > 1 and total() > 60:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -1424,10 +1603,10 @@ def _script_variation(c, color, index=0):
 def script_budget(hook, development, cta):
     # Orcamento falado por trecho, usado pela interface e pelo prompt de video.
     return {
-        'hook': dict(words=_count_words(hook), low=10, high=12),
-        'development': dict(words=_count_words(development), low=20, high=24),
-        'cta': dict(words=_count_words(cta), low=7, high=9),
-        'total': dict(words=_count_words(' '.join((hook, development, cta))), low=38, high=45),
+        'hook': dict(words=_count_words(hook), low=10, high=18),
+        'development': dict(words=_count_words(development), low=20, high=40),
+        'cta': dict(words=_count_words(cta), low=7, high=14),
+        'total': dict(words=_count_words(' '.join((hook, development, cta))), low=38, high=70),
     }
 
 
@@ -1851,8 +2030,12 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     gestures = _proof_gestures(
         _product_features(c, limit=2 if _limite_video(c) else 4),
         turns=_body_turns(c))
+    # Direcao do motor de persuasao: expressao do gancho, arco emocional e o
+    # gesto da chamada; tempos proporcionais as falas (4s/12s no roteiro padrao).
+    cena = persuasion.scene_direction(_dominant_motor(c), f"{anchor} {forms['de']} {forms['piece']}")
+    t1, t2 = persuasion.timeline(hook, development, cta)
     proof_block = (
-        'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s: '
+        f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s: '
         + '; '.join(gestures) + '.\n'
     ) if gestures else ''
     closing_hands = (
@@ -1883,26 +2066,26 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (0, "MÃOS: uma sempre em contato com a peça (cintura, cós ou barra) e a outra mostra os detalhes; "
             "as duas só ficam livres juntas num gesto que exija isso, por no máximo 1 segundo. "),
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
-        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; uma por beat, não precisa usar todas): {moves}. "),
-        (0, f"ENCERRAMENTO (12–15s): de frente para a lente, {closing_hands}. "
-            "As mãos ficam nessa posição durante todo o CTA, com UM único ajuste pequeno e natural (um leve "
-            "reposicionamento dos dedos) — sem soltar a peça nem repetir o gesto. "
-            "Corpo parado: só o rosto, o olhar e esse ajuste se movem."),
+        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s; uma por beat, não precisa usar todas): {moves}. "),
+        (0, f"ENCERRAMENTO ({t2}–15s): de frente para a lente, {closing_hands}. "
+            "Uma mão fica na peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta. "
+            "Corpo parado: só o rosto, o olhar e esse gesto se movem."),
+        (3, f"EXPRESSÃO: {cena['arc']}. "),
         (1, extras),
         (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
-            f"0–4s HOOK: a modelo se aproxima um passo, plano médio frontal, olhar na lente, "
-            f"produto visível no corpo e a mão apontando a peça. Fala (PT-BR): \"{hook}\"\n"
-            f"4–12s DESENVOLVIMENTO — uma fala só, contínua, emendada sem pausa na anterior "
+            f"0–{t1}s HOOK: plano médio frontal, olhar na lente, produto visível no corpo; a modelo "
+            f"{cena['hook']}. Fala (PT-BR): \"{hook}\"\n"
+            f"{t1}–{t2}s DESENVOLVIMENTO — uma fala só, contínua, emendada sem pausa na anterior "
             f"(mesma respiração, mesma cadência); não repetir nem dividir em dois trechos. "
             f"Fala (PT-BR): \"{development}\"\n"),
-        (3, f"   · 4–6s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
+        (3, f"   · {t1}–{t1 + 2}s PROVA 1 (ação silenciosa, sem fala): mostra de perto o detalhe que vende; "
             f"as mãos tocam o produto com naturalidade.\n"
-            f"   · 6–11s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
+            f"   · {t1 + 2}–{t2 - 1}s PROVA 2 (ação silenciosa, sem fala): movimento completo que demonstra o benefício "
             f"({benefit_l}) — caminhar, sentar ou agachar conforme as ações e a orientação autorizada. "
             f"Manter cor {color_l} e caimento fiéis.\n"),
-        (4, "   · 11–12s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
-        (0, f"12–15s CTA: manter a posição de encerramento, olhar firme na lente; o produto marcado é "
-            f"indicado só com o olhar. Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
+        (4, f"   · {t2 - 1}–{t2}s DESEJO (ação silenciosa, sem fala): plano médio, sorriso confiante, um detalhe em destaque.\n"),
+        (0, f"{t2}–15s CTA: posição de encerramento, olhar firme na lente, com o gesto de apontar o carrinho. "
+            f"Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
             f"Fala (PT-BR): \"{cta}\"\n"),
         (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, "
             "secagem, suporte ou composição — nada fora dos FATOS CONFIRMADOS. "

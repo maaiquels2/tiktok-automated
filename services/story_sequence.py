@@ -17,9 +17,10 @@ import math
 import re
 
 from services.prompt_improve import (
-    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, size,
+    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, push_target, size,
 )
-from services.prompts import _count_words, _focus_parts, _video_mode, _with_em
+from services import persuasion
+from services.prompts import _count_words, _dominant_motor, _focus_parts, _video_mode, _with_em
 
 # Fala natural em portugues: cerca de 2,5 palavras por segundo, mais um
 # respiro para a acao antes e depois da frase.
@@ -56,9 +57,11 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     spoken = f'{hook} {development}'
     steps = ', depois '.join(movement_steps(c, spoken)[:3])
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'
+    cena = persuasion.scene_direction(_dominant_motor(c), touch)
     keep_line = 'Continuação do mesmo take: mesma pessoa, mesma roupa, mesmo ambiente e mesma luz.'
-    voice = ('Som: voz feminina natural em português do Brasil, com os lábios sincronizados, '
-             'só a frase entre aspas; som ambiente baixo, sem música. Sem texto na tela.')
+    voice = ('Fala: espontânea, como quem conta uma descoberta para uma amiga; tom animado na medida, '
+             'entonação natural e sorriso na voz, nada de locução. Voz feminina em português do Brasil, lábios '
+             'sincronizados, só o que está entre aspas; som ambiente baixo, sem música. Sem texto na tela.')
 
     if mode == 'pov':
         first = '\n'.join([
@@ -84,7 +87,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), mesmo rosto, cabelo e corpo, '
             'vestindo exatamente o que aparece nela. Luz: a mesma da imagem.',
             f'Câmera: fixa na altura do peito, {shot}, sem zoom, take contínuo.',
-            f'Ela olha para a lente e ajusta {touch} com as duas mãos, como quem acabou de se arrumar.',
+            f'Ela {cena["hook"]}.',
             'Som: sem voz e sem fala; só som ambiente discreto. Sem texto na tela.',
         ])
         middle = '\n'.join([
@@ -93,7 +96,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         ])
         last = '\n'.join([
             keep_line,
-            f'Ela volta de frente para a lente, mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante. '
+            f'Ela volta de frente para a lente e {cena["cta"]}; corpo parado, sorriso leve e confiante. '
             'Câmera fixa. Sem fala.',
         ])
     else:
@@ -102,17 +105,19 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), mesmo rosto, cabelo e corpo, '
             'vestindo exatamente o que aparece nela. Luz: a mesma da imagem.',
             f'Câmera: na mão, estável, {shot}, take contínuo, sem cortes.',
-            f'Ela dá um passo em direção à câmera, olha para a lente e toca {touch}. Ela diz: "{hook}"',
+            f'Ela {cena["hook"]}. Ela diz: "{hook}"',
+            f'Expressão: {cena["arc"].split(" → ")[0]}.',
             voice,
         ])
         middle = '\n'.join([
             keep_line,
-            f'Ela {steps}, devagar; a câmera faz um dolly-in lento até {touch} e volta. Ela diz: "{development}"',
+            f'Ela {steps}, devagar; a câmera faz um dolly-in lento até {push_target(c)} e volta, '
+            f'com o rosto sempre no quadro. Ela continua a conversa, no mesmo tom: "{development}"',
         ])
         last = '\n'.join([
             keep_line,
-            f'Ela para de frente para a lente, as duas mãos apoiadas {touch_em}, sorriso leve e confiante; '
-            f'a câmera fica parada. Ela diz: "{cta}"',
+            f'Ela para de frente para a lente e {cena["cta"]}; sorriso confiante, a câmera fica parada. '
+            f'E fecha, sorrindo: "{cta}"',
         ])
 
     _focus, features = _focus_parts(c)

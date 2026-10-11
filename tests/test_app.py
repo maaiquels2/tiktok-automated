@@ -47,6 +47,14 @@ class WorkflowTests(unittest.TestCase):
         response=self.client.post('/api/campaigns',json=self.brief,headers=self.headers)
         self.assertEqual(response.status_code,201,response.json)
         self.cid=response.json['id']
+        # A conferencia real da chave fala com a OpenAI/Gemini; nos testes de
+        # fluxo ela aprova sempre. Os testes da propria conferencia ficam
+        # abaixo e a exercitam de verdade, com a rede simulada.
+        import services.copywriter as _cw
+        self.real_verify_key=_cw.verify_key
+        verify=patch('services.copywriter.verify_key',return_value=(True,''))
+        verify.start()
+        self.addCleanup(verify.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -390,6 +398,7 @@ class WorkflowTests(unittest.TestCase):
         prompts=generate(campaign)
         self.assertIn('transparente',prompts['hook'].lower())
         self.assertIn('contra a luz',prompts['development'].lower())
+        self.assertIn('por isso',prompts['development'].lower())
         self.assertRegex(prompts['cta'].lower(),r'carrinho|link t[áa] (aqui )?embaixo')
 
     def test_offer_is_the_only_source_of_urgency(self):
@@ -1083,6 +1092,270 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(limpo.json['has_key'])
         self.assertFalse(limpo.json['enabled'])
 
+    def test_speech_bank_lists_categories_with_ready_examples(self):
+        response=self.client.get('/api/speech-bank?category=biquini',headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        ids={c['id'] for c in response.json['categories']}
+        for esperado in ('maio','biquini','saida_praia','calca_courino','legging','short_legging',
+                         'blusa','regata','pijama','baby_doll','calca_jeans','colete','fantasia'):
+            self.assertIn(esperado,ids)
+        self.assertEqual(response.json['detail']['label'],'Biquíni')
+        self.assertTrue(response.json['showcase'])
+        for exemplo in response.json['showcase']:
+            for campo in ('hook','development','cta'):
+                self.assertNotIn('{',exemplo[campo],exemplo)
+        self.assertEqual(self.client.get('/api/speech-bank?category=xyz',headers=self.headers).status_code,400)
+
+    def test_speech_bank_saves_a_script_and_feeds_the_ai_brief(self):
+        criado=self.client.post('/api/campaigns',json={**self.brief,'product':'Biquíni de amarração com bojo',
+                                                       'outfit':'biquíni','details':'bojo, amarração'},headers=self.headers)
+        cid=criado.json['id']
+        roteiro={'hook':'Achei o biquíni que eu quero levar pra todas as viagens.',
+                 'development':'E o bojo me deixa tranquila pra entrar no mar.','cta':'Tá no carrinho laranja, escolhe o teu lá.'}
+        salvo=self.client.post('/api/speech-bank',json={'campaign_id':cid,'note':'ficou natural',**roteiro},headers=self.headers)
+        self.assertEqual(salvo.status_code,201,salvo.json)
+        self.assertEqual(salvo.json['category'],'biquini')
+        self.assertTrue(salvo.json['hook'])
+        self.assertEqual(salvo.json['product'],'Biquíni de amarração com bojo')
+        repetido=self.client.post('/api/speech-bank',json={'campaign_id':cid,**roteiro},headers=self.headers)
+        self.assertEqual(repetido.status_code,409)
+        lista=self.client.get(f'/api/speech-bank?campaign={cid}',headers=self.headers).json
+        self.assertEqual(lista['category'],'biquini')
+        self.assertEqual([i['id'] for i in lista['saved']],[salvo.json['id']])
+        # A proxima escrita por IA da mesma categoria recebe a fala como exemplo de voz.
+        with self.app.app_context():
+            contexto=self.app.extensions['with_learning']({'product':'Biquíni cortininha','color':'Azul'})
+        self.assertEqual(contexto['speech_bank'][0]['id'],salvo.json['id'])
+        from services.copywriter import build_brief
+        brief=build_brief(contexto)
+        self.assertIn('CATEGORIA DA PEÇA: Biquíni',brief)
+        self.assertIn('FALAS APROVADAS',brief)
+        self.assertIn(salvo.json['hook'],brief)
+        apagado=self.client.delete(f"/api/speech-bank/{salvo.json['id']}",headers=self.headers)
+        self.assertEqual(apagado.status_code,200)
+        self.assertEqual(self.client.delete(f"/api/speech-bank/{salvo.json['id']}",headers=self.headers).status_code,404)
+
+    def test_size_objection_puts_the_measures_cta_first(self):
+        campanha=dict(model_name='Micaela',product='Calça legging preta',outfit='legging',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='',movements='',
+                      generator='grok',niche='academia',objection='não sei meu tamanho')
+        falas=generate(campanha)
+        self.assertIn('errar o tamanho',falas['hook'])
+        self.assertIn('noção do tamanho',falas['development'])
+        self.assertIn('medidas',falas['cta'])
+
+    def test_plural_detail_keeps_verb_agreement(self):
+        campanha=dict(model_name='Micaela',product='Colete feminino',outfit='colete',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='botões',movements='',
+                      generator='grok',niche='casual',objection='')
+        for indice in range(6):
+            gancho=generate(campanha,variant_index=indice)['hook']
+            self.assertNotIn('foi os',gancho)
+            self.assertNotIn('é os',gancho)
+
+    def test_offer_text_becomes_exact_urgency_facts(self):
+        from services import persuasion
+        f=persuasion.offer_facts('20% até domingo, últimas 30 peças, frete grátis, cupom verao10')
+        self.assertEqual(f['discount'],'20% de desconto')
+        self.assertEqual(f['deadline'],'até domingo')
+        self.assertEqual(f['stock'],'as últimas 30 peças')
+        self.assertTrue(f['free_shipping'])
+        self.assertEqual(f['coupon'],'VERAO10')
+        self.assertEqual(persuasion.offer_facts('Só hoje: de R$ 89 por R$ 59')['price_to'],'R$ 59')
+        self.assertEqual(persuasion.social_facts('mais de 2 mil vendidos · nota 4,8')['rating'],'4,8')
+
+    def test_scarcity_script_uses_the_declared_numbers_and_passes_the_audit(self):
+        campanha=dict(model_name='Micaela',product='Short legging',outfit='short legging',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='cintura alta',movements='',
+                      generator='grok',niche='academia',motor='escassez',
+                      offer='20% até domingo, últimas 30 peças')
+        vistos=''
+        for indice in range(3):
+            falas=generate(campanha,variant_index=indice)
+            pack={k:falas[k] for k in ('hook','development','cta')}
+            self.assertEqual(copywriter_audit(pack,campanha,require_caption=False),[],pack)
+            vistos+=' '.join(pack.values())
+        self.assertIn('20% de desconto',vistos)
+        self.assertIn('até domingo',vistos)
+        self.assertIn('últimas 30 peças',vistos)
+
+    def test_audit_rejects_urgency_that_the_offer_does_not_back(self):
+        campanha=dict(product='Short legging',color='Preto',details='',niche='academia',
+                      offer='20% até domingo',social_proof='')
+        pack={'hook':'Gente, eu achei esse short com 30% de desconto e olha isso.',
+              'development':'E olha como ele veste, tô à vontade, e são as últimas peças, só hoje.',
+              'cta':'Corre pro carrinho laranja e garante o teu.'}
+        problemas=' | '.join(copywriter_audit(pack,campanha,require_caption=False))
+        self.assertIn('30%',problemas)
+        self.assertIn('estoque',problemas)
+        self.assertIn('hoje',problemas)
+        pack['development']='E olha como ele veste, tô à vontade, e já vendeu mais de 2 mil.'
+        self.assertIn('prova social',' | '.join(copywriter_audit(pack,campanha,require_caption=False)))
+
+    def test_social_proof_only_when_declared(self):
+        base=dict(model_name='Micaela',product='Biquíni de amarração',outfit='biquíni',color='Preto',
+                  audience='Mulheres',benefit='',angle='',tone='',style='',details='amarração',movements='',
+                  generator='grok',niche='praia',motor='desejo_posse')
+        sem=' '.join(' '.join(generate(base,variant_index=i)[k] for k in ('hook','development')) for i in range(3))
+        self.assertNotIn('vendeu',sem)
+        com=' '.join(' '.join(generate({**base,'social_proof':'mais de 2 mil vendidos'},variant_index=i)[k]
+                              for k in ('hook','development')) for i in range(3))
+        self.assertIn('mais de 2 mil',com)
+
+    def test_need_motor_agitates_the_pain_before_the_proof(self):
+        from services import persuasion
+        campanha=dict(model_name='Micaela',product='Calça legging',outfit='legging',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='',movements='',
+                      generator='grok',niche='academia',motor='necessidade',objection='fica transparente')
+        falas=generate(campanha)
+        self.assertIn('transparente',falas['hook'])
+        self.assertTrue(any(a in falas['development'] for a in persuasion.AGITATION),falas['development'])
+        self.assertIn('contra a luz',falas['development'])
+
+    def test_desire_motor_makes_the_viewer_picture_the_occasion(self):
+        campanha=dict(model_name='Micaela',product='Biquíni de amarração',outfit='biquíni',color='Preto',
+                      audience='Mulheres',benefit='',angle='',tone='',style='',details='',movements='',
+                      generator='grok',niche='praia',motor='desejo_posse')
+        textos=' '.join(generate(campanha,variant_index=i)['development'] for i in range(3))
+        self.assertIn('Imagina esse biquíni',textos)
+
+    def test_video_prompt_carries_motor_direction_and_cart_gesture(self):
+        from services.prompt_improve import build_compact_video_prompt
+        base=dict(model_name='Micaela',product='Calça legging',outfit='legging',color='Preto',audience='Mulheres',
+                  benefit='',angle='',tone='',style='',details='',movements='',generator='grok',niche='academia')
+        dor=generate({**base,'motor':'necessidade','objection':'fica transparente'})
+        self.assertIn('sorriso de alívio',dor['video'])
+        self.assertIn('aponta UMA vez para a parte de baixo da tela',dor['video'])
+        pressa=build_compact_video_prompt({**base,'motor':'escassez','offer':'20% até domingo'},
+                                          {'hook':'a','development':'b','cta':'c'},'Preto')
+        self.assertIn('como quem traz novidade',pressa)
+        self.assertIn('(o carrinho)',pressa)
+
+    def test_timeline_gives_a_long_middle_more_time(self):
+        from services import persuasion
+        self.assertEqual(persuasion.timeline('a '*11,'b '*20,'c '*8),(4,12))
+        inicio,fim=persuasion.timeline('a '*15,'b '*40,'c '*12)
+        self.assertGreaterEqual(inicio,5)
+        self.assertLessEqual(fim,11)
+
+    def test_persuasion_preview_shows_what_the_script_can_use(self):
+        r=self.client.post('/api/persuasion/preview',json={'offer':'20% até domingo, últimas 30 peças','social_proof':'nota 4,8'},headers=self.headers)
+        self.assertEqual(r.status_code,200)
+        self.assertIn('prazo: até domingo',r.json['offer'])
+        self.assertIn('nota 4,8',r.json['social'])
+        vazio=self.client.post('/api/persuasion/preview',json={'offer':'promo boa','social_proof':''},headers=self.headers).json
+        self.assertTrue(vazio['offer_unread'])
+
+    def test_campaign_keeps_the_social_proof_field(self):
+        criado=self.client.post('/api/campaigns',json={**self.brief,'social_proof':'2 mil vendidos'},headers=self.headers)
+        self.assertEqual(criado.status_code,201,criado.json)
+        self.assertEqual(criado.json['social_proof'],'2 mil vendidos')
+
+    def test_speech_bank_rejects_incomplete_script(self):
+        response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
+        self.assertEqual(response.status_code,400)
+
+    def test_category_voice_keeps_the_right_piece_and_passes_the_audit(self):
+        from services import speech_bank
+        casos=[
+            ('Short legging cintura alta','short_legging','short','sobe na coxa'),
+            ('Calça legging cintura alta','legging','legging','fica transparente'),
+            ('Calça de courino feminina','calca_courino','calça','parece plástico'),
+            ('Maiô feminino com bojo','maio','maiô','marca a barriga'),
+            ('Biquíni de amarração','biquini','biquíni','não segura em cima'),
+            ('Saída de praia de crochê','saida_praia','saída de praia','transparente demais'),
+            ('Baby doll de renda','baby_doll','baby doll','fica vulgar'),
+            ('Pijama de cetim','pijama','pijama','esquenta pra dormir'),
+            ('Regata feminina canelada','regata','regata','aparece o sutiã'),
+            ('Blusa de viscose','blusa','blusa','amassa fácil'),
+            ('Calça jeans cintura alta','calca_jeans','calça','sobra na cintura'),
+            ('Colete de couro sintético','colete','colete','parece plástico'),
+            ('Fantasia de coelhinha','fantasia','fantasia','não sei o que acompanha'),
+            ('Calça legging preta','legging','legging','não sei meu tamanho'),
+        ]
+        for produto,categoria,peca,objecao in casos:
+            self.assertEqual(speech_bank.detect({'product':produto}),categoria,produto)
+            for com_objecao in (False,True):
+                campanha=dict(model_name='Micaela',product=produto,outfit=produto.lower(),color='Preto',
+                              audience='Mulheres',benefit='',angle='',tone='',style='',details='',movements='',
+                              generator='grok',niche='casual',objection=objecao if com_objecao else '')
+                for indice in range(3):
+                    falas=generate(campanha,variant_index=indice)
+                    texto=' '.join(falas[k] for k in ('hook','development','cta'))
+                    self.assertNotIn('{',texto)
+                    self.assertNotIn('detalhes visíveis',falas['hook'])
+                    self.assertEqual(copywriter_audit({k:falas[k] for k in ('hook','development','cta')},campanha,require_caption=False),[],texto)
+                    if categoria=='short_legging':
+                        self.assertNotIn('legging',falas['hook'].casefold().replace('short legging',''))
+
+    def test_writer_key_is_checked_before_it_is_saved(self):
+        with patch('services.copywriter.verify_key',return_value=(False,'A chave foi recusada pelo provedor.')) as check:
+            response=self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-chave-errada-123456789012','enabled':True},headers=self.headers)
+        self.assertEqual(response.status_code,400)
+        self.assertIn('recusada',response.json['error'])
+        check.assert_called_once()
+        self.assertFalse(self.client.get('/api/writer').json['has_key'])
+        sem_chave=self.client.patch('/api/writer',json={'provider':'openai','enabled':True},headers=self.headers)
+        self.assertEqual(sem_chave.status_code,400)
+
+    def test_verify_key_checks_format_answer_and_model(self):
+        import io as _io, json as _json, urllib.error as _err
+        real=self.real_verify_key
+        ok,msg=real('openai','chave-sem-prefixo')
+        self.assertFalse(ok); self.assertIn('sk-',msg)
+        ok,msg=real('gemini','sk-coisa-da-openai-1234567890')
+        self.assertFalse(ok); self.assertIn('AIza',msg)
+        class Resp:
+            def __init__(self,data): self.data=data
+            def read(self): return _json.dumps(self.data).encode()
+            def __enter__(self): return self
+            def __exit__(self,*a): return False
+        key='sk-proj-'+'a'*40
+        with patch('urllib.request.urlopen',return_value=Resp({'data':[{'id':'gpt-4o-mini'}]})):
+            self.assertEqual(real('openai',key,'gpt-4o-mini'),(True,''))
+            ok,msg=real('openai',key,'gpt-inexistente')
+            self.assertFalse(ok); self.assertIn('gpt-inexistente',msg)
+        recusa=_err.HTTPError('u',401,'Unauthorized',{},_io.BytesIO(b'{}'))
+        with patch('urllib.request.urlopen',side_effect=recusa):
+            ok,msg=real('openai',key)
+            self.assertFalse(ok); self.assertIn('recusada',msg)
+
+    def test_long_script_is_not_blocked_by_word_count(self):
+        # Contagem de palavras orienta, nao barra: fala natural mais longa
+        # segue para o video (a tela sugere a sequencia de clipes).
+        self.image_ready()
+        self.assertEqual(self.move('image_approved').status_code,200)
+        longo=' '.join(['palavra']*30)
+        self.assertEqual(self.client.patch(f'/api/campaigns/{self.cid}/prompts',json={'prompts':{'hook':longo},'version':self.get()['version']},headers=self.headers).status_code,200)
+        self.assertEqual(self.move('script_ready').status_code,200)
+
+    def test_audit_does_not_reject_a_long_natural_script(self):
+        campanha=dict(product='Legging cintura alta',color='Preto',details='cintura alta',objection='',niche='academia')
+        pack={'hook':'Gente, eu achei a legging que eu tava procurando faz tempo pra treinar e sair depois, sério.',
+              'development':'E olha, eu vesti ela hoje cedo, fui pra academia, agachei, corri na esteira e ela ficou no lugar o tempo todo, '
+                            'sem eu precisar ficar puxando, e a cintura alta deixa tudo bem alinhadinho.',
+              'cta':'Corre lá no carrinho laranja e escolhe a tua cor antes de ir treinar.'}
+        problemas=copywriter_audit(pack,campanha,require_caption=False)
+        self.assertFalse([p for p in problemas if 'teto' in p or 'palavras' in p],problemas)
+
+    def test_compact_prompt_keeps_the_face_and_skips_off_body_actions(self):
+        from services.prompt_improve import build_compact_video_prompt
+        c={'product':'Calça jeans','niche':'dia-a-dia','details':'tecido macio',
+           'movements':'pegar a peça; vestir/ajustar; sentar e levantar','body_turns':'leve_lado'}
+        falas={'hook':'O tecido macio me ganhou.','development':'Repara no tecido macio.','cta':'Corre pro carrinho laranja.'}
+        texto=build_compact_video_prompt(c,falas,'Azul')
+        self.assertIn('rosto fica sempre no quadro',texto)
+        self.assertNotIn('dolly-in lento até o cós',texto)
+        self.assertNotIn('pega a',texto)
+        self.assertNotIn('vestir',texto)
+        self.assertIn('ajusta a peça',texto)
+        self.assertIn('senta e levanta',texto)
+        self.assertIn('sem mostrar as costas',texto)
+        self.assertIn('nunca fica de costas',texto)
+        self.assertNotIn('perto da lente',texto)
+        self.assertIn('totalmente opaco',build_compact_video_prompt({**c,'product':'Short'},falas,'Preto'))
+        self.assertNotIn('nunca fica de costas',build_compact_video_prompt({**c,'body_turns':'costas'},falas,'Azul'))
+
     def test_llm_copy_is_used_when_it_passes_the_audit(self):
         self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
         aprovado={'hook':'Você já deixou de comprar legging com medo de ficar transparente demais?',
@@ -1609,10 +1882,12 @@ class WorkflowTests(unittest.TestCase):
             'cta':'Veja no carrinho qual versão combina com você.',
         }
         self.assertEqual(cw._count_words(azul['development']),17)
-        self.assertTrue(any('pelo menos 18' in item for item in
-                            cw.audit(azul,campaigns[0],require_caption=False)))
-        self.assertFalse(any('pelo menos 18' in item or 'primeira pessoa' in item for item in
-                             cw.audit(azul,campaigns[0],require_caption=False,strict_style=False)))
+        piso=cw.BUDGET['development'][0]
+        curto={**azul,'development':'Ficou lindo no corpo.'}
+        self.assertTrue(any(f'pelo menos {piso}' in item for item in
+                            cw.audit(curto,campaigns[0],require_caption=False)))
+        self.assertFalse(any(f'pelo menos {piso}' in item or 'primeira pessoa' in item for item in
+                             cw.audit(curto,campaigns[0],require_caption=False,strict_style=False)))
         raw=json.dumps({'scripts':[
             {'key':'azul','options':[azul]},
             {'key':'branco','options':[branco]},
@@ -2037,7 +2312,7 @@ class WorkflowTests(unittest.TestCase):
                       tone='conversacional',style='natural',details='',movements='virar de lado',generator='flow')
         prompts=generate(campaign)
         spoken=' '.join(prompts[k] for k in ('hook','development','cta'))
-        self.assertLessEqual(len(spoken.split()),45)
+        self.assertLessEqual(len(spoken.split()),60)
         self.assertNotIn('Mostre ', prompts['development'])
         self.assertNotIn('Aproxime a câmera', prompts['development'])
         # O rotulo de publico saiu da fala de proposito: ele nao prova nada sobre
@@ -2063,7 +2338,8 @@ class WorkflowTests(unittest.TestCase):
                       movements='',generator='flow')
         prompts=generate(campaign)
         self.assertNotIn('bolso lateral', prompts['image'].split('FATOS DO PRODUTO A PRESERVAR:')[1].split('.')[0])
-        self.assertIn('caimento', prompts['hook'].lower())
+        # O gancho fala da peca (voz da categoria), nunca do bolso que ela nao tem.
+        self.assertNotIn('bolso', prompts['hook'].lower())
         self.assertIn('não inventar', prompts['video'].lower())
 
     def test_playbook_caption_seed_always_keeps_a_shop_action(self):
@@ -2081,7 +2357,7 @@ class WorkflowTests(unittest.TestCase):
                           generator='flow', **defaults)
             prompts=generate(campaign)
             spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta'))
-            self.assertLessEqual(len(spoken.split()), 45, niche)
+            self.assertLessEqual(len(spoken.split()), 60, niche)
 
     def test_explicit_sales_angles_make_copy_persuasive_without_invention(self):
         campaign=dict(model_name='Micaela', product='vestido midi', outfit='vestido', color='preto',
@@ -2092,7 +2368,7 @@ class WorkflowTests(unittest.TestCase):
         prompts=generate(campaign)
         spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta')).lower()
         self.assertRegex(spoken, r'(econom|qualidade|versátil|versatil)')
-        self.assertLessEqual(len(spoken.split()), 45)
+        self.assertLessEqual(len(spoken.split()), 60)
 
     def test_material_components_and_unisex_language_are_preserved(self):
         campaign=dict(model_name='Micaela', product='calça unissex de poliamida com botões e bolsos',

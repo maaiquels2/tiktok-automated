@@ -22,9 +22,10 @@ caracteres.
 import re
 import unicodedata
 
+from services import persuasion
 from services.prompts import (
-    _body_turns, _niche_key, _pov_proof_gestures, _product_family, _product_features,
-    _proof_gestures, _video_mode,
+    _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures, _product_family,
+    _product_features, _proof_gestures, _video_mode,
 )
 
 # Quantos movimentos cabem no trecho do meio (8 segundos): cerca de 2 segundos
@@ -97,9 +98,21 @@ def size(c: dict) -> str:
 _IRREGULAR = {'ir': 'vai', 'vir': 'vem', 'sair': 'sai', 'subir': 'sobe', 'pôr': 'põe', 'por': 'põe'}
 
 
+# Verbos que pedem objeto: "ajusta" sozinho nao diz o que ela ajusta.
+_NEEDS_OBJECT = ('ajust', 'arrum', 'alis', 'pux', 'ajeit')
+
+
 def _third_person(move: str) -> str:
     """'agachar devagar' -> 'agacha devagar': o briefing lista verbos no
-    infinitivo e o prompt narra "Ela agacha", nao "Ela agachar"."""
+    infinitivo e o prompt narra "Ela agacha", nao "Ela agachar". Cada acao
+    ligada por "e" ("sentar e levantar") e conjugada."""
+    done = ' e '.join(_conjugate(part) for part in move.split(' e '))
+    if ' ' not in done.strip() and done.casefold().startswith(_NEEDS_OBJECT):
+        done += ' a peça'
+    return done
+
+
+def _conjugate(move: str) -> str:
     first, _, rest = move.partition(' ')
     low = first.casefold()
     if low in _IRREGULAR:
@@ -113,18 +126,33 @@ def _third_person(move: str) -> str:
     return f'{verb} {rest}'.strip()
 
 
+# Acoes de quem ainda nao esta com a peca: no video ela ja aparece vestida
+# (a imagem aprovada e o primeiro quadro). No primeiro video de teste, "pegar
+# a peca" e "vestir" chegaram ao prompt e so gastaram espaco.
+_OFF_BODY_RE = re.compile(r'^(?:peg|segur|vest|tir|coloc|troc|escolh|dobr|pendur)\w*', re.I)
+
+
 def _moves(c: dict) -> list[str]:
     raw = _clean(c.get('movements'))
     items = [m.strip(' .') for m in re.split(r'[;\n]|,(?![^()]*\))', raw) if m.strip(' .')]
     # Tira pedidos de camera e giros: o giro vem da orientacao corporal.
     items = [m for m in items if not re.search(r'c[âa]mera|close|zoom|costas|gir|vir', m, re.I)]
-    return [_third_person(m[0].lower() + m[1:]) for m in items[:MAX_MOVES]]
+    moves = []
+    for item in items:
+        # "vestir/ajustar": fica a primeira alternativa que faz sentido vestida.
+        options = [o.strip() for o in item.split('/') if o.strip()]
+        keep = next((o for o in options if not _OFF_BODY_RE.match(o)), '')
+        if keep:
+            moves.append(_third_person(keep[0].lower() + keep[1:]))
+    return moves[:MAX_MOVES]
 
 
 def _turn(c: dict) -> str:
     return {
-        'leve_lado': 'gira levemente de lado e volta de frente',
-        'lado': 'vira de perfil por um instante e volta de frente',
+        # "Gira levemente" virou costas inteiras no primeiro teste: o limite
+        # precisa estar escrito.
+        'leve_lado': 'vira o corpo uns 30 graus para o lado, sem mostrar as costas, e volta de frente',
+        'lado': 'vira de perfil por um instante, sem mostrar as costas, e volta de frente',
         'costas': 'vira de costas por um instante e volta de frente',
     }.get(_clean(c.get('body_turns')), '')
 
@@ -133,6 +161,40 @@ def _stem(label: str) -> str:
     """'sem transparência' -> 'transpa' (casa com 'transparente' na fala)."""
     word = re.sub(r'^sem\s+', '', label).split()[0]
     return unicodedata.normalize('NFKD', word.casefold()).encode('ascii', 'ignore').decode()[:7]
+
+
+# Gestos que pedem "perto da lente" puxam a camera para um close e tiram o
+# rosto do quadro enquanto ela fala. Fora do POV, a prova acontece no plano.
+_STAY_IN_FRAME = {
+    'tecido macio': 'passa a mão devagar no tecido, na altura da coxa',
+    'costura': 'passa o dedo na costura, sem se aproximar da câmera',
+    'acabamento': 'passa o dedo no acabamento, sem se aproximar da câmera',
+    'punho': 'estende o braço e mostra o punho, sem se aproximar da câmera',
+}
+
+# Ate onde a camera aproxima sem cortar o rosto, a partir do plano inicial.
+_PUSH = {
+    'corpo inteiro, da cabeça aos pés': 'o plano americano (dos joelhos para cima)',
+    'plano americano, dos joelhos para cima': 'o plano médio (da cintura para cima)',
+}
+
+
+def push_target(c: dict) -> str:
+    return _PUSH.get(framing(c), 'um plano um pouco mais fechado')
+
+
+def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
+    """Linha final de travas: rosto, giro nao autorizado e opacidade no
+    genero da peca ("o short ... opaco")."""
+    opaque = 'opaca' if _piece_forms(c)['art'] == 'a' else 'opaco'
+    parts = []
+    if face:
+        parts.append('mesmo rosto em todos os quadros, sempre inteiro na imagem enquanto ela fala')
+    if 'costas' not in _body_turns(c):
+        parts.append('ela nunca fica de costas para a câmera')
+    parts.append(f'{product} continua {keeps} e totalmente {opaque}')
+    parts.append('sem texto na tela')
+    return 'IMPORTANTE: ' + '; '.join(parts) + '.'
 
 
 def proof_gesture(c: dict, spoken: str = '') -> str:
@@ -149,9 +211,12 @@ def proof_gesture(c: dict, spoken: str = '') -> str:
         features = [features[min(cited)[1]]]
     if _video_mode(c) == 'pov':
         plan = _pov_proof_gestures(features, limit=1)
-    else:
-        plan = _proof_gestures(features, limit=1, turns=_body_turns(c))
-    return plan[0].split(' → ', 1)[1] if plan else ''
+        return plan[0].split(' → ', 1)[1] if plan else ''
+    plan = _proof_gestures(features, limit=1, turns=_body_turns(c))
+    if not plan:
+        return ''
+    label, gesture = plan[0].split(' → ', 1)
+    return _STAY_IN_FRAME.get(label, gesture)
 
 
 def movement_steps(c: dict, spoken: str = '',
@@ -180,6 +245,18 @@ def pov_hands(c: dict, spoken: str = '') -> str:
     return f'Com a mão livre, ela {proof}'
 
 
+# Direcao de fala. As tres frases sao um so pensamento: sem isso o gerador
+# trata cada trecho como um anuncio separado, com pausa e entonacao de
+# locutor. Tom de conversa com amiga, nao de propaganda.
+SPEECH = ('Fala: uma conversa só, do começo ao fim, como quem conta uma descoberta para uma amiga; '
+          'tom espontâneo e animado na medida, entonação que sobe e desce, respiro natural entre as ideias, '
+          'sorriso na voz; nada de locução nem de anúncio. Voz feminina em português do Brasil, lábios '
+          'sincronizados, só o que está entre aspas; som ambiente baixo, sem música.')
+SPEECH_POV = ('Fala: narração de quem está testando e comentando sozinha, num tom baixo e espontâneo, '
+              'como pensando em voz alta; uma conversa só, sem pausa de locutor. Voz feminina em português '
+              'do Brasil, só o que está entre aspas; som ambiente baixo, sem música.')
+
+
 def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     model = _clean(c.get('model_name')) or 'a modelo'
     product = _clean(c.get('product')) or _clean(c.get('outfit')) or 'a peça'
@@ -196,13 +273,15 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
 
     spoken = f'{hook} {development}'
     middle = 'Ela ' + ', depois '.join(movement_steps(c, spoken)) + ', em movimentos lentos e contínuos'
+    # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
+    cena = persuasion.scene_direction(_dominant_motor(c), touch)
+    t1, t2 = persuasion.timeline(hook, development, cta)
 
     first_frame = (
         f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), com o mesmo rosto, '
         'cabelo, pele e corpo, vestindo exatamente o que aparece nela.')
     light = 'Luz: a mesma da imagem, sem trocar a cena nem escurecer.'
-    close = (f'IMPORTANTE: mesmo rosto em todos os quadros; {product} continua {keeps} e totalmente opaca; '
-             'sem texto na tela.')
+    close = closing_rules(c, product, keeps)
 
     if mode == 'pov':
         return '\n'.join([
@@ -211,11 +290,12 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, um único take contínuo com leve balanço natural; '
             'tilt lento para baixo no final.',
-            f'[0–4s] A câmera olha para baixo e as mãos mostram {touch}. Narração: "{hook}"',
-            f'[4–12s] {pov_hands(c, spoken)}, devagar. Narração: "{development}"',
-            f'[12–15s] Tilt lento para baixo mostrando a peça inteira no corpo. Narração: "{cta}"',
-            'Som: voz feminina natural em português do Brasil, só as frases entre aspas; som ambiente baixo, sem música.',
-            f'IMPORTANTE: o rosto nunca aparece; {product} continua {keeps} e totalmente opaca; sem texto na tela.',
+            f'[0–{t1}s] A câmera olha para baixo e as mãos mostram {touch}. Ela começa: "{hook}"',
+            f'[{t1}–{t2}s] {pov_hands(c, spoken)}, devagar. Ela continua, no mesmo fôlego: "{development}"',
+            f'[{t2}–15s] Tilt lento para baixo mostrando a peça inteira no corpo; no fim, o indicador aponta '
+            f'uma vez para a parte de baixo da tela. E fecha: "{cta}"',
+            SPEECH_POV,
+            closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: o rosto nunca aparece; ', 1),
         ])
 
     if mode == 'movimento':
@@ -223,9 +303,10 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'Vídeo vertical 9:16, 15 segundos, {res}, sem fala. Clima: {vibe}.',
             first_frame, light,
             f'Câmera: fixa na altura do peito, {shot}, sem zoom, um único take contínuo.',
-            f'[0–4s] Ela olha para a lente e ajusta {touch} com as duas mãos.',
+            f'[0–4s] Ela {cena["hook"]}.',
             f'[4–12s] {middle}.',
-            f'[12–15s] De frente para a lente, mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante.',
+            f'[12–15s] De frente para a lente, ela {cena["cta"]}; corpo parado, sorriso leve e confiante.',
+            f'Expressão: {cena["arc"]}.',
             'Som: sem voz e sem fala; só som ambiente discreto.',
             close,
         ])
@@ -233,12 +314,12 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     return '\n'.join([
         f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: {vibe}.',
         first_frame, light,
-        f'Câmera: na mão, estável, {shot}, um único take contínuo; dolly-in lento até {touch} '
-        'no meio do vídeo e volta ao plano inicial no final.',
-        f'[0–4s] Ela dá um passo em direção à câmera, olha para a lente e toca {touch}. Ela diz: "{hook}"',
-        f'[4–12s] {middle}. Ela diz: "{development}"',
-        f'[12–15s] De frente para a lente, as duas mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante. Ela diz: "{cta}"',
-        'Som: voz feminina natural em português do Brasil, com os lábios sincronizados, só as frases entre aspas; '
-        'som ambiente baixo, sem música.',
+        f'Câmera: na mão, estável, {shot}, um único take contínuo; dolly-in lento até {push_target(c)} '
+        'no meio do vídeo e volta ao plano inicial no final. O rosto fica sempre no quadro enquanto ela fala.',
+        f'[0–{t1}s] Ela {cena["hook"]}. Ela começa: "{hook}"',
+        f'[{t1}–{t2}s] {middle}. Ela continua, no mesmo fôlego: "{development}"',
+        f'[{t2}–15s] De frente para a lente, ela {cena["cta"]}, sorrindo. E fecha: "{cta}"',
+        f'Expressão: {cena["arc"]}.',
+        SPEECH,
         close,
     ])

@@ -1,12 +1,12 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
-import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors } from 'lucide-react';
+import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors, BookOpen, BookmarkPlus } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, colorList, swatchFor } from './ui';
-import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence} from './components';
+import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 
 
@@ -405,6 +405,15 @@ export default function App(){
   async function logout(){
     try{await api('/auth/logout',{method:'POST',body:{}});location.reload()}catch(e){setError(e.message)}
   }
+  async function saveScriptToBank(texts,variantId){
+    setError('');
+    try{
+      const saved=await saveToSpeechBank({campaign_id:c.id,...(variantId!=null?{variant_id:variantId}:{}),...texts});
+      flash(saved.category?'Fala guardada no banco. A IA vai usar como exemplo de voz nas próximas campanhas dessa categoria.':'Fala guardada no banco.');
+      return true;
+    }catch(e){setError(e.message||String(e));return false}
+  }
+  function openSpeechBank(apply){setError('');setModal({type:'bank',title:'Banco de falas',campaignId:c?.id,onApply:apply})}
   function saveVariantPrompts(variantId,prompts){
     return run(()=>api(`/campaigns/${c.id}/variants/${variantId}/prompts`,{method:'PATCH',body:{prompts,version:c.version}}),'Roteiro da cor atualizado.');
   }
@@ -690,6 +699,7 @@ export default function App(){
             </ServiceLaunch>
             <TikTokLaunchButtons className="button" bare disabled={busy||loading} onOpenStudio={event=>openFreeService('studio',event)}/>
             <a href="https://www.capcut.com/" target="_blank" rel="noopener noreferrer"><Scissors size={20} aria-hidden="true"/><span>CapCut</span></a>
+            <button type="button" disabled={busy||loading} onClick={()=>{setError('');setModal({type:'bank',title:'Banco de falas'})}}><BookOpen size={20} aria-hidden="true"/><span>Banco de falas</span></button>
           </div>
         </section>
       </aside>
@@ -737,6 +747,8 @@ export default function App(){
             onGenerate={()=>{if(dirty){setError('Salve o briefing antes de gerar os textos.');return}run(()=>post('/generate'),'Prompts, roteiro e legenda gerados localmente.','image')}}
             onGenerateVariants={generateVariants}
             onSaveVariant={saveVariantPrompts}
+            onSaveToBank={saveScriptToBank}
+            onOpenBank={openSpeechBank}
             onRefreshVariant={refreshVariant}
             onRefreshAllVariants={refreshAllVariants}
             onRefreshVideoPrompt={refreshVideoPrompt} onImproveVideoPrompt={improveVideoPrompt}
@@ -813,7 +825,7 @@ export default function App(){
     {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
     {notice&&!error&&<div className="toast" role="status"><Check size={19}/>{notice}</div>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
-      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[],descriptionPhoto=null)=>{
+      {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='bank'?<SpeechBankPanel campaignId={modal.campaignId} onError={setError} onFlash={flash} onApply={modal.onApply?async item=>{if(await modal.onApply(item))setModal(null)}:null}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={async (values,photos=[],removed=[],descriptionPhoto=null)=>{
         let analysisOutcome=null;
         // Se uma foto de descricao foi anexada, deixa ela "ganhar" de
         // beneficio/angulo/movimentos/detalhes: esses 4 campos, se ainda
@@ -976,7 +988,7 @@ function LookReminder({c}){
     <span><small>Roupa da modelo</small><strong>{outfit||'Veja na foto de referência'}</strong></span>
   </div>;
 }
-function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto}){
+function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto,onSaveToBank,onOpenBank}){
   const reference=c.assets.find(a=>a.kind==='reference'),image=c.assets.find(a=>a.kind==='image'),video=c.assets.find(a=>a.kind==='video');
   const [reuse,setReuse]=useState(''),[checks,setChecks]=useState(c.checklist||{}),[publishedUrl,setPublishedUrl]=useState(c.published_url||'');
   const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
@@ -987,10 +999,17 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
     <div className="notice"><strong>Nicho:</strong> {c.niche||'não definido'}. Use a foto padrão deste nicho para manter o mesmo rosto/corpo.</div>
     {c.niche && onApplyLibraryReference && <button type="button" className="primary full" disabled={busy||immutable} onClick={()=>onApplyLibraryReference(c.niche)}>Usar foto padrão do nicho ({c.niche})</button>}
     <Uploader kind="reference" exists={!!reference} busy={busy} disabled={immutable} onUpload={onUpload}/><div className="notice">Preserve rosto, cabelo, corpo e tom de pele. Mude apenas roupa e cor.</div>{!immutable&&<section className="reuse-section"><h3>Reutilizar referência</h3><label>Referências de {c.model_name}<select value={reuse} onChange={e=>setReuse(e.target.value)}><option value="">Escolha uma imagem salva</option>{references.filter(r=>r.model_name.toLocaleLowerCase()===c.model_name.toLocaleLowerCase()&&r.id!==reference?.id).map(r=><option key={r.id} value={r.id}>{r.campaign_name} · {r.original_name}</option>)}</select></label><button disabled={!reuse||busy} onClick={()=>onReuse(reuse)}>Usar a mesma imagem</button></section>}</>;
-  if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p><button className="primary full" disabled={busy||!reference||c.status!=='briefing'} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
+  if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p>{briefMissing(c).length>0&&<p className="rd-alert" role="alert">Para gerar, complete e salve o briefing: {briefMissing(c).join(', ')}.</p>}{!reference&&<p className="rd-alert" role="alert">Anexe a foto da modelo na etapa Modelo fixa antes de gerar.</p>}<button className="primary full" disabled={busy||!reference||c.status!=='briefing'||briefMissing(c).length>0} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
   if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div><div className="notice"><strong>Confira a fotografia-base antes de gerar.</strong> Ela precisa mostrar toda a peça que você quer apresentar. Se a roupa estiver cortada, escolha outra referência na etapa Modelo fixa antes de gerar os prompts. A edição preserva o enquadramento, a pose, o cenário e a iluminação. Siga a ordem dos anexos indicada no prompt de cada cor.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}{image&&<AssetView asset={image} title="Imagem gerada" compact/>}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
-  if(selected==='image_approval')return <>{c.assets.filter(a=>a.kind==='image').length?<><div className="notice">Confira cada cor. A aprovação libera os roteiros de 15s personalizados por imagem.</div><div className="comparison-grid">{c.assets.filter(a=>a.kind==='image').map(img=><div key={img.id} className="comparison-card"><span>{img.slot||img.metadata?.color||'Imagem'}</span><AssetView asset={img} title={img.slot||'Imagem'} compact/>{img.approved_at&&<p className="approved-label"><Check size={14}/>Aprovada</p>}</div>)}</div><div className="comparison"><div><span>Referência</span><AssetView asset={reference} title="Modelo fixa" compact/></div></div>{c.assets.filter(a=>a.kind==='image').every(a=>a.approved_at)?<div className="notice success"><Check size={17}/> Todas as imagens aprovadas.</div>:<><h3>Confira antes de aprovar</h3>{check('identity','Rosto, cabelo, corpo e tom de pele correspondem à referência em todas as cores.')}{check('look','Roupa, cor, produto e mãos estão corretos em cada imagem.')}<button className="primary full" disabled={busy||c.status!=='image_ready'||!checks.identity||!checks.look} onClick={()=>onTransition('image_approved')}><Check size={17}/> Aprovar todas as imagens</button>{c.status!=='image_ready'&&<small className="help">Anexe a imagem de cada cor na etapa Criar imagem.</small>}</>}</>:<div className="notice">Anexe o resultado de cada cor na etapa Criar imagem.</div>}</>;
-  if(selected==='script')return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<><WriterBadge c={c}/><VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onRefreshVariant={onRefreshVariant} onRefreshAllVariants={onRefreshAllVariants} onConfigureWriter={onConfigureWriter} busy={busy} immutable={immutable}/></>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript} onConfigureWriter={onConfigureWriter}/>}<div className="notice">Leia em voz alta. Em campanhas com várias cores, você pode gerar <strong>todas em uma única solicitação</strong> ou somente a cor aberta. A legenda continua na etapa Studio.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
+  if(selected==='image_approval')return <>{c.assets.filter(a=>a.kind==='image').length?<><div className="notice">Confira cada cor. A aprovação libera os roteiros de 15s personalizados por imagem.</div><div className="comparison-grid">{c.assets.filter(a=>a.kind==='image').map(img=><div key={img.id} className="comparison-card"><span>{img.slot||img.metadata?.color||'Imagem'}</span><AssetView asset={img} title={img.slot||'Imagem'} compact/>{img.approved_at&&<p className="approved-label"><Check size={14}/>Aprovada</p>}</div>)}</div><div className="comparison"><div><span>Referência</span><AssetView asset={reference} title="Modelo fixa" compact/></div></div>{c.assets.filter(a=>a.kind==='image').every(a=>a.approved_at)?<div className="notice success"><Check size={17}/> Todas as imagens aprovadas.</div>:<><h3>Confira antes de aprovar</h3>{check('identity','Rosto, cabelo, corpo e tom de pele correspondem à referência em todas as cores.')}{check('look','Roupa, cor, produto e mãos estão corretos em cada imagem.')}{missingImageColors(c).length>0&&<p className="rd-alert" role="alert">Falta a imagem de: {missingImageColors(c).join(', ')}. Anexe em Criar imagem.</p>}<button className="primary full" disabled={busy||c.status!=='image_ready'||!checks.identity||!checks.look||missingImageColors(c).length>0} onClick={()=>onTransition('image_approved')}><Check size={17}/> Aprovar todas as imagens</button>{c.status!=='image_ready'&&<small className="help">Anexe a imagem de cada cor na etapa Criar imagem.</small>}</>}</>:<div className="notice">Anexe o resultado de cada cor na etapa Criar imagem.</div>}</>;
+  if(selected==='script'){
+    const scriptIssues=(c.variants?.length?c.variants.map(v=>[v.color,scriptProblems(v.prompts)]):[['',scriptProblems(c.prompts)]])
+      .flatMap(([color,list])=>list.map(item=>color?`${color}: ${item}`:item));
+    // Fala longa nao barra: so avisa que passa de um clipe de 15 s.
+    const longScripts=(c.variants?.length?c.variants.map(v=>[v.color,spokenWords(v.prompts)]):[['',spokenWords(c.prompts)]])
+      .filter(([,total])=>total>45).map(([color,total])=>color?`${color}: ${total} palavras`:`${total} palavras`);
+    return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<><WriterBadge c={c}/><VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onSaveToBank={immutable?null:(vid,texts)=>onSaveToBank?.(texts,vid)} onOpenBank={vid=>onOpenBank?.(item=>onSaveVariant(vid,{hook:item.hook,development:item.development,cta:item.cta}))} onRefreshVariant={onRefreshVariant} onRefreshAllVariants={onRefreshAllVariants} onConfigureWriter={onConfigureWriter} busy={busy} immutable={immutable}/></>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript} onConfigureWriter={onConfigureWriter} onSaveToBank={onSaveToBank} onOpenBank={onOpenBank}/>}<div className="notice">Leia em voz alta. Em campanhas com várias cores, você pode gerar <strong>todas em uma única solicitação</strong> ou somente a cor aberta. A legenda continua na etapa Studio.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{scriptIssues.length>0&&<div className="rd-alert" role="alert"><strong>Falta completar o roteiro.</strong><ul>{scriptIssues.map(item=><li key={item}>{item}</li>)}</ul></div>}{longScripts.length>0&&<div className="notice">Fala longa ({longScripts.join(' · ')}): passa de ~15 s num clipe só. Tudo bem — no Grok, use a <strong>sequência de clipes</strong> na etapa Criar vídeo para a fala não sair acelerada.</div>}{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script||scriptIssues.length>0} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
+  }
   if(selected==='video'){
     if(index<3)return <div className="notice">Aprove as imagens e conclua o roteiro antes de criar o vídeo.</div>;
     const firstVideo=c.assets.find(a=>a.kind==='video');
@@ -1042,22 +1061,46 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
 // Portugues falado rende ~2,8 palavras por segundo. O total sozinho nao diz
 // onde esta o excesso: um hook de 16 palavras estoura os 4 segundos mesmo num
 // roteiro de 44 palavras.
-const SCRIPT_BUDGET={hook:[10,12,'0–4s'],development:[20,24,'4–12s'],cta:[7,9,'12–15s']};
+// O que o servidor exige para gerar os prompts (o mesmo /generate).
+function briefMissing(c){
+  return [['outfit','roupa'],['color','cores'],['product','produto'],['audience','público'],['benefit','benefício']]
+    .filter(([key])=>!String(c?.[key]||'').trim()).map(([,label])=>label);
+}
+// Cores sem imagem anexada (aprovar exige uma imagem por cor).
+function missingImageColors(c){
+  const colors=(c?.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
+  if(colors.length<2)return [];
+  const have=new Set((c.assets||[]).filter(a=>a.kind==='image').map(a=>a.slot||a.metadata?.color||''));
+  return colors.filter(color=>!have.has(color));
+}
+// Teto de 15 s: o mesmo que o servidor exige para concluir o roteiro.
+const SCRIPT_LIMITS={hook:['gancho'],development:['desenvolvimento'],cta:['chamada']};
+function spokenWords(prompts){return ['hook','development','cta'].reduce((sum,key)=>sum+countWords(prompts?.[key]),0)}
+function scriptProblems(prompts){
+  const out=[];let total=0;
+  // So bloqueia o que falta. Comprimento e orientacao, nunca barreira.
+  for(const [key,[name]] of Object.entries(SCRIPT_LIMITS)){
+    if(!countWords(prompts?.[key]))out.push(`falta o ${name}`);
+  }
+  return out;
+}
+const SCRIPT_BUDGET={hook:[10,18,'abertura'],development:[20,40,'meio'],cta:[7,14,'fechamento']};
 function countWords(value){const clean=String(value||'').trim();return clean?clean.split(/\s+/).length:0}
 function ScriptBudget({draft}){
   const rows=Object.entries(SCRIPT_BUDGET).map(([key,[low,high,time]])=>{
     const words=countWords(draft[key]);
-    const state=words>=low&&words<=high?'ok':(words<low?(words>=low-2?'near':'off'):(words<=high+2?'near':'off'));
+    // Acima do alvo nao e erro: fica neutro. Vazio ou curto demais e que pede atencao.
+    const state=words>=low?'ok':(words>=low-2?'near':'off');
     return {key,words,low,high,time,state};
   });
   const total=rows.reduce((sum,row)=>sum+row.words,0);
-  const totalState=total>=38&&total<=45?'ok':(total<=47?'near':'off');
+  const totalState=total<=45?'ok':'near';
   return <div className="script-budget">
     {rows.map(row=><span key={row.key} className={'budget-chip is-'+row.state} title={`${row.time}: alvo ${row.low} a ${row.high} palavras`}>
       <em>{row.time}</em>{row.words}<small>/{row.low}–{row.high}</small>
     </span>)}
-    <span className={'budget-chip is-total is-'+totalState} title="15 segundos cabem entre 38 e 45 palavras faladas">
-      <em>total</em>{total}<small>/38–45</small>
+    <span className={'budget-chip is-total is-'+totalState} title="Até ~45 palavras cabem num clipe de 15 s; acima disso, use a sequência de clipes">
+      <em>total</em>{total}<small>{total>45?' · sequência':' palavras'}</small>
     </span>
   </div>;
 }
@@ -1080,7 +1123,7 @@ function WriterBadge({c}){
     {reprovas.length===0&&<small className="writer-audit-ok">Auditoria: aprovado.</small>}
   </div>;
 }
-function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter}){
+function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter,onSaveToBank,onOpenBank}){
   const [draft,setDraft]=useState({hook:c.prompts.hook,development:c.prompts.development,cta:c.prompts.cta,
     cover_text:c.prompts.cover_text||'',screen_text:c.prompts.screen_text||''});
   const [writer,setWriter]=useState(null);
@@ -1093,5 +1136,5 @@ function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter
   const changed=Object.keys(draft).some(k=>draft[k]!==(c.prompts[k]||''));
   const falasVazias=['hook','development','cta'].some(k=>!(draft[k]||'').trim());
   const aiName=writer?.provider==='gemini'?'Gemini':'ChatGPT';
-  return <div className="script-editor"><WriterBadge c={c}/>{c.status!=='published'&&onRefresh&&<><section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}><div><span className="eyebrow">ESCRITA POR API</span><strong>{writer?.enabled?`${aiName} está configurado`:'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera hook, desenvolvimento, CTA e legenda; o app audita o resultado antes de aceitar.':'Configure a chave uma vez para liberar a geração nesta etapa.'}</small></div>{writer?.enabled?<button className="primary" disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar roteiro com {aiName}</button>:<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}</section><div className="script-refresh-actions"><span className="help">Alternativas locais, sem usar API:</span><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'],{writerMode:'local'})}>Criar outro hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'local'})}>Criar outra fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div></>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}<section className="post-text-block"><div className="section-title"><div><span className="time-label">POSTAGEM</span><h3>Para colar no CapCut</h3></div></div><p className="help">O prompt de vídeo proíbe texto dentro do quadro de propósito — gerador de IA escreve letra torta. Estes dois textos entram na postagem, onde a tipografia sai correta. Boa parte do TikTok roda sem som: sem eles, quem assiste mudo não recebe o gancho.</p>{postFields.map(([key,title,time])=><div className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><input aria-label={title} value={draft[key]||''} readOnly={c.status==='published'} maxLength={120} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></div>)}</section>{changed&&<button className="full" disabled={busy||falasVazias} onClick={()=>onSave(draft)}>Salvar roteiro</button>}<ScriptBudget draft={draft}/></div>;
+  return <div className="script-editor"><WriterBadge c={c}/>{c.status!=='published'&&onRefresh&&<><section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}><div><span className="eyebrow">ESCRITA POR API</span><strong>{writer?.enabled?`${aiName} está configurado`:'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera hook, desenvolvimento, CTA e legenda; o app audita o resultado antes de aceitar.':'Configure a chave uma vez para liberar a geração nesta etapa.'}</small></div>{writer?.enabled?<button className="primary" disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar roteiro com {aiName}</button>:<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}</section><div className="script-refresh-actions"><span className="help">Alternativas locais, sem usar API:</span><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'],{writerMode:'local'})}>Criar outro hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'local'})}>Criar outra fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div></>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}<section className="post-text-block"><div className="section-title"><div><span className="time-label">POSTAGEM</span><h3>Para colar no CapCut</h3></div></div><p className="help">O prompt de vídeo proíbe texto dentro do quadro de propósito — gerador de IA escreve letra torta. Estes dois textos entram na postagem, onde a tipografia sai correta. Boa parte do TikTok roda sem som: sem eles, quem assiste mudo não recebe o gancho.</p>{postFields.map(([key,title,time])=><div className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><input aria-label={title} value={draft[key]||''} readOnly={c.status==='published'} maxLength={120} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></div>)}</section>{changed&&<button className="full" disabled={busy||falasVazias} onClick={()=>onSave(draft)}>Salvar roteiro</button>}{c.status!=='published'&&(onSaveToBank||onOpenBank)&&<div className="script-refresh-actions speech-bank-actions"><span className="help">Banco de falas:</span>{onSaveToBank&&<button type="button" disabled={busy||changed||falasVazias} onClick={()=>onSaveToBank({hook:draft.hook,development:draft.development,cta:draft.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}{onOpenBank&&<button type="button" disabled={busy} onClick={()=>onOpenBank(item=>{setDraft(d=>({...d,hook:item.hook,development:item.development,cta:item.cta}));onDirty(true);return true})}><BookOpen size={16}/> Ver falas aprovadas</button>}{changed&&onSaveToBank&&<small className="help">Salve o roteiro antes de guardar no banco.</small>}</div>}<ScriptBudget draft={draft}/></div>;
 }
