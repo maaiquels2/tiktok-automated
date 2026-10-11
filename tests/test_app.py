@@ -1063,9 +1063,12 @@ class WorkflowTests(unittest.TestCase):
                       movements='caminhar; agachar; virar de lado; ajustar o cós; pose final',
                       generator='grok',niche='academia')
         video=generate(campaign)['video']
-        self.assertIn('plano médio dinâmico',video)
-        self.assertIn('detalhe de perto no cós e no tecido',video)
-        self.assertIn('acompanhamento ao caminhar até a câmera',video)
+        # Camera unica (plano do joelho para cima, rosto grande, aproximacao
+        # suave): a camera 'dinamica' do nicho pedia closes que tiravam o
+        # rosto do quadro. O nicho entra pelo clima.
+        self.assertIn('fit check de academia',video)
+        self.assertIn('dolly-in suave e contínuo',video)
+        self.assertIn('O rosto fica sempre inteiro no quadro',video)
         self.assertIn('manter a mesma cena entre os beats',video)
         self.assertIn('manter a mesma cena',video)
         self.assertNotIn('CÂMERA: vertical, fixa',video)
@@ -1402,6 +1405,45 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(cw.vision_settings(s)['model'],'gpt-6-luna')
         arquivo.write_text(json.dumps({'provider':'openai','api_key':'sk-proj-x','model':'gpt-6-astra','enabled':True}),encoding='utf-8')
         self.assertEqual(cw.load_settings(self.config['DATA_DIR'])['model'],'gpt-6-astra')
+
+    def test_full_prompt_merges_full_locks_with_guide_flow(self):
+        # Um prompt so na primeira versao: travas do completo + fluxo do guia.
+        from services.model_library import NICHE_DEFAULTS
+        d=NICHE_DEFAULTS['casual']
+        c=dict(model_name='Micaela',product='Vestido midi com recorte',outfit='Vestido midi com recorte',color='azul',
+               audience=d['audience'],benefit='os drapeados laterais valorizam a silhueta',angle=d['angle'],tone=d['tone'],
+               style=d['style'],details='bojo, recorte na cintura',movements=d['movements'],generator='grok',niche='casual')
+        video=generate(c)['video']
+        self.assertLessEqual(len(video),4000)
+        for trava in ('preserve 100% o mesmo rosto','CENÁRIO FIXO','PROVA VISUAL','ATRIBUTOS NÃO CONFIRMADOS',
+                      'Fala (PT-BR)','palavra por palavra'):
+            self.assertIn(trava,video)
+        for fluxo in ('Clima:','dolly-in suave e contínuo','ela gesticula enquanto fala','sem parar nem posar',
+                      'EXPRESSÃO:','ritmo natural sem correr'):
+            self.assertIn(fluxo,video)
+        for velho in ('uma sempre em contato com a peça','Corpo parado','ação silenciosa','pose frontal no final',
+                      'close no tecido','tem os drapeados'):
+            self.assertNotIn(velho,video)
+        self.assertIn('Os drapeados laterais valorizam a silhueta',video)
+
+    def test_mirror_mode_films_the_look_with_the_phone(self):
+        from services.prompt_improve import build_compact_video_prompt
+        c=dict(model_name='Micaela',product='Vestido midi',outfit='vestido',color='Preto',audience='',benefit='',
+               angle='',tone='',style='',details='forro',movements='',generator='grok',niche='casual',video_mode='espelho')
+        g=generate(c)
+        self.assertIn('SELFIE NO ESPELHO',g['image'])
+        self.assertIn('segura o próprio celular',g['image'])
+        self.assertIn('grava no espelho',g['video'])
+        self.assertIn('uma segura o celular o tempo todo',g['video'])
+        self.assertIn('olhar na tela do celular',g['video'])
+        self.assertLessEqual(len(g['video']),4000)
+        aprovada=generate(c,base_image=True)['image']
+        self.assertIn('o celular na mão, o espelho',aprovada)
+        curto=build_compact_video_prompt(c,g,'Preto')
+        self.assertIn('fit check no espelho',curto)
+        self.assertEqual(curto.count('"'),2)
+        from services.prompts import _video_mode
+        self.assertEqual(_video_mode({'video_mode':'celular no espelho'}),'espelho')
 
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)

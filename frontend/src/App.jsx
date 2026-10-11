@@ -489,9 +489,12 @@ export default function App(){
   // Troca Com fala <-> So movimento direto na etapa de video (sem refazer
   // imagens nem roteiro). POV muda a imagem-base: vai para Definir look.
   function changeVideoMode(mode,guia){
-    if(mode==='pov'||c.video_mode==='pov'){
-      confirm(mode==='pov'?'Trocar para POV?':'Sair do POV?',
-        'O POV usa uma imagem-base em primeira pessoa. Por isso essa troca é feita em Definir look e refaz as imagens e os prompts desta campanha.',
+    // POV e Espelho mudam a imagem-base (primeira pessoa / selfie no espelho).
+    const novaBase=m=>m==='pov'||m==='espelho';
+    if(novaBase(mode)||novaBase(c.video_mode)){
+      const nome=m=>m==='pov'?'POV':'Espelho';
+      confirm(novaBase(mode)?`Trocar para ${nome(mode)}?`:`Sair do ${nome(c.video_mode)}?`,
+        'Esse formato usa outra imagem-base (primeira pessoa ou selfie no espelho). Por isso a troca é feita em Definir look e refaz as imagens e os prompts desta campanha.',
         ()=>{choose('look');return true},'Ir para Definir look');
       return;
     }
