@@ -1995,7 +1995,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
 # rosto do quadro enquanto ela fala. Com a modelo em cena, a prova acontece
 # no plano (o POV e o produto sem modelo continuam usando o close).
 _STAY_IN_FRAME = {
-    'tecido macio': 'passa a mão devagar no tecido, na altura da coxa',
+    'tecido macio': 'passa a mão no tecido, na altura da coxa',
     'costura': 'passa o dedo na costura, sem se aproximar da câmera',
     'acabamento': 'passa o dedo no acabamento, sem se aproximar da câmera',
     'punho': 'estende o braço e mostra o punho, sem se aproximar da câmera',

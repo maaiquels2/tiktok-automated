@@ -243,7 +243,7 @@ def pov_hands(c: dict, spoken: str = '') -> str:
     generico quando o briefing nao confirma nenhum atributo."""
     proof = proof_gesture(c, spoken)
     if not proof:
-        return 'As mãos puxam levemente o tecido e passam devagar pelos detalhes da peça'
+        return 'As mãos puxam levemente o tecido e passam pelos detalhes da peça'
     if proof.startswith('a câmera'):
         return proof[0].upper() + proof[1:]
     return f'Com a mão livre, ela {proof}'
@@ -256,10 +256,12 @@ SPEECH = ('Fala: uma conversa só, do começo ao fim, sem pausa entre as frases,
           'tom espontâneo e animado na medida, entonação que sobe e desce, sorriso na voz; nada de locução '
           'nem de anúncio. Ritmo natural, sem correr. Voz feminina em português do Brasil, lábios '
           'sincronizados; fala só o que está entre aspas, palavra por palavra; som ambiente baixo, sem música.')
-# Travas do prompt completo que seguravam a qualidade e o guia enxuto
-# tinha cortado: maos na peca e gesto no ritmo da fala.
-HANDS = ('Mãos: uma sempre em contato com a peça; a outra mostra o detalhe. Gestos e expressões seguem o '
-         'ritmo da fala, sem movimento artificial de IA.')
+# Maos vivas: no teste real, "uma mao sempre na peca" + "movimentos lentos"
+# deixou a modelo dura e em camera lenta. Gente de verdade gesticula enquanto
+# fala; a mao volta para a peca so para mostrar o que a fala diz.
+HANDS = ('Mãos: enquanto fala, ela gesticula com naturalidade, como quem conversa com uma amiga — abre a mão, '
+         'aponta para a peça, toca o tecido no momento em que fala dele e volta a mão para a peça; nada de mãos '
+         'paradas nem braços duros. Gestos e expressões no ritmo das palavras, sem movimento artificial de IA.')
 SPEECH_POV = ('Fala: narração de quem está testando e comentando sozinha, num tom baixo e espontâneo, '
               'como pensando em voz alta; uma conversa só, sem pausa de locutor. Voz feminina em português '
               'do Brasil, só o que está entre aspas; som ambiente baixo, sem música.')
@@ -336,8 +338,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             'A imagem anexada é o primeiro quadro: mesmo ambiente e mesma luz do começo ao fim. '
             f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, um único take contínuo com leve balanço natural, sem cortes.',
-            f'Ação contínua, sem pausas: as mãos mostram {touch}{_FLOW[0]}{hands[0].lower() + hands[1:]}, devagar; '
-            'no final, tilt lento para baixo mostrando a peça inteira no corpo, e o indicador aponta uma vez para a '
+            f'Ação contínua, sem pausas: as mãos mostram {touch}{_FLOW[0]}{hands[0].lower() + hands[1:]}, em ritmo natural; '
+            'no final, tilt suave para baixo mostrando a peça inteira no corpo, e o indicador aponta uma vez para a '
             f'parte de baixo da tela. {seamless}',
             f'Narração, do começo ao fim, num fôlego só: "{fala}"',
             SPEECH_POV,
@@ -349,8 +351,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'Vídeo vertical 9:16, 15 segundos, {res}, sem fala. Clima: {vibe}.',
             first_frame, light,
             f'Câmera: fixa na altura do peito, {shot}, sem zoom, um único take contínuo, sem cortes.',
-            f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em movimentos lentos e '
-            f'contínuos; no final, já de frente para a lente, ela {cena["cta"]}, com sorriso leve e confiante. {seamless}',
+            f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
+            f'no final, já de frente para a lente, ela {cena["cta"]}, com sorriso leve e confiante. {seamless}',
             f'Expressão: {cena["arc"]}.',
             'Som: sem voz e sem fala; só som ambiente discreto.',
             close,
@@ -359,9 +361,9 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     return '\n'.join([
         f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: {vibe}.',
         first_frame, light,
-        f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes; dolly-in lento e '
-        f'constante até {push_target(c)} e volta suave ao plano inicial no final. O rosto fica sempre no quadro.',
-        f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em movimentos lentos e contínuos; '
+        f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes; dolly-in suave e '
+        f'contínuo até {push_target(c)} e volta suave ao plano inicial no final. O rosto fica sempre no quadro.',
+        f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
         f'no final, já de frente para a lente, ela {cena["cta"]}, sorrindo. {seamless}',
         f'O que ela diz, do começo ao fim do vídeo, num fôlego só e enquanto se move: "{fala}"',
         f'Expressão: {cena["arc"]}.',

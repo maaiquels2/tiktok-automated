@@ -80,7 +80,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         ])
         middle = '\n'.join([
             f'{keep_line} O rosto nunca aparece.',
-            f'{pov_hands(c, spoken)}, devagar; a câmera acompanha as mãos. Narração: "{development}"',
+            f'{pov_hands(c, spoken)}, em ritmo natural; a câmera acompanha as mãos. Narração: "{development}"',
             ends_moving,
         ])
         last = '\n'.join([
@@ -99,7 +99,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         ])
         middle = '\n'.join([
             keep_line,
-            f'Ela {steps}, em movimentos lentos e contínuos. Câmera fixa, sem zoom. Sem fala.',
+            f'Ela {steps}, em ritmo natural de conversa, sem câmera lenta. Câmera fixa, sem zoom. Sem fala.',
             ends_moving,
         ])
         last = '\n'.join([
@@ -120,7 +120,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         ])
         middle = '\n'.join([
             keep_line,
-            f'Ela {steps}, devagar; dolly-in lento até {push_target(c)} e volta, rosto sempre no quadro. '
+            f'Ela {steps}, gesticulando enquanto fala; dolly-in suave até {push_target(c)} e volta. '
             f'Ela emenda a fala, no mesmo tom: "{development}"',
             ends_moving,
         ])

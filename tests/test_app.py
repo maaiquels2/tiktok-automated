@@ -1606,7 +1606,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.json)
         changed=next(v for v in response.json['variants'] if v['id']==variant['id'])['prompts']
         video=changed['video']
-        self.assertLess(len(video),2200)
+        self.assertLess(len(video),3000)
         self.assertIn('720 × 1280',video)
         self.assertIn(changed['hook'].replace('"',"'"),video)
         self.assertIn(changed['cta'].replace('"',"'"),video)
@@ -1661,12 +1661,17 @@ class WorkflowTests(unittest.TestCase):
         # e labios no teste real (5/10). Plano americano e aproximacao.
         self.assertIn('plano americano, dos joelhos para cima',legging)
         self.assertNotIn('corpo inteiro',legging)
-        self.assertIn('Mãos: uma sempre em contato com a peça',legging)
+        # Maos vivas e ritmo de conversa: "movimentos lentos" deixou o video
+        # em camera lenta no teste real.
+        self.assertIn('ela gesticula com naturalidade',legging)
+        self.assertIn('sem câmera lenta',legging)
+        self.assertNotIn('devagar',legging)
+        self.assertNotIn('lentos',legging)
         self.assertIn('palavra por palavra',legging)
-        self.assertIn('dolly-in lento',legging)
+        self.assertIn('dolly-in suave',legging)
         self.assertIn('Luz: a mesma da imagem',legging)
         self.assertIn('fit check de academia',legging)
-        self.assertIn('movimentos lentos',legging)
+        self.assertIn('ritmo natural de conversa',legging)
         top=build_compact_video_prompt({'product':'Top cropped'},falas,'Preto')
         self.assertIn('da cintura para cima',top)
         self.assertNotIn('corpo inteiro',top)
@@ -1674,7 +1679,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('dos joelhos para cima',mudo)
         self.assertIn('fixa',mudo)
         for texto in (legging,top,mudo):
-            self.assertLess(len(texto),2000)
+            self.assertLess(len(texto),3000)  # limite real do Grok: 4000
 
     def test_compact_prompt_proves_what_the_hook_promises(self):
         # Com dois fatos confirmados, a prova do meio segue o que a fala
