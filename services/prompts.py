@@ -1890,9 +1890,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
             f"7–11s ORIENTAÇÃO: {rotation_shot}.\n"
             "11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento "
             "inicial e sustenta o olhar calmo na lente até o fim.\n"),
-        (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, "
-            "suporte ou composição — nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura "
-            "e brilho. "),
+        (0, _unconfirmed_line(c)),
         (0, "ENQUADRAMENTO: manter a mesma cena entre os beats; a câmera pode aproximar e afastar na mesma locação. "
             "Sem movimento artificial de IA: o ritmo é de quem se olha no espelho, não de coreografia ensaiada. "),
         (2, f"Estilo visual: {style}. "),
@@ -1979,9 +1977,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
         (4, "   · 11–12s REAÇÃO (ação silenciosa, sem fala): pequena pausa natural, como quem aprova o que viu.\n"),
         (0, f"12–15s FECHAMENTO: o produto em destaque nas mãos. Emendar sem pausa à fala anterior, num tom leve, "
             f"nunca de vendedor. Fala (PT-BR): \"{cta}\"\n"),
-        (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, secagem, "
-            "suporte ou composição — nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura "
-            "e brilho. "),
+        (0, _unconfirmed_line(c)),
         (1, "ENQUADRAMENTO: pequenos reenquadramentos naturais são esperados; não são cortes nem troca de cena. "
             "Nada de propaganda ou atuação: o momento deve parecer real, levemente imperfeito e espontâneo. "),
         (0, "As três falas são UM discurso contínuo: mesma respiração, sem pausa entre os trechos, como quem fala "
@@ -1995,10 +1991,61 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
         (0, "Sem promessas não demonstradas no vídeo."),
     ], _limite_video(c))
 
+# Gestos que pedem "perto da lente" puxam a camera para um close e tiram o
+# rosto do quadro enquanto ela fala. Com a modelo em cena, a prova acontece
+# no plano (o POV e o produto sem modelo continuam usando o close).
+_STAY_IN_FRAME = {
+    'tecido macio': 'passa a mão devagar no tecido, na altura da coxa',
+    'costura': 'passa o dedo na costura, sem se aproximar da câmera',
+    'acabamento': 'passa o dedo no acabamento, sem se aproximar da câmera',
+    'punho': 'estende o braço e mostra o punho, sem se aproximar da câmera',
+}
+
+# Atributo que nao pode ser inventado -> fato confirmado que o libera.
+_UNCONFIRMED = (
+    ('compressão', ('compressão', 'compressao')),
+    ('elasticidade', ('elastano', 'elástic', 'elastic')),
+    ('conforto', ('confort',)),
+    ('maciez', ('tecido macio', 'macio', 'macia')),
+    ('tecido premium', ('premium',)),
+    ('secagem', ('secagem', 'seca rápido', 'seca rapido')),
+    ('suporte', ('suporte', 'sustenta')),
+    ('composição', ()),
+)
+
+
+def _unconfirmed_line(c):
+    """Lista do que nao inventar, sem o que o briefing confirmou: com
+    "tecido macio" confirmado, proibir "maciez" contradizia o proprio prompt."""
+    facts = ' '.join([*_product_features(c, limit=50), _phrase(c.get('benefit'))]).casefold()
+    if _material_facts(c):
+        facts += ' composição'
+    banned = [name for name, keys in _UNCONFIRMED if not any(k in facts for k in keys)
+              and not (name == 'composição' and _material_facts(c))]
+    lista = ', '.join(banned[:-1]) + (' ou ' + banned[-1] if len(banned) > 1 else (banned[0] if banned else ''))
+    return ((f"ATRIBUTOS NÃO CONFIRMADOS: não inventar {lista} — " if banned else "ATRIBUTOS: ")
+            + "nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura e brilho. ")
+
+
+def _visual_outfit(c, product):
+    """O 'Visual' do prompt: a roupa do briefing, ou o produto quando o campo
+    ficou com o texto padrao do nicho ("lounge, basic tee, calca moletom..."),
+    que contradiz a peca vendida."""
+    outfit = _pt_br(c.get('outfit'))
+    try:
+        from services.model_library import NICHE_DEFAULTS
+        genericos = {_pt_br(d.get('outfit')).casefold() for d in NICHE_DEFAULTS.values() if isinstance(d, dict)}
+    except Exception:
+        genericos = set()
+    if not outfit or outfit.casefold() in genericos:
+        return product or 'visual do produto'
+    return outfit
+
+
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
     niche = _niche_key(c)
     dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
-    outfit = _pt_br(c.get("outfit")) or "visual do produto"
+    outfit = _visual_outfit(c, product)
     angle = _pt_br(c.get("angle")) or "mostrar o produto em uso"
     angle_context = ' '.join(angle.split()[:16])
     if len(angle.split()) > 16:
@@ -2030,17 +2077,20 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     gestures = _proof_gestures(
         _product_features(c, limit=2 if _limite_video(c) else 4),
         turns=_body_turns(c))
+    gestures = [f'{lab} → {_STAY_IN_FRAME.get(lab, ges)}'
+                for lab, ges in (g.split(' → ', 1) for g in gestures)]
     # Direcao do motor de persuasao: expressao do gancho, arco emocional e o
     # gesto da chamada; tempos proporcionais as falas (4s/12s no roteiro padrao).
-    cena = persuasion.scene_direction(_dominant_motor(c), f"{anchor} {forms['de']} {forms['piece']}")
+    cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook),
+                                      f"{anchor} {forms['de']} {forms['piece']}")
     t1, t2 = persuasion.timeline(hook, development, cta)
     proof_block = (
         f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s: '
         + '; '.join(gestures) + '.\n'
     ) if gestures else ''
     closing_hands = (
-        f"com as duas mãos tocando {anchor} {forms['de']} {forms['piece']}, "
-        "como quem ajusta a peça, ou apoiadas na cintura"
+        f"com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, "
+        "como quem ajusta a peça"
     )
 
     return _montar_video([
@@ -2087,9 +2137,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (0, f"{t2}–15s CTA: posição de encerramento, olhar firme na lente, com o gesto de apontar o carrinho. "
             f"Emendar sem pausa à fala anterior, como conclusão do mesmo pensamento. "
             f"Fala (PT-BR): \"{cta}\"\n"),
-        (0, "ATRIBUTOS NÃO CONFIRMADOS: não inventar compressão, elasticidade, conforto, maciez, tecido premium, "
-            "secagem, suporte ou composição — nada fora dos FATOS CONFIRMADOS. "
-            "Com material confirmado, preservar textura e brilho. "),
+        (0, _unconfirmed_line(c)),
         (0, "ENQUADRAMENTO: manter a mesma cena entre os beats. Sem movimento artificial de IA: gestos e expressões "
             "seguem o ritmo da fala. "),
         (3, "Usar movimento lateral quando precisar mostrar a peça inteira no corpo. "),

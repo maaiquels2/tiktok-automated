@@ -1404,7 +1404,7 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       </label>
       <label>Chave de API
         <input type="password" value={key} disabled={busy||saving} onChange={e=>setKey(e.target.value)}
-          placeholder={data.has_key?`Chave guardada ${data.key_hint} — deixe vazio para manter`:'Cole a chave aqui'} maxLength={400} autoComplete="off"/>
+          placeholder={data.has_key?(data.key_source==='env'?`Chave da Vercel ${data.key_hint} em uso — cole outra só para trocar`:`Chave guardada ${data.key_hint} — deixe vazio para manter`):'Cole a chave aqui'} maxLength={400} autoComplete="off"/>
         {keyError&&<small className="field-error" role="alert">{keyError}</small>}
         <small className="help">{isCloudMode()?'Fica guardada no armazenamento privado da Fábrica.':'Fica só neste computador, em data/llm.json.'} Nunca aparece na tela depois de salva. Ao salvar, a Fábrica confere a chave e o modelo direto no provedor.</small>
       </label>

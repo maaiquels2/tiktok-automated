@@ -57,7 +57,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     spoken = f'{hook} {development}'
     steps = ', depois '.join(movement_steps(c, spoken)[:3])
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'
-    cena = persuasion.scene_direction(_dominant_motor(c), touch)
+    cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     keep_line = 'Continuação do mesmo take: mesma pessoa, mesma roupa, mesmo ambiente e mesma luz.'
     voice = ('Fala: espontânea, como quem conta uma descoberta para uma amiga; tom animado na medida, '
              'entonação natural e sorriso na voz, nada de locução. Voz feminina em português do Brasil, lábios '

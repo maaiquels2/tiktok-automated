@@ -248,13 +248,16 @@ def load_settings(data_dir, storage_get=None) -> dict:
     env_key = os.environ.get('OPENAI_API_KEY', '').strip()
     if not api_key and env_key and provider in ('', 'openai'):
         provider, api_key, source = 'openai', env_key, 'env'
-        enabled = bool(raw.get('enabled', True))
+        # Ligada por padrao: o "enabled: false" de um arquivo salvo antes de
+        # a chave existir nao conta. So desliga quem desmarcou na tela.
+        enabled = not raw.get('disabled_by_user')
     return {
         'provider': provider,
         'api_key': api_key,
         'model': str(raw.get('model') or DEFAULT_MODELS.get(provider, '')),
         'enabled': enabled and bool(provider) and bool(api_key),
         'key_source': source,
+        'disabled_by_user': bool(raw.get('disabled_by_user')),
     }
 
 
@@ -329,6 +332,7 @@ def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) ->
         current['model'] = DEFAULT_MODELS[current['provider']]
     if 'enabled' in values:
         current['enabled'] = bool(values['enabled'])
+        current['disabled_by_user'] = not current['enabled']
     current['enabled'] = bool(current['enabled'] and current['provider'] and current['api_key'])
     # A chave que veio do ambiente nunca e copiada para o arquivo salvo.
     from_env = current.pop('key_source', '') == 'env' and not (isinstance(key, str) and key.strip())
@@ -702,8 +706,19 @@ def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[byte
 CALLERS = {'openai': _call_openai, 'gemini': _call_gemini}
 
 
+def _tidy(text: str) -> str:
+    """Acerta o que a IA erra na pontuacao: inicial minuscula e virgula
+    depois de conectivo no inicio ("Mas, essa aqui")."""
+    text = ' '.join(str(text or '').split())
+    text = re.sub(r'(^|[.!?]\s+)(Mas|E|Aí|Então|Só que),\s+', r'\1\2 ', text)
+    return text[:1].upper() + text[1:]
+
+
 def _clean_pack(dados: dict) -> dict:
-    return {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+    pack = {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
+    for k in ('hook', 'development', 'cta'):
+        pack[k] = _tidy(pack[k])
+    return pack
 
 
 def _weak_cta(text: str) -> bool:

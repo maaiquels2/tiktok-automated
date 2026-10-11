@@ -24,8 +24,8 @@ import unicodedata
 
 from services import persuasion
 from services.prompts import (
-    _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures, _product_family,
-    _product_features, _proof_gestures, _video_mode,
+    _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
+    _product_family, _product_features, _proof_gestures, _video_mode,
 )
 
 # Quantos movimentos cabem no trecho do meio (8 segundos): cerca de 2 segundos
@@ -142,6 +142,9 @@ def _moves(c: dict) -> list[str]:
         # "vestir/ajustar": fica a primeira alternativa que faz sentido vestida.
         options = [o.strip() for o in item.split('/') if o.strip()]
         keep = next((o for o in options if not _OFF_BODY_RE.match(o)), '')
+        # "senta e levanta mostrando conforto": o movimento fica, a promessa
+        # ("conforto" nao confirmado) sai.
+        keep = re.sub(r'\s+(?:mostrando|para mostrar|pra mostrar|demonstrando)\b.*$', '', keep, flags=re.I)
         if keep:
             moves.append(_third_person(keep[0].lower() + keep[1:]))
     return moves[:MAX_MOVES]
@@ -162,15 +165,6 @@ def _stem(label: str) -> str:
     word = re.sub(r'^sem\s+', '', label).split()[0]
     return unicodedata.normalize('NFKD', word.casefold()).encode('ascii', 'ignore').decode()[:7]
 
-
-# Gestos que pedem "perto da lente" puxam a camera para um close e tiram o
-# rosto do quadro enquanto ela fala. Fora do POV, a prova acontece no plano.
-_STAY_IN_FRAME = {
-    'tecido macio': 'passa a mão devagar no tecido, na altura da coxa',
-    'costura': 'passa o dedo na costura, sem se aproximar da câmera',
-    'acabamento': 'passa o dedo no acabamento, sem se aproximar da câmera',
-    'punho': 'estende o braço e mostra o punho, sem se aproximar da câmera',
-}
 
 # Ate onde a camera aproxima sem cortar o rosto, a partir do plano inicial.
 _PUSH = {
@@ -274,7 +268,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     spoken = f'{hook} {development}'
     middle = 'Ela ' + ', depois '.join(movement_steps(c, spoken)) + ', em movimentos lentos e contínuos'
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
-    cena = persuasion.scene_direction(_dominant_motor(c), touch)
+    cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     t1, t2 = persuasion.timeline(hook, development, cta)
 
     first_frame = (

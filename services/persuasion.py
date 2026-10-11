@@ -332,6 +332,22 @@ def brief_lines(motor: str, offer_raw, social_raw, has_pain: bool) -> list[str]:
 # --------------------------------------------------------------------------
 # Direcao de cena por motor (video do Grok)
 # --------------------------------------------------------------------------
+_PAIN_HOOK = re.compile(r'\b(?:medo|problema|desisti|receio|segurava|odiava|cansei|sofria|chato)\b')
+_SCARCITY_HOOK = re.compile(r'desconto|\d\s*%|\boferta\b|acabando|\búltimas\b|frete grátis|\bcupom\b|só hoje|rel[âa]mpago')
+
+
+def script_motor(motor: str, hook: str) -> str:
+    """Motor da cena pelo que o gancho realmente diz. A IA pode abrir com
+    uma dor mesmo com o motor "desejo"; a expressao da modelo tem que
+    acompanhar a fala ("tinha medo" com sorriso confiante nao convence)."""
+    low = str(hook or '').casefold()
+    if _PAIN_HOOK.search(low):
+        return 'necessidade'
+    if _SCARCITY_HOOK.search(low):
+        return 'escassez'
+    return motor
+
+
 def scene_direction(motor: str, touch: str) -> dict:
     """Expressao no gancho, arco emocional e gesto da chamada.
 
@@ -343,7 +359,7 @@ def scene_direction(motor: str, touch: str) -> dict:
     # primeiro o que e menos essencial.
     em = re.sub(r'^o\s', 'no ', re.sub(r'^a\s', 'na ', touch))
     hooks = {
-        'necessidade': f'começa com cara de quem lembra de um problema, toca {touch} e abre um sorriso de alívio',
+        'necessidade': f'franze de leve a testa, como quem lembra de um problema, toca {touch} e abre um sorriso de alívio',
         'escassez': f'dá um passo rápido até a câmera, sobrancelhas erguidas, como quem traz novidade, e toca {touch}',
         'desejo': f'dá um passo até a câmera com sorriso confiante e passa a mão {em}',
     }
