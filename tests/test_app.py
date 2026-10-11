@@ -1358,7 +1358,7 @@ class WorkflowTests(unittest.TestCase):
         with patch('services.copywriter._call_with_deadline',return_value=resposta) as chamada:
             r=self.client.post('/api/quick-brief',headers=self.headers,data={
                 'product':[(io.BytesIO(image_bytes()),'produto.png'),(io.BytesIO(image_bytes()),'costas.png')],
-                'description':(io.BytesIO(image_bytes()),'print.png')})
+                'description':(io.BytesIO(image_bytes()),'print.png'),'niche':'praia'})
         self.assertEqual(r.status_code,200,r.json)
         brief=r.json['brief']
         self.assertEqual(brief['product'],'Biquíni de amarração com bojo')
@@ -1369,6 +1369,9 @@ class WorkflowTests(unittest.TestCase):
         user=chamada.call_args.args[3]
         self.assertIn('Foto 3: print da página do produto',user)
         self.assertEqual(len(chamada.call_args.args[4]),3)
+        self.assertIn('Nicho escolhido pela pessoa (use este): praia',user)
+        # Leitura de fotos com o modelo de visao (gpt-6-luna).
+        self.assertEqual(chamada.call_args.args[1]['model'],'gpt-6-luna')
         # Nada foi criado: a campanha so nasce depois da conferencia.
         self.assertEqual(len(self.client.get('/api/campaigns',headers=self.headers).json),1)
 
@@ -1386,6 +1389,19 @@ class WorkflowTests(unittest.TestCase):
             sem_ia=self.client.post('/api/quick-brief',headers=self.headers,
                                     data={'product':(io.BytesIO(image_bytes()),'produto.png')})
         self.assertEqual(sem_ia.status_code,409)
+
+    def test_models_follow_the_evaluation(self):
+        # Escrita com gpt-6.1-sol, leitura de fotos com gpt-6-luna; o padrao
+        # antigo gravado (gpt-4o-mini) passa a valer como "padrao".
+        import services.copywriter as cw
+        arquivo=Path(self.config['DATA_DIR'])/cw.SETTINGS_FILE
+        arquivo.parent.mkdir(parents=True,exist_ok=True)
+        arquivo.write_text(json.dumps({'provider':'openai','api_key':'sk-proj-x','model':'gpt-4o-mini','enabled':True}),encoding='utf-8')
+        s=cw.load_settings(self.config['DATA_DIR'])
+        self.assertEqual(s['model'],'gpt-6.1-sol')
+        self.assertEqual(cw.vision_settings(s)['model'],'gpt-6-luna')
+        arquivo.write_text(json.dumps({'provider':'openai','api_key':'sk-proj-x','model':'gpt-6-astra','enabled':True}),encoding='utf-8')
+        self.assertEqual(cw.load_settings(self.config['DATA_DIR'])['model'],'gpt-6-astra')
 
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
@@ -2208,11 +2224,18 @@ class WorkflowTests(unittest.TestCase):
                     'param':'temperature'}}))
             return {'choices':[{'message':{'content':'{"hook":"a","development":"b","cta":"c","caption":"d"}'}}]}
         with patch('services.copywriter._post_json',side_effect=falso):
-            saida=cw._call_openai({'model':'gpt-5-mini','api_key':'k'},'sys','user')
+            saida=cw._call_openai({'model':'modelo-novo-x','api_key':'k'},'sys','user')
         self.assertIn('"hook"',saida)
         self.assertEqual(len(chamadas),2)
         self.assertIn('temperature',chamadas[0])
         self.assertNotIn('temperature',chamadas[1])
+        # Modelo que raciocina (gpt-5/gpt-6): nem manda temperature e pede
+        # esforco baixo -- uma chamada so.
+        chamadas.clear()
+        with patch('services.copywriter._post_json',side_effect=falso):
+            cw._call_openai({'model':'gpt-6-luna','api_key':'k'},'sys','user')
+        self.assertEqual(len(chamadas),1)
+        self.assertEqual(chamadas[0]['reasoning_effort'],'low')
 
     def test_provider_error_message_reaches_the_operator(self):
         from services import copywriter as cw

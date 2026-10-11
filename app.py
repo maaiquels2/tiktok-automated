@@ -1673,7 +1673,8 @@ def create_app(config=None):
         settings=copywriter.load_settings(app.config['DATA_DIR'],storage_get=(_storage_get if cloud_mode else None))
         if not settings.get('provider') or not settings.get('api_key'):
             raise Invalid('Configure a escrita por IA antes de criar com IA.',409)
-        campos,motivo=copywriter.quick_brief(images,settings,NICHE_IDS)
+        niche=(request.form.get('niche') or '').strip()
+        campos,motivo=copywriter.quick_brief(images,settings,NICHE_IDS,niche=niche)
         if campos is None:
             raise Invalid(f'Não foi possível ler as fotos: {motivo}',502)
         return jsonify(brief=campos)

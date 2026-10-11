@@ -1035,7 +1035,7 @@ const BODY_TURN_LABELS={'':'De frente',leve_lado:'Leve de lado',lado:'De lado',c
 // produto eram exigidos aqui, e a falta de cor ou publico so aparecia depois,
 // como erro, ao clicar em Gerar.
 const REQUIRED_BRIEF={name:'nome da campanha',product:'produto',color:'cores',model_name:'modelo',outfit:'roupa',audience:'público',benefit:'benefício'};
-export function BriefForm({campaign,onSave,busy,onDirty,onCancel,initialPhotos}){
+export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [briefError,setBriefError]=useState('');
   const [nicheOptions,setNicheOptions]=useState(NICHES);
@@ -1043,7 +1043,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel,initialPhotos})
   const [modelOptions,setModelOptions]=useState([]);
   useEffect(()=>{let alive=true;listModelLibraryModels().then(data=>{if(alive)setModelOptions(data.models||[])}).catch(()=>{});return()=>{alive=false}},[]);
   useEffect(()=>{let alive=true;(async()=>{try{const mn=draft?.model_name||campaign?.model_name||'Micaela'; const data=await modelLibrary(mn); if(!alive)return; const rows=data.niches||[]; if(rows.length) setNicheOptions(rows.map(n=>({id:n.niche,label:n.label,url:n.has_photo?n.url:''})));}catch(_){}})(); return()=>{alive=false}; },[draft?.model_name, campaign?.model_name]);
-  const [photos,setPhotos]=useState(initialPhotos||[]),[removed,setRemoved]=useState([]);
+  const [photos,setPhotos]=useState([]),[removed,setRemoved]=useState([]);
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
   const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.body_turns));
@@ -2439,80 +2439,68 @@ export function PersuasionPreview({offer,social}){
   </div>;
 }
 
-// Criar com IA: a pessoa sobe a foto do produto e o print da descricao; a IA
-// preenche o briefing e a pessoa so confere. No celular, o formulario
-// completo era campo demais para comecar.
+// Campanha automatica: a pessoa escolhe a moda e sobe a foto do produto e o
+// print da descricao; a IA le tudo e o app vai ate os prompts do Grok. No
+// maximo a pessoa informa as cores.
 const NICHE_SHORT={praia:'Praia',academia:'Academia',casual:'Casual','dia-a-dia':'Dia a dia',intima:'Íntima',fantasia:'Fantasia'};
 
-function briefFromAI(brief,model){
-  const niche=NICHE_SHORT[brief.niche]?brief.niche:'casual';
+function briefFromAI(brief,model,niche,colors){
   const d=NICHE_DEFAULTS[niche]||{};
   return {...emptyBrief,...d,niche,model_name:model,generator:'grok',
     name:`${model} · ${brief.product||NICHE_SHORT[niche]}`,
-    product:brief.product||'',outfit:brief.product||d.outfit||'',color:brief.colors||'',
+    product:brief.product||'',outfit:brief.product||d.outfit||'',color:(colors||'').trim()||brief.colors||'',
     details:brief.details||d.details||'',benefit:brief.benefit||d.benefit||'',angle:brief.angle||d.angle||'',
     movements:brief.movements||d.movements||'',objection:brief.objection||'',offer:brief.offer||'',
     social_proof:brief.social_proof||''};
 }
 
-export function QuickCreatePanel({modelName='Micaela',busy,onCreate,onFull,onError}){
+export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
+  const [niche,setNiche]=useState('');
   const [products,setProducts]=useState([]);
   const [description,setDescription]=useState(null);
-  const [step,setStep]=useState('photos');
-  const [draft,setDraft]=useState(null);
-  const [confirmed,setConfirmed]=useState(false);
+  const [colors,setColors]=useState('');
+  const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
     const list=[...products,...(description?[description]:[])].map(f=>URL.createObjectURL(f));
     setUrls(list);
     return()=>list.forEach(u=>URL.revokeObjectURL(u));
   },[products,description]);
-  const read=async()=>{
-    onError?.('');setStep('reading');
+  const start=async()=>{
+    onError?.('');setReading(true);
     try{
-      const {brief}=await quickBrief(products,description);
-      setDraft(briefFromAI(brief,modelName));setConfirmed(false);setStep('review');
-    }catch(e){onError?.(e.message||String(e));setStep('photos')}
+      const {brief}=await quickBrief(products,description,niche);
+      const values=briefFromAI(brief,modelName,niche,colors);
+      if(!values.color){onError?.('A IA não achou as cores no print. Escreva as cores do produto e tente de novo.');return}
+      const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
+      const message='Campanha automática criada: roteiro e prompts do Grok prontos.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
+      await onCreate?.(values,products,message);
+    }catch(e){onError?.(e.message||String(e))}
+    finally{setReading(false)}
   };
-  const set=(k,v)=>setDraft(d=>({...d,[k]:v}));
-  const urgent=!!((draft?.offer||'').trim()||(draft?.social_proof||'').trim());
-  if(step==='reading')return <div className="quick-create quick-reading" aria-live="polite">
-    <RefreshCw className="spinning" size={28}/><strong>A IA está lendo as fotos…</strong><small>Leva até 40 segundos.</small>
-  </div>;
-  if(step==='review'&&draft)return <div className="quick-create">
-    <p className="help">Confira o que a IA leu. Tudo pode ser editado; o resto do briefing vem do nicho.</p>
-    <label>Produto<input value={draft.product} onChange={e=>{set('product',e.target.value);set('outfit',e.target.value)}} maxLength={120}/></label>
-    <label>Cores<input value={draft.color} onChange={e=>set('color',e.target.value)} placeholder="Ex.: preto, vermelho" maxLength={200}/></label>
-    <div className="quick-niches" role="radiogroup" aria-label="Nicho">
-      {Object.entries(NICHE_SHORT).map(([id,label])=><button type="button" key={id} role="radio" aria-checked={draft.niche===id}
-        className={'rd-chip-tab'} aria-selected={draft.niche===id} onClick={()=>{const d=NICHE_DEFAULTS[id]||{};setDraft(x=>({...x,...d,niche:id,
-          product:x.product,outfit:x.product||d.outfit,color:x.color,details:x.details,benefit:x.benefit,angle:x.angle,movements:x.movements,
-          objection:x.objection,offer:x.offer,social_proof:x.social_proof,name:x.name,model_name:x.model_name,generator:x.generator}))}}>{label}</button>)}
-    </div>
-    <label>Fatos do produto<textarea rows={2} value={draft.details} onChange={e=>set('details',e.target.value)} maxLength={1500}/><small className="help">Só o que está escrito ou visível: o roteiro só afirma o que estiver aqui.</small></label>
-    <label>Dúvida que mais segura a compra<input value={draft.objection} onChange={e=>set('objection',e.target.value)} maxLength={200}/></label>
-    <label>Oferta (do print)<input value={draft.offer} onChange={e=>{set('offer',e.target.value);setConfirmed(false)}} placeholder="Sem oferta no print" maxLength={300}/></label>
-    <label>Prova social (do print)<input value={draft.social_proof} onChange={e=>{set('social_proof',e.target.value);setConfirmed(false)}} placeholder="Sem vendidos ou nota no print" maxLength={200}/></label>
-    <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''}/>
-    {urgent&&<label className="quick-confirm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> A oferta e a prova social ainda valem na página do produto</label>}
-    <div className="quick-actions">
-      <button type="button" className="primary full" disabled={busy||!draft.product.trim()||!draft.color.trim()||(urgent&&!confirmed)} onClick={()=>onCreate?.(draft,products)}><Sparkles size={16}/> Criar campanha</button>
-      <button type="button" disabled={busy} onClick={()=>onFull?.(draft,products)}>Editar tudo</button>
-      <button type="button" disabled={busy} onClick={()=>setStep('photos')}>Trocar fotos</button>
-    </div>
+  if(reading||busy)return <div className="quick-create quick-reading" aria-live="polite">
+    <RefreshCw className="spinning" size={28}/><strong>{reading&&!busy?'A IA está lendo as fotos…':'Criando a campanha e escrevendo o roteiro…'}</strong>
+    <small>Leva em torno de 30 a 60 segundos. Não feche esta janela.</small>
   </div>;
   return <div className="quick-create">
-    <p className="help">Suba a foto da peça e o print da página do produto. A IA preenche o briefing e você só confere.</p>
+    <p className="help">Escolha a moda e suba as duas fotos. A IA lê tudo, escreve o roteiro e deixa os prompts do Grok prontos.</p>
+    <span className="option-field-title" id="auto-niche">Moda</span>
+    <div className="quick-niches" role="radiogroup" aria-labelledby="auto-niche">
+      {Object.entries(NICHE_SHORT).map(([id,label])=><button type="button" key={id} role="radio" aria-checked={niche===id}
+        className="rd-chip-tab" aria-selected={niche===id} onClick={()=>setNiche(id)}>{label}</button>)}
+    </div>
     <label className="quick-tile">
       <input type="file" accept="image/*" multiple onChange={e=>setProducts(Array.from(e.target.files||[]).slice(0,3))}/>
-      <ImagePlus size={22}/><strong>Fotos do produto</strong><small>1 a 3 fotos da peça</small>
+      <ImagePlus size={22}/><strong>Foto do produto</strong><small>1 a 3 fotos da peça</small>
       {products.length>0&&<span className="quick-thumbs">{urls.slice(0,products.length).map(u=><img key={u} src={u} alt=""/>)}</span>}
     </label>
     <label className="quick-tile">
       <input type="file" accept="image/*" onChange={e=>setDescription(e.target.files?.[0]||null)}/>
-      <Upload size={22}/><strong>Print da descrição</strong><small>Página do produto com preço e avaliações (recomendado)</small>
+      <Upload size={22}/><strong>Print da descrição</strong><small>Página do produto com tecido, preço e avaliações</small>
       {description&&<span className="quick-thumbs"><img src={urls[products.length]} alt=""/></span>}
     </label>
-    <button type="button" className="primary full" disabled={busy||!products.length} onClick={read}><Sparkles size={16}/> Ler fotos com IA</button>
+    <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: preto, vermelho — vazio: a IA usa as cores do print" maxLength={200}/></label>
+    <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>
+    {(!niche||!products.length||!description)&&<small className="help">Falta: {[!niche&&'a moda',!products.length&&'a foto do produto',!description&&'o print da descrição'].filter(Boolean).join(', ')}.</small>}
   </div>;
 }

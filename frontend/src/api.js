@@ -218,10 +218,11 @@ export async function shrinkImage(file, max = 1600, quality = 0.85) {
 }
 
 // Criar com IA: fotos do produto + print da descricao -> briefing sugerido.
-export async function quickBrief(products, description) {
+export async function quickBrief(products, description, niche = '') {
   const form = new FormData();
   for (const file of products) form.append('product', await shrinkImage(file));
   if (description) form.set('description', await shrinkImage(description));
+  if (niche) form.set('niche', niche);
   return api('/quick-brief', {method: 'POST', body: form, timeoutMs: 90000});
 }
 
