@@ -1295,6 +1295,59 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(texto.count('"'),2)
         self.assertIn('apertar demais, mas essa aqui',texto)
 
+    def test_niche_default_text_is_direction_not_fact(self):
+        # Teste das 6 modas: "Priorizar sensacao de tecido macio" (dia a dia)
+        # virava o fato "tecido macio", "renda" na intima e "alca" na praia.
+        from services.model_library import NICHE_DEFAULTS
+        from services.prompts import _product_features, _benefit_clause
+        for niche,d in NICHE_DEFAULTS.items():
+            c={'product':'Peça','outfit':d['outfit'],'details':d['details'],'benefit':d['benefit'],'angle':d['angle']}
+            self.assertEqual(_product_features(c,limit=10),[],niche)
+            self.assertEqual(_benefit_clause(c),'',niche)
+        # O que o operador escreve junto continua valendo.
+        com_fatos={'product':'Peça','details':NICHE_DEFAULTS['intima']['details']+' Fatos: bojo, renda'}
+        self.assertEqual(set(_product_features(com_fatos,limit=10)),{'bojo','renda'})
+        self.assertEqual(_benefit_clause({'benefit':'tem bolso lateral'}),'A peça tem bolso lateral')
+
+    def test_audit_does_not_let_niche_defaults_authorize_claims(self):
+        from services.model_library import NICHE_DEFAULTS
+        d=NICHE_DEFAULTS['academia']
+        c={'product':'Legging','details':d['details'],'audience':d['audience'],'benefit':d['benefit'],'angle':d['angle']}
+        pack={'hook':'Eu achei a legging que eu queria pra treinar, sério.',
+              'development':'E olha, ela tem compressão e dá suporte no agachamento, fiquei impressionada.',
+              'cta':'Corre pro carrinho laranja e garante a tua.'}
+        problemas=' | '.join(copywriter_audit(pack,c,require_caption=False))
+        self.assertIn('compressão',problemas)
+
+    def test_caption_tags_are_whole_words_and_match_the_piece(self):
+        jeans=build_caption(dict(product='Calça jeans',color='azul',niche='dia-a-dia'),color='azul')
+        self.assertNotIn('#Legging',jeans)
+        self.assertIn('#CalcaJeans',jeans)
+        self.assertIn('esta calça jeans',jeans)
+        courino=build_caption(dict(product='Calça de courino feminina',color='preto',niche='casual'),color='preto')
+        self.assertIn('#CalcaDeCourino',courino)
+        self.assertNotIn('#Calcadecourinofemi',courino)
+        for i in range(6):
+            legenda=build_caption(dict(product='Biquíni',color='preto',niche='praia'),color='preto',variation_index=i)
+            self.assertNotIn('Se gostou',legenda)
+
+    def test_compact_actions_drop_poses_and_unconfirmed_features(self):
+        from services.model_library import NICHE_DEFAULTS
+        from services.prompt_improve import build_compact_video_prompt, _moves
+        acoes=_moves({'product':'Peça','movements':NICHE_DEFAULTS['intima']['movements']})
+        self.assertFalse([a for a in acoes if 'pose' in a.casefold() or 'cta' in a.casefold()],acoes)
+        casual=_moves({'product':'Calça de courino','movements':NICHE_DEFAULTS['casual']['movements']})
+        self.assertFalse([a for a in casual if 'bolso' in a],casual)
+        video=generate({'model_name':'Micaela','product':'Calça de courino','color':'Preto','niche':'casual','outfit':'calça',
+                        'audience':'','benefit':'','angle':'','tone':'','style':'','details':'',
+                        'movements':NICHE_DEFAULTS['casual']['movements'],'generator':'grok'})['video']
+        self.assertNotIn('bolso',video.split('AÇÕES',1)[1].split('ENCERRAMENTO',1)[0])
+        compacto=build_compact_video_prompt({'product':'Baby doll','details':'renda','niche':'intima'},
+                                            {'hook':'a','development':'b','cta':'c'},'Vinho')
+        self.assertNotIn('devagar',compacto)
+        self.assertNotIn('"arrume-se',build_compact_video_prompt({'product':'Calça','niche':'dia-a-dia'},
+                                                                 {'hook':'a','development':'b','cta':'c'},'Azul'))
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)

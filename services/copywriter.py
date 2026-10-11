@@ -28,6 +28,7 @@ import urllib.request
 from pathlib import Path
 
 from services import persuasion, speech_bank
+from services.prompts import without_niche_defaults
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
     _dominant_motor, _chosen_motor, color_variants,
@@ -496,8 +497,10 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
     hook = (pack.get('hook') or '').strip().casefold()
     development = (pack.get('development') or '').strip().casefold()
     cta = (pack.get('cta') or '').strip().casefold()
-    briefing = ' '.join(str(c.get(k) or '') for k in
-                        ('product', 'outfit', 'details', 'benefit', 'angle', 'objection')).casefold()
+    # Texto padrao do nicho ("mostrar tecido stretch, cos e suporte") nao
+    # libera promessa: so o que o operador escreveu.
+    briefing = ' '.join(without_niche_defaults(c.get(k)) for k in
+                        ('product', 'outfit', 'details', 'benefit', 'angle', 'objection'))
     for termo in CLAIM_TERMS:
         if termo in falado and termo not in briefing:
             problemas.append(f'"{termo}" não está no briefing e não pode ser afirmado')

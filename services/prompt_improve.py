@@ -23,6 +23,7 @@ import re
 import unicodedata
 
 from services import persuasion
+from services.prompts import shows_unconfirmed_feature
 from services.prompts import (
     _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
@@ -51,7 +52,8 @@ _MOOD = {
     'academia': 'fit check de academia gravado no celular, energia de manhã de treino',
     'praia': 'vlog de férias gravado no celular numa tarde de verão',
     'casual': 'fit check de provador postado no TikTok, gravado no iPhone',
-    'dia-a-dia': 'vídeo "arrume-se comigo" gravado em casa no celular',
+    # Sem aspas: o prompt manda falar "so o que esta entre aspas".
+    'dia-a-dia': 'vídeo de arrume-se comigo gravado em casa no celular',
     'intima': 'provador elegante com estética de editorial suave, nada explícito',
     'fantasia': 'vídeo de revelação de fantasia no TikTok, clima de festa',
 }
@@ -146,6 +148,11 @@ def _moves(c: dict) -> list[str]:
     items = [m.strip(' .') for m in re.split(r'[;\n]|,(?![^()]*\))', raw) if m.strip(' .')]
     # Tira pedidos de camera e giros: o giro vem da orientacao corporal.
     items = [m for m in items if not re.search(r'c[âa]mera|close|zoom|costas|gir|vir', m, re.I)]
+    # Pose, sorriso e "CTA final" nao sao acao: no fluxo continuo viravam
+    # parada ("emendando em seguida: pose inicial frontal"). Mostrar atributo
+    # nao confirmado ("mostrar bolso") tambem sai.
+    items = [m for m in items if not re.search(r'\bpose\b|\bposar\b|\bcta\b|sorri|\bolhar\b', m, re.I)
+             and not shows_unconfirmed_feature(m, c)]
     moves = []
     for item in items:
         # "vestir/ajustar": fica a primeira alternativa que faz sentido vestida.
@@ -318,7 +325,9 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     # Quatro em fila ("passa a mao, ajusta, senta e levanta, gira") deixavam
     # o video corrido.
     falando = mode not in ('pov', 'movimento')
-    steps = movement_steps(c, spoken, limit=3 if falando else MAX_MOVES)
+    # Sem "devagar" no resumido: o Grok deixava tudo em camera lenta.
+    steps = [re.sub(r'\s+devagar\b', '', s)
+             for s in movement_steps(c, spoken, limit=3 if falando else MAX_MOVES)]
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     fala = one_breath(hook, development, cta)

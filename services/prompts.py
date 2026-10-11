@@ -94,17 +94,51 @@ _PRODUCT_FEATURES = (
 _MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster', 'viscose', 'cetim'}
 
 
+_NICHE_TEXTS = None
+
+
+def _niche_default_texts():
+    """Textos padrao dos nichos (detalhes, beneficio, angulo...). Sao direcao
+    de cena preenchida pelo formulario, nao fato do produto."""
+    global _NICHE_TEXTS
+    if _NICHE_TEXTS is None:
+        try:
+            from services.model_library import NICHE_DEFAULTS
+            _NICHE_TEXTS = sorted({_phrase(v).casefold() for d in NICHE_DEFAULTS.values() if isinstance(d, dict)
+                                   for v in d.values() if isinstance(v, str) and len(_phrase(v)) > 12},
+                                  key=len, reverse=True)
+        except Exception:
+            _NICHE_TEXTS = []
+    return _NICHE_TEXTS
+
+
+def without_niche_defaults(text):
+    """Tira do texto os trechos padrao do nicho. No teste das 6 modas, o
+    padrao "Priorizar sensacao de tecido macio" virava o fato confirmado
+    "tecido macio" (e "renda" na moda intima, "alca" na praia) sem o operador
+    ter dito nada."""
+    low = _phrase(text).casefold()
+    for default in _niche_default_texts():
+        low = low.replace(default, ' ')
+    return low
+
+
+def _is_niche_default(value):
+    v = re.sub(r'^(tem|possui)\s+', '', _phrase(value).casefold())
+    return bool(v) and any(v == re.sub(r'^(tem|possui)\s+', '', d) for d in _niche_default_texts())
+
+
 def _product_features(c, limit=3):
     """Return only attributes literally present in the user's brief.
 
     This is deliberately conservative: a local generator is more useful when it
     omits an unconfirmed selling point than when it invents one.
     """
-    source = ' '.join(_phrase(c.get(key)).casefold() for key in
+    source = ' '.join(without_niche_defaults(c.get(key)) for key in
                       ('product', 'outfit', 'details', 'angle', 'benefit'))
     # The product description and benefit are authoritative. An angle such as
     # "mostrar bolso" must not turn "legging sem bolso" into a fake feature.
-    negative_source = ' '.join(_phrase(c.get(key)).casefold() for key in
+    negative_source = ' '.join(without_niche_defaults(c.get(key)) for key in
                                ('product', 'outfit', 'details', 'benefit'))
     found = []
     for label, needles in _PRODUCT_FEATURES:
@@ -286,6 +320,10 @@ def _with_em(value):
 def _benefit_clause(c):
     """Create a grammatical, bounded benefit clause without adding claims."""
     raw = _pt_br(c.get('benefit')).rstrip('.').strip()
+    if _is_niche_default(c.get('benefit')):
+        # "Caimento e ajuste visiveis nos movimentos da rotina" e direcao de
+        # cena; lido em voz alta soava catalogo.
+        return ''
     if not raw or _is_meta_field(raw):
         # Preserve concrete claims when a default also contains one noisy
         # platform promise (for example "caimento firme ... e visual que
@@ -668,8 +706,22 @@ def _turn_direction(c: dict) -> tuple[str, str]:
     )
 
 
+def shows_unconfirmed_feature(action: str, c: dict) -> bool:
+    """'mostrar bolso' numa peca sem bolso confirmado: o padrao do nicho casual
+    pedia isso para qualquer produto e o gerador podia inventar o bolso.
+    So conta acao de mostrar/destacar; "ajustar o cos" e gesto, nao promessa."""
+    low = _phrase(action).casefold()
+    if not re.search(r'\b(mostr|exib|destac|revel)', low):
+        return False
+    confirmed = set(_product_features(c, limit=50))
+    return any(label not in confirmed and any(re.search(rf'\b{re.escape(n)}\b', low) for n in needles)
+               for label, needles in _PRODUCT_FEATURES)
+
+
 def _configured_movement_plan(value: str, c: dict, limit: int = 6) -> str:
     """Combine safe product actions with the one explicitly allowed rotation."""
+    value = '; '.join(part for part in re.split(r'\s*;\s*|\n+', _phrase(value))
+                      if part.strip() and not shows_unconfirmed_feature(part, c))
     cleaned = _movement_without_unapproved_turns(value)
     _direction, turn_action = _turn_direction(c)
     combined = '; '.join(part for part in (cleaned, turn_action) if part)
@@ -682,13 +734,27 @@ def _slug_tag(value, limit=28):
     return tag[:limit]
 
 
+def _camel_tag(text, limit=18):
+    """'calça de courino' -> 'CalcaDeCourino'. Palavras inteiras: cortar no
+    limite gerava #Calcadecourinofemi e #Fantasiadecoelhinh."""
+    tag = ''
+    for word in _phrase(text).split():
+        part = _slug_tag(word, 40)
+        part = part[:1].upper() + part[1:]
+        if tag and len(tag + part) > limit:
+            break
+        tag += part
+    return tag[:limit]
+
+
 def _niche_hashtags(c, color):
     """Build product-aware hashtags (TikTok Shop / UGC style, pt-BR)."""
     blob = ' '.join(_phrase(c.get(k)).casefold() for k in ('product', 'outfit', 'audience', 'angle', 'benefit', 'details'))
     color = _phrase(color)
     specific = []
     rules = [
-        (('legging', 'calça', 'calca', 'legging'), ['Legging', 'LeggingFitness', 'LookAcademia']),
+        (('legging',), ['Legging', 'LeggingFitness', 'LookAcademia']),
+        (('calça', 'calca'), ['CalcaFeminina', 'LookDoDia']),
         (('top', 'cropped', 'crop'), ['TopFitness', 'Cropped', 'LookTreino']),
         (('short',), ['ShortFitness', 'LookAcademia']),
         (('academia', 'treino', 'fitness', 'gym', 'esporte'), ['LookAcademia', 'FitnessBrasil', 'TreinoFeminino']),
@@ -704,13 +770,15 @@ def _niche_hashtags(c, color):
         (('promo', 'oferta', 'barat'), ['AchadinhoBarato', 'Promocao']),
     ]
     for needles, extra in rules:
+        if 'calça' in needles and 'legging' in blob:
+            continue
         if any(n in blob for n in needles):
             for t in extra:
                 if t not in specific:
                     specific.append(t)
     # Use the readable product nickname, otherwise long catalogue names become
     # broken-looking tags such as #Leggingcinturaaltacombol.
-    product_tag = _slug_tag(_product_nick(c.get('product')), 18)
+    product_tag = _camel_tag(_product_nick(c.get('product')), 18)
     color_tag = _slug_tag(color, 16)
     if product_tag and product_tag not in specific:
         specific.insert(0, product_tag)
@@ -793,6 +861,12 @@ def _product_nick(product: str) -> str:
     # "Maiô autoestima / mamãe" -> prefer left side, then soft nick
     if "/" in p:
         p = p.split("/", 1)[0].strip() or p
+    cat = speech_bank.category(speech_bank.detect({'product': p}))
+    if cat:
+        # "Calça de courino feminina" -> "calça de courino"; "Legging cintura
+        # alta" -> "legging" (o rotulo "calça legging" nao esta no produto).
+        label = cat['label'].casefold()
+        return label if label in p.casefold() else cat['piece']
     low = p.casefold()
     if "maiô" in low or "maio" in low:
         return "maiô"
@@ -812,11 +886,11 @@ def _product_nick(product: str) -> str:
 def _caption_cta(i: int = 0) -> str:
     options = [
         "O link tá no carrinho aqui embaixo.",
-        "Se gostou, dá uma conferida no carrinho.",
-        "Corre garantir a tua, link aqui embaixo.",
+        "Corre no carrinho laranja e confere de perto.",
+        "Toca no carrinho laranja e vê os detalhes.",
         "Tá no carrinho, é só tocar.",
         "Confere tamanhos e cores no carrinho.",
-        "Pega a tua no carrinho aqui embaixo.",
+        "Tá no carrinho laranja aqui embaixo.",
     ]
     return options[int(i) % len(options)]
 
@@ -1581,9 +1655,9 @@ def _script_variation(c, color, index=0):
     # desenvolvimento pela ultima batida, nunca pela prova.
     def total():
         return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
-    if total() > 60:
+    if total() > 50:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 60:
+        while len(sentences) > 1 and total() > 50:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -1813,7 +1887,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas nem texto na tela): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
-    facts = ', '.join(features) if features else focus
+    facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
@@ -1922,7 +1996,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
-    facts = ', '.join(features) if features else focus
+    facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter o produto neutro e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
@@ -2063,7 +2137,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
-    facts = ', '.join(features) if features else focus
+    facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
@@ -2120,7 +2194,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (0, f"ENCERRAMENTO ({t2}–15s): de frente para a lente, {closing_hands}. "
             "Uma mão fica na peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta. "
             "Corpo parado: só o rosto, o olhar e esse gesto se movem."),
-        (3, f"EXPRESSÃO: {cena['arc']}. "),
+        (1, f"EXPRESSÃO: {cena['arc']}. "),
         (1, extras),
         (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
             f"0–{t1}s HOOK: plano médio frontal, olhar na lente, produto visível no corpo; a modelo "
