@@ -1348,6 +1348,45 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('"arrume-se',build_compact_video_prompt({'product':'Calça','niche':'dia-a-dia'},
                                                                  {'hook':'a','development':'b','cta':'c'},'Azul'))
 
+    def test_quick_brief_reads_photos_into_a_whole_brief(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        resposta=json.dumps({'product':'Biquíni de amarração com bojo','colors':['Preto','Vermelho'],
+                             'niche':'praia','details':'bojo, forro, amarração','benefit':'Bojo e forro visíveis',
+                             'angle':'Mostrar a amarração no corpo','movements':'ajustar a alça; dar dois passos',
+                             'objection':'não segura em cima','offer':'20% off até domingo',
+                             'social_proof':'2 mil vendidos, nota 4,8'})
+        with patch('services.copywriter._call_with_deadline',return_value=resposta) as chamada:
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':[(io.BytesIO(image_bytes()),'produto.png'),(io.BytesIO(image_bytes()),'costas.png')],
+                'description':(io.BytesIO(image_bytes()),'print.png')})
+        self.assertEqual(r.status_code,200,r.json)
+        brief=r.json['brief']
+        self.assertEqual(brief['product'],'Biquíni de amarração com bojo')
+        self.assertEqual(brief['colors'],'Preto, Vermelho')
+        self.assertEqual(brief['niche'],'praia')
+        self.assertEqual(brief['offer'],'20% off até domingo')
+        # Tres fotos enviadas, cada uma identificada; o print vai por ultimo.
+        user=chamada.call_args.args[3]
+        self.assertIn('Foto 3: print da página do produto',user)
+        self.assertEqual(len(chamada.call_args.args[4]),3)
+        # Nada foi criado: a campanha so nasce depois da conferencia.
+        self.assertEqual(len(self.client.get('/api/campaigns',headers=self.headers).json),1)
+
+    def test_quick_brief_drops_vague_offer_and_unknown_niche(self):
+        from services.copywriter import _parse_quick
+        campos=_parse_quick(json.dumps({'product':'Pijama de cetim','niche':'balada','offer':'preço imperdível',
+                                        'social_proof':'muito elogiado'}),{'praia','dia-a-dia'})
+        self.assertEqual(campos,{'product':'Pijama de cetim'})
+
+    def test_quick_brief_needs_the_writer_and_a_product_photo(self):
+        sem_foto=self.client.post('/api/quick-brief',headers=self.headers,data={})
+        self.assertEqual(sem_foto.status_code,400)
+        with patch.dict(os.environ,{},clear=False):
+            os.environ.pop('OPENAI_API_KEY',None)
+            sem_ia=self.client.post('/api/quick-brief',headers=self.headers,
+                                    data={'product':(io.BytesIO(image_bytes()),'produto.png')})
+        self.assertEqual(sem_ia.status_code,409)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)

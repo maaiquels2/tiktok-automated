@@ -1642,6 +1642,42 @@ def create_app(config=None):
             bank_cache['at'] = now
         return bank_cache['items']
 
+    @app.post('/api/quick-brief')
+    def quick_brief():
+        """Criar com IA: fotos do produto (1 a 3) + print da descricao (opcional)
+        -> briefing inteiro sugerido. Nao cria campanha nem guarda as fotos: a
+        tela mostra o resultado para conferir e cria com o fluxo normal."""
+        from services.model_library import NICHE_IDS
+        produtos=[f for f in request.files.getlist('product') if f and f.filename][:3]
+        descricao=request.files.get('description')
+        if not produtos:
+            raise Invalid('Envie pelo menos uma foto do produto.')
+        images=[]
+        pares=[(f,'foto do produto/roupa' if len(produtos)==1 else f'foto do produto/roupa (ângulo {i})')
+               for i,f in enumerate(produtos,start=1)]
+        if descricao and descricao.filename:
+            pares.append((descricao,'print da página do produto (descrição, preço, avaliações)'))
+        for arquivo,rotulo in pares:
+            fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
+            os.close(fd)
+            temp=Path(temp)
+            try:
+                arquivo.save(temp)
+                try:
+                    _meta,_ext,mime=inspect_media(temp,'product')
+                except (ValueError,EOFError) as exc:
+                    raise Invalid(str(exc)) from exc
+                images.append((temp.read_bytes(),mime,rotulo))
+            finally:
+                temp.unlink(missing_ok=True)
+        settings=copywriter.load_settings(app.config['DATA_DIR'],storage_get=(_storage_get if cloud_mode else None))
+        if not settings.get('provider') or not settings.get('api_key'):
+            raise Invalid('Configure a escrita por IA antes de criar com IA.',409)
+        campos,motivo=copywriter.quick_brief(images,settings,NICHE_IDS)
+        if campos is None:
+            raise Invalid(f'Não foi possível ler as fotos: {motivo}',502)
+        return jsonify(brief=campos)
+
     @app.post('/api/persuasion/preview')
     def persuasion_preview():
         # O que o gerador entendeu da oferta e da prova social, para o
