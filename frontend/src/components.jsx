@@ -354,7 +354,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           {onOpenBank&&!immutable&&<button type="button" disabled={busy} onClick={()=>onOpenBank(variant.id)}><BookOpen size={16}/> Ver falas aprovadas</button>}
         </div>}
         <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
-        <div className="script-budget" aria-label="Palavras por trecho">{[['hook','0–4s',14],['development','4–12s',26],['cta','12–15s',10]].map(([key,time,high])=>{const words=String(p[key]||'').trim().split(/\s+/).filter(Boolean).length;return <span key={key} className={'budget-chip is-'+(!words||words>high?'off':'ok')} title={`${time}: até ${high} palavras`}><em>{time}</em>{words}<small>/máx {high}</small></span>})}</div>
+        <div className="script-budget" aria-label="Palavras por trecho">{[['hook','abertura'],['development','meio'],['cta','fechamento']].map(([key,time])=>{const words=String(p[key]||'').trim().split(/\s+/).filter(Boolean).length;return <span key={key} className={'budget-chip is-'+(!words?'off':'ok')} title={`${time}: sem limite de palavras`}><em>{time}</em>{words}<small> palavras</small></span>})}</div>
         {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
           <div className="variant-prompt" key={key}>
             <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>

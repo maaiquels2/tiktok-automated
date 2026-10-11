@@ -1365,7 +1365,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
             if fid == 'fe-repara' and novas and novas[0].split()[-1].casefold() in reacao.casefold():
                 continue
             texto = f'{reacao} {fecho}'
-            if _count_words(texto) > 26:
+            if _count_words(texto) > 36:
                 texto = reacao
             candidates.append(((ri + fi, ri), (f'{rid}+{fid}', texto)))
     # Com objecao, a prova abre todas as variantes; sem ela, cada variante
@@ -1374,7 +1374,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         candidates.sort(key=lambda item: item[0])
     candidates = [item[1] for item in candidates]
     # Sem piso alto: frase natural curta vale mais que enchimento.
-    return _pick_in_budget(candidates, index, 10, 26, used_keys)
+    return _pick_in_budget(candidates, index, 10, 36, used_keys)
 
 
 def _cta_pool(c, forms):
@@ -1550,9 +1550,9 @@ def _script_variation(c, color, index=0):
     # desenvolvimento pela ultima batida, nunca pela prova.
     def total():
         return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
-    if total() > 45:
+    if total() > 60:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 45:
+        while len(sentences) > 1 and total() > 60:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -1572,10 +1572,10 @@ def _script_variation(c, color, index=0):
 def script_budget(hook, development, cta):
     # Orcamento falado por trecho, usado pela interface e pelo prompt de video.
     return {
-        'hook': dict(words=_count_words(hook), low=10, high=12),
-        'development': dict(words=_count_words(development), low=20, high=24),
-        'cta': dict(words=_count_words(cta), low=7, high=9),
-        'total': dict(words=_count_words(' '.join((hook, development, cta))), low=38, high=45),
+        'hook': dict(words=_count_words(hook), low=10, high=18),
+        'development': dict(words=_count_words(development), low=20, high=40),
+        'cta': dict(words=_count_words(cta), low=7, high=14),
+        'total': dict(words=_count_words(' '.join((hook, development, cta))), low=38, high=70),
     }
 
 

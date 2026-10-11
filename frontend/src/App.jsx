@@ -1005,7 +1005,10 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
   if(selected==='script'){
     const scriptIssues=(c.variants?.length?c.variants.map(v=>[v.color,scriptProblems(v.prompts)]):[['',scriptProblems(c.prompts)]])
       .flatMap(([color,list])=>list.map(item=>color?`${color}: ${item}`:item));
-    return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<><WriterBadge c={c}/><VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onSaveToBank={immutable?null:(vid,texts)=>onSaveToBank?.(texts,vid)} onOpenBank={vid=>onOpenBank?.(item=>onSaveVariant(vid,{hook:item.hook,development:item.development,cta:item.cta}))} onRefreshVariant={onRefreshVariant} onRefreshAllVariants={onRefreshAllVariants} onConfigureWriter={onConfigureWriter} busy={busy} immutable={immutable}/></>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript} onConfigureWriter={onConfigureWriter} onSaveToBank={onSaveToBank} onOpenBank={onOpenBank}/>}<div className="notice">Leia em voz alta. Em campanhas com várias cores, você pode gerar <strong>todas em uma única solicitação</strong> ou somente a cor aberta. A legenda continua na etapa Studio.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{scriptIssues.length>0&&<div className="rd-alert" role="alert"><strong>O roteiro ainda não cabe em 15 segundos.</strong><ul>{scriptIssues.map(item=><li key={item}>{item}</li>)}</ul></div>}{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script||scriptIssues.length>0} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
+    // Fala longa nao barra: so avisa que passa de um clipe de 15 s.
+    const longScripts=(c.variants?.length?c.variants.map(v=>[v.color,spokenWords(v.prompts)]):[['',spokenWords(c.prompts)]])
+      .filter(([,total])=>total>45).map(([color,total])=>color?`${color}: ${total} palavras`:`${total} palavras`);
+    return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<><WriterBadge c={c}/><VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onSaveToBank={immutable?null:(vid,texts)=>onSaveToBank?.(texts,vid)} onOpenBank={vid=>onOpenBank?.(item=>onSaveVariant(vid,{hook:item.hook,development:item.development,cta:item.cta}))} onRefreshVariant={onRefreshVariant} onRefreshAllVariants={onRefreshAllVariants} onConfigureWriter={onConfigureWriter} busy={busy} immutable={immutable}/></>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript} onConfigureWriter={onConfigureWriter} onSaveToBank={onSaveToBank} onOpenBank={onOpenBank}/>}<div className="notice">Leia em voz alta. Em campanhas com várias cores, você pode gerar <strong>todas em uma única solicitação</strong> ou somente a cor aberta. A legenda continua na etapa Studio.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{scriptIssues.length>0&&<div className="rd-alert" role="alert"><strong>Falta completar o roteiro.</strong><ul>{scriptIssues.map(item=><li key={item}>{item}</li>)}</ul></div>}{longScripts.length>0&&<div className="notice">Fala longa ({longScripts.join(' · ')}): passa de ~15 s num clipe só. Tudo bem — no Grok, use a <strong>sequência de clipes</strong> na etapa Criar vídeo para a fala não sair acelerada.</div>}{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script||scriptIssues.length>0} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
   }
   if(selected==='video'){
     if(index<3)return <div className="notice">Aprove as imagens e conclua o roteiro antes de criar o vídeo.</div>;
@@ -1071,33 +1074,33 @@ function missingImageColors(c){
   return colors.filter(color=>!have.has(color));
 }
 // Teto de 15 s: o mesmo que o servidor exige para concluir o roteiro.
-const SCRIPT_LIMITS={hook:['gancho',14],development:['desenvolvimento',26],cta:['chamada',10]};
+const SCRIPT_LIMITS={hook:['gancho'],development:['desenvolvimento'],cta:['chamada']};
+function spokenWords(prompts){return ['hook','development','cta'].reduce((sum,key)=>sum+countWords(prompts?.[key]),0)}
 function scriptProblems(prompts){
   const out=[];let total=0;
-  for(const [key,[name,high]] of Object.entries(SCRIPT_LIMITS)){
-    const words=countWords(prompts?.[key]);total+=words;
-    if(!words)out.push(`falta o ${name}`);
-    else if(words>high)out.push(`${name} com ${words} palavras (máximo ${high})`);
+  // So bloqueia o que falta. Comprimento e orientacao, nunca barreira.
+  for(const [key,[name]] of Object.entries(SCRIPT_LIMITS)){
+    if(!countWords(prompts?.[key]))out.push(`falta o ${name}`);
   }
-  if(!out.length&&total>45)out.push(`${total} palavras no total (máximo 45)`);
   return out;
 }
-const SCRIPT_BUDGET={hook:[10,12,'0–4s'],development:[20,24,'4–12s'],cta:[7,9,'12–15s']};
+const SCRIPT_BUDGET={hook:[10,18,'abertura'],development:[20,40,'meio'],cta:[7,14,'fechamento']};
 function countWords(value){const clean=String(value||'').trim();return clean?clean.split(/\s+/).length:0}
 function ScriptBudget({draft}){
   const rows=Object.entries(SCRIPT_BUDGET).map(([key,[low,high,time]])=>{
     const words=countWords(draft[key]);
-    const state=words>=low&&words<=high?'ok':(words<low?(words>=low-2?'near':'off'):(words<=high+2?'near':'off'));
+    // Acima do alvo nao e erro: fica neutro. Vazio ou curto demais e que pede atencao.
+    const state=words>=low?'ok':(words>=low-2?'near':'off');
     return {key,words,low,high,time,state};
   });
   const total=rows.reduce((sum,row)=>sum+row.words,0);
-  const totalState=total>=38&&total<=45?'ok':(total<=47?'near':'off');
+  const totalState=total<=45?'ok':'near';
   return <div className="script-budget">
     {rows.map(row=><span key={row.key} className={'budget-chip is-'+row.state} title={`${row.time}: alvo ${row.low} a ${row.high} palavras`}>
       <em>{row.time}</em>{row.words}<small>/{row.low}–{row.high}</small>
     </span>)}
-    <span className={'budget-chip is-total is-'+totalState} title="15 segundos cabem entre 38 e 45 palavras faladas">
-      <em>total</em>{total}<small>/38–45</small>
+    <span className={'budget-chip is-total is-'+totalState} title="Até ~45 palavras cabem num clipe de 15 s; acima disso, use a sequência de clipes">
+      <em>total</em>{total}<small>{total>45?' · sequência':' palavras'}</small>
     </span>
   </div>;
 }

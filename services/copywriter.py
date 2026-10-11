@@ -78,7 +78,12 @@ URGENCY_PATTERNS = (
 
 # Tetos cabem em 15 s; os pisos sao baixos de proposito: piso alto obrigava
 # o texto a encher linguica ("com calma", "e o tipo de detalhe que procuro").
-BUDGET = {'hook': (6, 14), 'development': (10, 26), 'cta': (4, 10)}
+# Faixas de ritmo: o piso evita fala rasa; o teto e so referencia. Contagem
+# de palavras nao reprova roteiro -- fala natural vale mais que caber num
+# numero (pedido do estudio depois de os roteiros soarem robóticos).
+BUDGET = {'hook': (6, 20), 'development': (10, 45), 'cta': (4, 16)}
+# Acima disso a fala passa de ~15 s num clipe so; a tela sugere a sequencia
+# de clipes (Extend) em vez de barrar.
 TOTAL_MAX = 45
 
 STAGE_DIRECTION_PATTERNS = (
@@ -127,9 +132,9 @@ OBJETIVO CRIATIVO
 - A direção de câmera e os movimentos acontecem na imagem. A pessoa NÃO fala "aproximo a câmera", "mostrando o caimento", "faço um giro", "close" ou qualquer instrução de produção.
 
 ESTRUTURA (obrigatória)
-- hook (0–4s, 10 a 12 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
-- development (4–12s, 20 a 24 palavras): linguagem falada em primeira pessoa. Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
-- cta (12–15s, 7 a 10 palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
+- hook (abertura, de 10 a 18 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
+- development (meio, de 20 a 40 palavras): linguagem falada em primeira pessoa, com as pausas e emendas de quem conversa ("e olha", "sério", "aí"). Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
+- cta (fechamento, de 7 a 14 palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
 - caption: uma frase de gancho + o que é o produto, e no máximo 5 hashtags no fim.
 
 EXEMPLO DE TRANSFORMAÇÃO (aprenda o princípio, não copie as palavras)
@@ -460,11 +465,6 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
         n = _count_words(texto)
         if strict_style and n < low:
             problemas.append(f'{campo} tem {n} palavras, precisa de pelo menos {low}')
-        elif n > high:
-            problemas.append(f'{campo} tem {n} palavras, o teto é {high}')
-    total = sum(_count_words(pack.get(k) or '') for k in BUDGET)
-    if total > TOTAL_MAX:
-        problemas.append(f'as três falas somam {total} palavras; o teto para 15 segundos é {TOTAL_MAX}')
 
     checked_fields = ('hook', 'development', 'cta', 'caption') if require_caption else ('hook', 'development', 'cta')
     falado = ' '.join((pack.get(k) or '') for k in checked_fields).casefold()
@@ -962,7 +962,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
                     pack={**pack,'cta':_strong_cta(campaign,key_index+candidate_index)}
                 # Em lote, estilo e comprimento minimo orientam o modelo, mas
                 # nao anulam todas as cores. A auditoria ainda bloqueia riscos
-                # concretos e o teto que precisa caber nos 15 segundos.
+                # concretos (fato inventado, urgencia falsa, camera falada).
                 problemas = audit(
                     pack, campaign, require_caption=False, strict_style=False)
                 if problemas:

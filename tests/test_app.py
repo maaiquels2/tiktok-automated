@@ -1222,15 +1222,23 @@ class WorkflowTests(unittest.TestCase):
             ok,msg=real('openai',key)
             self.assertFalse(ok); self.assertIn('recusada',msg)
 
-    def test_script_longer_than_15_seconds_cannot_be_concluded(self):
+    def test_long_script_is_not_blocked_by_word_count(self):
+        # Contagem de palavras orienta, nao barra: fala natural mais longa
+        # segue para o video (a tela sugere a sequencia de clipes).
         self.image_ready()
         self.assertEqual(self.move('image_approved').status_code,200)
         longo=' '.join(['palavra']*30)
         self.assertEqual(self.client.patch(f'/api/campaigns/{self.cid}/prompts',json={'prompts':{'hook':longo},'version':self.get()['version']},headers=self.headers).status_code,200)
-        blocked=self.move('script_ready')
-        self.assertEqual(blocked.status_code,409)
-        self.assertIn('15 segundos',blocked.json['error'])
-        self.assertIn('gancho com 30 palavras',blocked.json['error'])
+        self.assertEqual(self.move('script_ready').status_code,200)
+
+    def test_audit_does_not_reject_a_long_natural_script(self):
+        campanha=dict(product='Legging cintura alta',color='Preto',details='cintura alta',objection='',niche='academia')
+        pack={'hook':'Gente, eu achei a legging que eu tava procurando faz tempo pra treinar e sair depois, sério.',
+              'development':'E olha, eu vesti ela hoje cedo, fui pra academia, agachei, corri na esteira e ela ficou no lugar o tempo todo, '
+                            'sem eu precisar ficar puxando, e a cintura alta deixa tudo bem alinhadinho.',
+              'cta':'Corre lá no carrinho laranja e escolhe a tua cor antes de ir treinar.'}
+        problemas=copywriter_audit(pack,campanha,require_caption=False)
+        self.assertFalse([p for p in problemas if 'teto' in p or 'palavras' in p],problemas)
 
     def test_compact_prompt_keeps_the_face_and_skips_off_body_actions(self):
         from services.prompt_improve import build_compact_video_prompt
@@ -2206,7 +2214,7 @@ class WorkflowTests(unittest.TestCase):
                       tone='conversacional',style='natural',details='',movements='virar de lado',generator='flow')
         prompts=generate(campaign)
         spoken=' '.join(prompts[k] for k in ('hook','development','cta'))
-        self.assertLessEqual(len(spoken.split()),45)
+        self.assertLessEqual(len(spoken.split()),60)
         self.assertNotIn('Mostre ', prompts['development'])
         self.assertNotIn('Aproxime a câmera', prompts['development'])
         # O rotulo de publico saiu da fala de proposito: ele nao prova nada sobre
@@ -2251,7 +2259,7 @@ class WorkflowTests(unittest.TestCase):
                           generator='flow', **defaults)
             prompts=generate(campaign)
             spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta'))
-            self.assertLessEqual(len(spoken.split()), 45, niche)
+            self.assertLessEqual(len(spoken.split()), 60, niche)
 
     def test_explicit_sales_angles_make_copy_persuasive_without_invention(self):
         campaign=dict(model_name='Micaela', product='vestido midi', outfit='vestido', color='preto',
@@ -2262,7 +2270,7 @@ class WorkflowTests(unittest.TestCase):
         prompts=generate(campaign)
         spoken=' '.join(prompts[k] for k in ('hook', 'development', 'cta')).lower()
         self.assertRegex(spoken, r'(econom|qualidade|versátil|versatil)')
-        self.assertLessEqual(len(spoken.split()), 45)
+        self.assertLessEqual(len(spoken.split()), 60)
 
     def test_material_components_and_unisex_language_are_preserved(self):
         campaign=dict(model_name='Micaela', product='calça unissex de poliamida com botões e bolsos',

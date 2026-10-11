@@ -3616,25 +3616,8 @@ def create_app(config=None):
             temp_path.unlink(missing_ok=True)
         return jsonify(detail(cid)), 201
 
-    # Teto falado de 15 s, o mesmo que a auditoria aplica ao texto escrito por
-    # IA. Antes, um roteiro editado a mao com 70 palavras era concluido e o
-    # gerador de video acelerava a fala ou cortava o final.
-    SCRIPT_LIMITS={'hook':('gancho',copywriter.BUDGET['hook'][1]),
-                   'development':('desenvolvimento',copywriter.BUDGET['development'][1]),
-                   'cta':('chamada',copywriter.BUDGET['cta'][1])}
-
-    def script_overflow(prompts):
-        problems=[]
-        total=0
-        for key,(name,high) in SCRIPT_LIMITS.items():
-            words=len(str(prompts.get(key) or '').split())
-            total+=words
-            if words>high:
-                problems.append(f'{name} com {words} palavras (máximo {high})')
-        if not problems and total>copywriter.TOTAL_MAX:
-            problems.append(f'{total} palavras no total (máximo {copywriter.TOTAL_MAX})')
-        return problems
-
+    # Contagem de palavras nao barra a conclusao do roteiro: fala longa vira
+    # aviso na tela (sequencia de clipes), nunca bloqueio.
     @app.post('/api/campaigns/<int:cid>/transition')
     def transition(cid):
         data=body()
@@ -3664,15 +3647,8 @@ def create_app(config=None):
                     vp=variant.get('prompts') or {}
                     if any(not str(vp.get(k) or '').strip() for k in ('hook','development','cta','caption','video')):
                         raise Invalid(f"Complete o roteiro da cor {variant['color']} antes de avançar.",409)
-                    over=script_overflow(vp)
-                    if over:
-                        raise Invalid(f"O roteiro da cor {variant['color']} não cabe em 15 segundos: {', '.join(over)}. Encurte antes de concluir.",409)
             elif any(not str(current['prompts'].get(k) or '').strip() for k in PROMPTS):
                 raise Invalid('Gere e revise todos os textos primeiro.',409)
-            else:
-                over=script_overflow(current['prompts'])
-                if over:
-                    raise Invalid(f"O roteiro não cabe em 15 segundos: {', '.join(over)}. Encurte antes de concluir.",409)
         elif target=='video_approved':
             need_asset(cid,'image',True)
             rows=need_videos(cid)
