@@ -1278,6 +1278,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('preocupação → alívio',compacto)
         self.assertNotIn('mostrando conforto',compacto)
 
+    def test_compact_prompt_flows_without_breaks_between_beats(self):
+        # Tres blocos [0-3s][3-12s][12-15s] com tres falas separadas deixavam
+        # o video travado nas emendas: agora e uma acao continua e uma fala so.
+        from services.prompt_improve import build_compact_video_prompt, one_breath
+        self.assertEqual(one_breath('Eu tinha medo de calça jeans apertar demais','Mas essa aqui é tão macia!',
+                                    'Corre pro carrinho laranja.'),
+                         'Eu tinha medo de calça jeans apertar demais, mas essa aqui é tão macia! Corre pro carrinho laranja.')
+        falas={'hook':'Eu tinha medo de calça jeans apertar demais','development':'Mas essa aqui é tão macia!',
+               'cta':'Corre pro carrinho laranja.'}
+        c={'product':'Calça jeans','details':'tecido macio','movements':'ajustar a peça','body_turns':'leve_lado'}
+        texto=build_compact_video_prompt(c,falas,'Azul')
+        self.assertNotIn('[0–',texto)
+        self.assertNotIn(', depois ',texto)
+        self.assertIn('Ação contínua, sem pausas',texto)
+        self.assertEqual(texto.count('"'),2)
+        self.assertIn('apertar demais, mas essa aqui',texto)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)
@@ -1611,7 +1628,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('sem fala',mudo)
         ugc=build_compact_video_prompt({**base,'body_turns':'costas'},falas,'Preto')
         self.assertIn('vira de costas por um instante',ugc)
-        self.assertIn('Ela agacha',ugc)
+        self.assertIn('sem parar, agacha',ugc)
         self.assertNotIn('girar',ugc)
 
     def test_compact_prompt_caps_actions_three_with_speech_four_silent(self):
@@ -1619,7 +1636,9 @@ class WorkflowTests(unittest.TestCase):
         falas={'hook':'Olha isso.','development':'Veste muito bem.','cta':'Confere no carrinho.'}
         tres=build_compact_video_prompt({'product':'Legging','movements':'caminhar, agachar, alongar'},falas,'Preto')
         # Narrado na terceira pessoa: "Ela caminha", nao "Ela caminhar".
-        self.assertIn('Ela caminha, depois agacha, depois alonga',tres)
+        self.assertIn('caminha, emendando em seguida: agacha, e no mesmo embalo alonga',tres)
+        # Acoes emendadas, nunca 'depois... depois': no Grok isso travava as emendas.
+        self.assertNotIn(', depois ',tres)
         seis=build_compact_video_prompt({'product':'Legging','body_turns':'lado',
                                          'movements':'caminhar; agachar; alongar; sentar; pular; dançar'},falas,'Preto')
         # Com fala: 3 acoes (duas do briefing e o giro). Quatro em fila deixavam

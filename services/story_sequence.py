@@ -17,7 +17,7 @@ import math
 import re
 
 from services.prompt_improve import (
-    _clean, _quote, _touch_point, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
+    _clean, _quote, _touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
 from services import persuasion
 from services.prompts import _count_words, _dominant_motor, _focus_parts, _video_mode, _with_em
@@ -55,10 +55,14 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     touch_em = 'no cós' if touch == 'o cós' else 'na peça'
     shot = framing(c) if mode == 'movimento' else speech_framing(c)
     spoken = f'{hook} {development}'
-    steps = ', depois '.join(movement_steps(c, spoken)[:3])
+    # Com fala, o mesmo teto do prompt resumido: 3 acoes no meio.
+    steps = flow(movement_steps(c, spoken, limit=3 if not silent else 4)[:3])
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
-    keep_line = 'Continuação do mesmo take: mesma pessoa, mesma roupa, mesmo ambiente e mesma luz.'
+    keep_line = 'Continuação do mesmo take, já em movimento: mesma pessoa, roupa e luz; segue o último quadro sem pausa.'
+    # Emenda das partes: quem para no ultimo quadro faz o Extend recomecar
+    # do zero, e o video final trava na juncao.
+    ends_moving = 'Termina em movimento, sem parar no último quadro.'
     voice = ('Fala: espontânea, como quem conta uma descoberta para uma amiga; tom animado na medida, '
              'entonação natural e sorriso na voz, nada de locução. Voz feminina em português do Brasil, lábios '
              'sincronizados, só o que está entre aspas; som ambiente baixo, sem música. Sem texto na tela.')
@@ -70,12 +74,14 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             f'A câmera é o olhar de quem veste {keeps}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, take contínuo com leve balanço natural.',
             f'A mão aparece e mostra {touch} pela primeira vez, com curiosidade. Narração: "{hook}"',
+            ends_moving,
             'Som: voz feminina natural em português do Brasil, só a frase entre aspas; som ambiente baixo, '
             'sem música. Sem texto na tela.',
         ])
         middle = '\n'.join([
             f'{keep_line} O rosto nunca aparece.',
             f'{pov_hands(c, spoken)}, devagar; a câmera acompanha as mãos. Narração: "{development}"',
+            ends_moving,
         ])
         last = '\n'.join([
             f'{keep_line} O rosto nunca aparece.',
@@ -88,11 +94,13 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             'vestindo exatamente o que aparece nela. Luz: a mesma da imagem.',
             f'Câmera: fixa na altura do peito, {shot}, sem zoom, take contínuo.',
             f'Ela {cena["hook"]}.',
+            ends_moving,
             'Som: sem voz e sem fala; só som ambiente discreto. Sem texto na tela.',
         ])
         middle = '\n'.join([
             keep_line,
             f'Ela {steps}, em movimentos lentos e contínuos. Câmera fixa, sem zoom. Sem fala.',
+            ends_moving,
         ])
         last = '\n'.join([
             keep_line,
@@ -107,16 +115,18 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             f'Câmera: na mão, estável, {shot}, take contínuo, sem cortes.',
             f'Ela {cena["hook"]}. Ela diz: "{hook}"',
             f'Expressão: {cena["arc"].split(" → ")[0]}.',
+            ends_moving,
             voice,
         ])
         middle = '\n'.join([
             keep_line,
-            f'Ela {steps}, devagar; a câmera faz um dolly-in lento até {push_target(c)} e volta, '
-            f'com o rosto sempre no quadro. Ela continua a conversa, no mesmo tom: "{development}"',
+            f'Ela {steps}, devagar; dolly-in lento até {push_target(c)} e volta, rosto sempre no quadro. '
+            f'Ela emenda a fala, no mesmo tom: "{development}"',
+            ends_moving,
         ])
         last = '\n'.join([
             keep_line,
-            f'Ela para de frente para a lente e {cena["cta"]}; sorriso confiante, a câmera fica parada. '
+            f'Ela termina de frente para a lente e {cena["cta"]}; sorriso confiante, a câmera fica parada. '
             f'E fecha, sorrindo: "{cta}"',
         ])
 
