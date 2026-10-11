@@ -75,7 +75,9 @@ URGENCY_PATTERNS = (
     r'\b\d{1,3}\s*%\s*(?:off|de\s+desconto)\b',
 )
 
-BUDGET = {'hook': (9, 14), 'development': (18, 26), 'cta': (6, 10)}
+# Tetos cabem em 15 s; os pisos sao baixos de proposito: piso alto obrigava
+# o texto a encher linguica ("com calma", "e o tipo de detalhe que procuro").
+BUDGET = {'hook': (6, 14), 'development': (10, 26), 'cta': (4, 10)}
 TOTAL_MAX = 45
 
 STAGE_DIRECTION_PATTERNS = (
@@ -137,9 +139,10 @@ REGRAS INEGOCIÁVEIS
 3. Nunca repita a mesma expressão em duas batidas. Se o hook usou uma palavra-chave, o desenvolvimento usa outra.
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
-6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Não afirme ter comprado, testado ou usado por um período (isso não está confirmado no briefing) e não narre gestos nem movimentos que o público já está vendo.
+6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Pode falar do momento que o vídeo mostra ("tô usando agora", "olha como ela fica no corpo", "fiquei com vontade de usar todo dia"). Não invente história que ninguém pode verificar ("uso há meses", "lavei vinte vezes", "comprei mês passado").
 7. "Corre", "aproveita", "agora" e "garante a tua" criam impulso e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "antes que esgote", "acaba hoje", "esse preço vai sumir", "50% off", "promoção relâmpago". Só use essas alegações quando a OFERTA REAL confirmar exatamente isso.
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
+9. ORALIDADE: escreva como se fala no Brasil, não como se escreve. Use "pra", "tá", "tô", "cê" quando soar natural; no máximo uma interjeição curta ("gente", "olha", "sério"); frases curtas ligadas por "e", "aí", "e o melhor". Hook, desenvolvimento e CTA são UM pensamento contínuo: o desenvolvimento continua o hook, não recomeça. Nunca empilhe ordens ("Repara... Olha... Veja..."), nunca liste atributos e nunca repita no desenvolvimento o atributo que o hook já disse.
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"options": [{"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}]}"""

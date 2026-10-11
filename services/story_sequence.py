@@ -57,8 +57,9 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     steps = ', depois '.join(movement_steps(c, spoken)[:3])
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'
     keep_line = 'Continuação do mesmo take: mesma pessoa, mesma roupa, mesmo ambiente e mesma luz.'
-    voice = ('Som: voz feminina natural em português do Brasil, com os lábios sincronizados, '
-             'só a frase entre aspas; som ambiente baixo, sem música. Sem texto na tela.')
+    voice = ('Fala: espontânea, como quem conta uma descoberta para uma amiga; tom animado na medida, '
+             'entonação natural e sorriso na voz, nada de locução. Voz feminina em português do Brasil, lábios '
+             'sincronizados, só o que está entre aspas; som ambiente baixo, sem música. Sem texto na tela.')
 
     if mode == 'pov':
         first = '\n'.join([
@@ -108,12 +109,12 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         middle = '\n'.join([
             keep_line,
             f'Ela {steps}, devagar; a câmera faz um dolly-in lento até {push_target(c)} e volta, '
-            f'com o rosto sempre no quadro. Ela diz: "{development}"',
+            f'com o rosto sempre no quadro. Ela continua a conversa, no mesmo tom: "{development}"',
         ])
         last = '\n'.join([
             keep_line,
             f'Ela para de frente para a lente, as duas mãos apoiadas {touch_em}, sorriso leve e confiante; '
-            f'a câmera fica parada. Ela diz: "{cta}"',
+            f'a câmera fica parada. E fecha, sorrindo: "{cta}"',
         ])
 
     _focus, features = _focus_parts(c)

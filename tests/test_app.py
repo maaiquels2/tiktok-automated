@@ -398,6 +398,7 @@ class WorkflowTests(unittest.TestCase):
         prompts=generate(campaign)
         self.assertIn('transparente',prompts['hook'].lower())
         self.assertIn('contra a luz',prompts['development'].lower())
+        self.assertIn('por isso',prompts['development'].lower())
         self.assertRegex(prompts['cta'].lower(),r'carrinho|link t[áa] (aqui )?embaixo')
 
     def test_offer_is_the_only_source_of_urgency(self):
@@ -1677,10 +1678,12 @@ class WorkflowTests(unittest.TestCase):
             'cta':'Veja no carrinho qual versão combina com você.',
         }
         self.assertEqual(cw._count_words(azul['development']),17)
-        self.assertTrue(any('pelo menos 18' in item for item in
-                            cw.audit(azul,campaigns[0],require_caption=False)))
-        self.assertFalse(any('pelo menos 18' in item or 'primeira pessoa' in item for item in
-                             cw.audit(azul,campaigns[0],require_caption=False,strict_style=False)))
+        piso=cw.BUDGET['development'][0]
+        curto={**azul,'development':'Ficou lindo no corpo.'}
+        self.assertTrue(any(f'pelo menos {piso}' in item for item in
+                            cw.audit(curto,campaigns[0],require_caption=False)))
+        self.assertFalse(any(f'pelo menos {piso}' in item or 'primeira pessoa' in item for item in
+                             cw.audit(curto,campaigns[0],require_caption=False,strict_style=False)))
         raw=json.dumps({'scripts':[
             {'key':'azul','options':[azul]},
             {'key':'branco','options':[branco]},

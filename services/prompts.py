@@ -1165,7 +1165,6 @@ def _hook_pool(c, detail, forms):
     # Uso: eu com a peca, agora.
     uso = [
         ('uso-gostei', f'Vesti {dem} {piece} e {det} foi o que mais gostei.'),
-        ('uso-volto', f'Uso {dem} {piece} e sempre acabo voltando {det_em}.'),
     ]
     # Necessidade: a dor que o briefing declarou, na minha voz.
     necessidade = []
@@ -1200,69 +1199,111 @@ def _hook_pool(c, detail, forms):
     return pool
 
 
+# Prova falada de cada objecao: primeira pessoa, presente, sobre o que o
+# video mostra. As versoes de _OBJECTION_PRESETS sao direcao de camera
+# ("Olha contra a luz e confira a cobertura") e, lidas em voz alta, viravam
+# ordem de locutor.
+_SPOKEN_CHECK = {
+    'transparencia': 'Por isso tô aqui contra a luz, pra você conferir.',
+    'desce': 'Por isso tô me mexendo aqui, pra você ver se o cós segura.',
+    'tamanho': 'Por isso quis mostrar ela inteira no corpo.',
+    'qualidade': 'Por isso quis te mostrar o acabamento e a costura.',
+    'durabilidade': 'Por isso quis te mostrar a costura e o acabamento.',
+    'conforto': 'Por isso tô em movimento, pra você ver como ela acompanha.',
+    'preco': 'E olha quantas combinações saem da mesma peça.',
+    'marca': 'Por isso mostro de frente e de lado, pra você conferir.',
+}
+
+
+def _objection_key(c):
+    low = _phrase(c.get('objection')).casefold()
+    for key, needles, _pain, _check in _OBJECTION_PRESETS:
+        if low and any(n in low for n in needles):
+            return key
+    return ''
+
+
+# Ocasioes como se fala (as de _NICHE_OCCASION seguem no briefing da IA).
+_SPOKEN_OCCASION = {
+    'academia': 'no treino e depois na rua',
+    'praia': 'na praia e na piscina',
+    'casual': 'no dia a dia',
+    'dia-a-dia': 'em casa ou pra sair correndo',
+    'intima': 'no dia a dia',
+    'fantasia': 'na festa',
+}
+
+
 def _development_line(c, detail, features, forms, index, used_keys=()):
-    # Tres batidas: prova (4-6s), objecao quebrada (6-10s), posse (10-12s).
-    # A auditoria pede de 18 a 26 palavras: as combinacoes de prova e
-    # fechamento existem para o trecho cair dentro da faixa em vez de sair
-    # curto demais, que era o defeito antigo ("development tem 17 palavras").
+    """O meio da fala, como gente fala: uma reacao em primeira pessoa que
+    continua o gancho, e nao tres ordens soltas.
+
+    A versao anterior colava "Repara no X com calma." + a instrucao de camera
+    da objecao + "Da para usar ...". O primeiro video gerado com ela soou como
+    locucao: o atributo do gancho repetido, direcao de camera lida em voz alta
+    e "com calma" so para alcancar um minimo de palavras.
+
+    Ordem do que ela fala: a objecao do briefing (com a prova que o video
+    mostra), senao o beneficio escolhido, senao outro atributo. Depois, o
+    detalhe do angulo de venda que o gancho ainda nao disse, ou a ocasiao de
+    uso. Nada fora dos fatos do briefing; opiniao declarada e livre.
+    """
     feats = list(features or [])
-    benefit_preview = _benefit_clause(c).casefold()
-    # Se o beneficio ja cita o primeiro fato, a prova usa o segundo. Repetir a
-    # mesma palavra em duas batidas queima segundos sem acrescentar argumento.
-    if feats and len(feats) > 1 and feats[0].casefold() in benefit_preview:
-        det = _with_article(feats[1])
-    else:
-        det = _phrase(detail)
-    det_em = _with_em(det)
-    provas = [
-        ('prv-olha', f'Olha {det} de perto.'),
-        ('prv-repara', f'Repara {det_em} com calma.'),
-        ('prv-aqui', f'Aqui aparece {det}.'),
-        ('prv-reparei', f'Eu reparei {det_em} primeiro.'),
-        ('prv-fui', f'Fui ver {det} de perto.'),
-        ('prv-parte', f'A parte que eu mais olho é {det}.'),
-    ]
-    _pain, check = _objection_parts(c)
+    hook_fact = (feats[0] if feats else '').casefold()
+    dem, piece, pron = forms['dem'], forms['piece'], forms['pron']
+    pain, _check = _objection_parts(c)
+    spoken_check = _SPOKEN_CHECK.get(_objection_key(c), '')
     benefit = _benefit_clause(c)
     benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
-    if check:
-        meio = _sentence(check)
-    elif benefit_text:
-        if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega)\b', benefit_text, re.I):
-            meio = _sentence(f'{forms["dem"].capitalize()} {forms["piece"]} {benefit_text}')
-        else:
-            meio = _sentence(f'{forms["dem"].capitalize()} {forms["piece"]} tem {benefit_text}')
-    else:
-        meio = ''
-    occasion = _NICHE_OCCASION.get((c.get('niche') or '').strip(), '')
-    fechamentos = []
-    if occasion:
-        fechamentos = [
-            ('fec-da', _sentence(f'Dá para usar {occasion}')),
-            ('fec-eu', _sentence(f'Eu mesma uso {occasion}')),
-        ]
-    # Fechamento de opiniao: nao afirma desempenho, so declara preferencia.
-    # Serve para o trecho alcancar o piso de 18 palavras sem inventar atributo.
-    fechamentos.append(('fec-tipo', 'É o tipo de detalhe que eu procuro.'))
+    if benefit_text and hook_fact and hook_fact.split()[-1] in benefit_text.casefold():
+        benefit_text = ''
+    second = _with_article(feats[1]) if len(feats) > 1 else ''
 
-    def _primeira(texto):
-        palavras = _phrase(texto).split()
-        return palavras[0].casefold() if palavras else ''
+    reacoes = []
+    if pain:
+        # O gancho ja disse a dor; o meio continua dali, sem repeti-la.
+        reacoes.append(('re-porisso', spoken_check or 'Por isso fiz questão de te mostrar aqui.'))
+    if benefit_text:
+        verbo = '' if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|combina|entrega)\b',
+                               benefit_text, re.I) else 'tem '
+        reacoes.append(('re-melhor', f'E o melhor é que {pron} {verbo}{benefit_text}.'))
+    if second and not re.match(r'^(o tecido )?sem\b', second, re.I):
+        reacoes.append(('re-tambem', f'E ainda tem {second}, que era bem o que eu procurava.'))
+    reacoes += [
+        ('re-veste', f'E olha como {pron} veste, fiquei com vontade de usar todo dia.'),
+        ('re-gostei', 'Sinceramente, gostei muito mais do que eu imaginava.'),
+    ]
+
+    # Detalhe do angulo de venda que o gancho ainda nao citou ("o cós").
+    partes = [p.strip() for p in re.split(r'\s+e\s+|,\s*', _phrase(detail)) if p.strip()]
+    hook_words = set(re.findall(r'\w{3,}', hook_fact))
+    novas = [p for p in partes if not (hook_words & set(re.findall(r'\w{3,}', p.casefold())))
+             and not re.match(r'^(o tecido )?sem\b|^o caimento', p, re.I)]
+    fechos = []
+    if novas:
+        alvo = _with_em(novas[0])
+        fechos.append(('fe-repara', f'E repara {alvo}, ficou um charme.'))
+    occasion = _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), '')
+    if occasion:
+        fechos += [
+            ('fe-usar', f'Dá pra usar {occasion} numa boa.'),
+            ('fe-serve', f'Serve {occasion}, sem pensar muito.'),
+        ]
+    if not fechos:
+        fechos.append(('fe-cara', 'Achei a cara do meu dia a dia.'))
 
     candidates = []
-    for ptid, prova in provas:
-        # Duas batidas seguidas comecando pela mesma palavra ("Olha o coso de
-        # perto. Olha contra a luz...") soam como gagueira em 15 segundos.
-        colide = bool(meio) and _primeira(prova) == _primeira(meio)
-        for ftid, fecho in fechamentos:
-            beats = [b for b in (_sentence(prova), meio, fecho) if b]
-            texto = ' '.join(beats)
+    for rid, reacao in reacoes:
+        for fid, fecho in fechos:
+            # "E o melhor e que ela tem tecido macio. E repara no tecido macio"
+            if fid == 'fe-repara' and novas and novas[0].split()[-1].casefold() in reacao.casefold():
+                continue
+            texto = f'{reacao} {fecho}'
             if _count_words(texto) > 26:
-                texto = ' '.join(beats[:-1])
-            candidates.append((f'{ptid}+{ftid}', texto, colide))
-    limpos = [(tid, txt) for tid, txt, colide in candidates if not colide]
-    escolha = limpos or [(tid, txt) for tid, txt, _c in candidates]
-    return _pick_in_budget(escolha, index, 18, 26, used_keys)
+                texto = reacao
+            candidates.append((f'{rid}+{fid}', texto))
+    # Sem piso alto: frase natural curta vale mais que enchimento.
+    return _pick_in_budget(candidates, index, 8, 26, used_keys)
 
 
 def _cta_pool(c, forms):
@@ -1282,6 +1323,8 @@ def _cta_pool(c, forms):
         ('cta-aproveita', 'Aproveita e garante a sua versão no carrinho laranja.'),
         ('cta-agora', 'Não deixa pra depois: confere no carrinho laranja agora.'),
         ('cta-toca', 'Toca no carrinho laranja e vê todos os detalhes.'),
+        ('cta-tala', 'Tá no carrinho laranja, corre lá e vê de pertinho.'),
+        ('cta-deixei', 'Deixei no carrinho laranja pra você, corre lá.'),
     ]
     if len(colors) > 1:
         direto = [

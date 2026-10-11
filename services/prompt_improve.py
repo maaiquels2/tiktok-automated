@@ -244,6 +244,18 @@ def pov_hands(c: dict, spoken: str = '') -> str:
     return f'Com a mão livre, ela {proof}'
 
 
+# Direcao de fala. As tres frases sao um so pensamento: sem isso o gerador
+# trata cada trecho como um anuncio separado, com pausa e entonacao de
+# locutor. Tom de conversa com amiga, nao de propaganda.
+SPEECH = ('Fala: uma conversa só, do começo ao fim, como quem conta uma descoberta para uma amiga; '
+          'tom espontâneo e animado na medida, entonação que sobe e desce, respiro natural entre as ideias, '
+          'sorriso na voz; nada de locução nem de anúncio. Voz feminina em português do Brasil, lábios '
+          'sincronizados, só o que está entre aspas; som ambiente baixo, sem música.')
+SPEECH_POV = ('Fala: narração de quem está testando e comentando sozinha, num tom baixo e espontâneo, '
+              'como pensando em voz alta; uma conversa só, sem pausa de locutor. Voz feminina em português '
+              'do Brasil, só o que está entre aspas; som ambiente baixo, sem música.')
+
+
 def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     model = _clean(c.get('model_name')) or 'a modelo'
     product = _clean(c.get('product')) or _clean(c.get('outfit')) or 'a peça'
@@ -274,10 +286,10 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, um único take contínuo com leve balanço natural; '
             'tilt lento para baixo no final.',
-            f'[0–4s] A câmera olha para baixo e as mãos mostram {touch}. Narração: "{hook}"',
-            f'[4–12s] {pov_hands(c, spoken)}, devagar. Narração: "{development}"',
-            f'[12–15s] Tilt lento para baixo mostrando a peça inteira no corpo. Narração: "{cta}"',
-            'Som: voz feminina natural em português do Brasil, só as frases entre aspas; som ambiente baixo, sem música.',
+            f'[0–4s] A câmera olha para baixo e as mãos mostram {touch}. Ela começa: "{hook}"',
+            f'[4–12s] {pov_hands(c, spoken)}, devagar. Ela continua, no mesmo fôlego: "{development}"',
+            f'[12–15s] Tilt lento para baixo mostrando a peça inteira no corpo. E fecha: "{cta}"',
+            SPEECH_POV,
             closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: o rosto nunca aparece; ', 1),
         ])
 
@@ -298,10 +310,9 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         first_frame, light,
         f'Câmera: na mão, estável, {shot}, um único take contínuo; dolly-in lento até {push_target(c)} '
         'no meio do vídeo e volta ao plano inicial no final. O rosto fica sempre no quadro enquanto ela fala.',
-        f'[0–4s] Ela dá um passo em direção à câmera, olha para a lente e toca {touch}. Ela diz: "{hook}"',
-        f'[4–12s] {middle}. Ela diz: "{development}"',
-        f'[12–15s] De frente para a lente, as duas mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante. Ela diz: "{cta}"',
-        'Som: voz feminina natural em português do Brasil, com os lábios sincronizados, só as frases entre aspas; '
-        'som ambiente baixo, sem música.',
+        f'[0–4s] Ela dá um passo em direção à câmera, olha para a lente e toca {touch}. Ela começa: "{hook}"',
+        f'[4–12s] {middle}. Ela continua, no mesmo fôlego: "{development}"',
+        f'[12–15s] De frente para a lente, as duas mãos apoiadas {touch_em}, corpo parado, sorriso leve e confiante. E fecha: "{cta}"',
+        SPEECH,
         close,
     ])
