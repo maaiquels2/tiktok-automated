@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os
 import re
 import time
 import urllib.error
@@ -237,11 +238,23 @@ def load_settings(data_dir, storage_get=None) -> dict:
     if not isinstance(raw, dict):
         raw = {}
     provider = raw.get('provider') if raw.get('provider') in PROVIDERS else ''
+    api_key = str(raw.get('api_key') or '')
+    enabled = bool(raw.get('enabled'))
+    source = 'saved' if api_key else ''
+    # Chave da OpenAI guardada como variavel de ambiente secreta (Vercel ou
+    # .env do PC). Nunca no codigo: o repositorio vai para o GitHub e a
+    # OpenAI revoga sozinha toda chave que aparece la. A chave salva pela
+    # tela continua tendo prioridade; desligar a IA na tela tambem vale.
+    env_key = os.environ.get('OPENAI_API_KEY', '').strip()
+    if not api_key and env_key and provider in ('', 'openai'):
+        provider, api_key, source = 'openai', env_key, 'env'
+        enabled = bool(raw.get('enabled', True))
     return {
         'provider': provider,
-        'api_key': str(raw.get('api_key') or ''),
+        'api_key': api_key,
         'model': str(raw.get('model') or DEFAULT_MODELS.get(provider, '')),
-        'enabled': bool(raw.get('enabled')) and bool(provider) and bool(raw.get('api_key')),
+        'enabled': enabled and bool(provider) and bool(api_key),
+        'key_source': source,
     }
 
 
@@ -317,6 +330,10 @@ def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) ->
     if 'enabled' in values:
         current['enabled'] = bool(values['enabled'])
     current['enabled'] = bool(current['enabled'] and current['provider'] and current['api_key'])
+    # A chave que veio do ambiente nunca e copiada para o arquivo salvo.
+    from_env = current.pop('key_source', '') == 'env' and not (isinstance(key, str) and key.strip())
+    if from_env:
+        current['api_key'] = ''
     if storage_put is not None:
         storage_put(STORAGE_KEY, json.dumps(current, ensure_ascii=False, indent=2).encode('utf-8'), 'application/json')
     else:
@@ -335,6 +352,7 @@ def public_settings(data_dir, storage_get=None) -> dict:
         'enabled': s['enabled'],
         'has_key': bool(key),
         'key_hint': f'…{key[-4:]}' if len(key) >= 4 else '',
+        'key_source': s.get('key_source', ''),
         'providers': list(PROVIDERS),
         'default_models': DEFAULT_MODELS,
     }

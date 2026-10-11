@@ -1288,6 +1288,25 @@ class WorkflowTests(unittest.TestCase):
                     if categoria=='short_legging':
                         self.assertNotIn('legging',falas['hook'].casefold().replace('short legging',''))
 
+    def test_openai_key_from_environment_turns_the_writer_on(self):
+        import services.copywriter as cw
+        with patch.dict(os.environ,{'OPENAI_API_KEY':'sk-proj-teste-de-ambiente-1234567890abcd'}):
+            settings=cw.load_settings(self.config['DATA_DIR'])
+            self.assertTrue(settings['enabled'])
+            self.assertEqual(settings['provider'],'openai')
+            self.assertEqual(settings['key_source'],'env')
+            publico=self.client.get('/api/writer',headers=self.headers).json
+            self.assertTrue(publico['has_key'])
+            self.assertNotIn('sk-proj',json.dumps(publico))
+            # Desligar na tela continua valendo com a chave do ambiente.
+            self.client.patch('/api/writer',json={'enabled':False},headers=self.headers)
+            self.assertFalse(cw.load_settings(self.config['DATA_DIR'])['enabled'])
+            gravado=(Path(self.config['DATA_DIR'])/cw.SETTINGS_FILE).read_text(encoding='utf-8')
+            self.assertNotIn('sk-proj',gravado)
+        with patch.dict(os.environ,{},clear=False):
+            os.environ.pop('OPENAI_API_KEY',None)
+            self.assertFalse(cw.load_settings(self.config['DATA_DIR'])['enabled'])
+
     def test_writer_key_is_checked_before_it_is_saved(self):
         with patch('services.copywriter.verify_key',return_value=(False,'A chave foi recusada pelo provedor.')) as check:
             response=self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-chave-errada-123456789012','enabled':True},headers=self.headers)

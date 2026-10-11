@@ -602,7 +602,7 @@ export default function App(){
     const colors=colorList(item.color);
     return <article className={'rd-campaign'+(c?.id===item.id?' is-active':'')} key={item.id}>
       <div className="rd-campaign-cover">
-        {item.cover_asset_id&&<img src={`/api/assets/${item.cover_asset_id}/file`} alt="" loading="lazy"/>}
+        {item.cover_asset_id&&<img src={`/api/assets/${item.cover_asset_id}/file`} alt="" loading="lazy" onError={hideBrokenImage}/>}
         <span className={'rd-status is-'+phaseTone(item.status)}>{statusLabels[item.status]}</span>
         {item.niche&&<span className="rd-niche-tag">{nicheLabel(item.niche)}</span>}
       </div>
@@ -660,7 +660,7 @@ export default function App(){
     <main className="rd-home" aria-busy={loading}>
       <div className="rd-home-main">
         {homeView==='ativas'&&!loading&&continueItem&&<section className="rd-continue" aria-label="Continue de onde parou">
-          {continueItem.cover_asset_id?<img className="rd-continue-cover" src={`/api/assets/${continueItem.cover_asset_id}/file`} alt=""/>:<span className="rd-continue-cover" aria-hidden="true"/>}
+          {continueItem.cover_asset_id?<img className="rd-continue-cover" src={`/api/assets/${continueItem.cover_asset_id}/file`} alt="" onError={hideBrokenImage}/>:<span className="rd-continue-cover" aria-hidden="true"/>}
           <div className="rd-continue-body">
             <span className="rd-rec-label">CONTINUE DE ONDE PAROU</span>
             <h1>{continueItem.name}</h1>
@@ -1076,6 +1076,9 @@ function missingImageColors(c){
 // Teto de 15 s: o mesmo que o servidor exige para concluir o roteiro.
 const SCRIPT_LIMITS={hook:['gancho'],development:['desenvolvimento'],cta:['chamada']};
 function spokenWords(prompts){return ['hook','development','cta'].reduce((sum,key)=>sum+countWords(prompts?.[key]),0)}
+// Foto que nao carrega (arquivo apagado do armazenamento) some, em vez de
+// deixar o icone de imagem quebrada no cartao.
+function hideBrokenImage(event){event.currentTarget.style.visibility='hidden'}
 function scriptProblems(prompts){
   const out=[];let total=0;
   // So bloqueia o que falta. Comprimento e orientacao, nunca barreira.
