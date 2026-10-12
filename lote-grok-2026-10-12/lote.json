@@ -1,0 +1,102 @@
+[
+ {
+  "id": "C1-creme-facial",
+  "tipo": "pele",
+  "formato": "mesa",
+  "produto": "Creme hidratante facial",
+  "cena": "pele",
+  "chars_completo": 3294,
+  "chars_guia": 2362,
+  "auditoria": [],
+  "plano_b": true,
+  "auditoria_planoB": [],
+  "chars_planoB": 3276
+ },
+ {
+  "id": "C2-protetor-solar",
+  "tipo": "pele",
+  "formato": "mesa",
+  "produto": "Protetor solar facial",
+  "cena": "pele",
+  "chars_completo": 3210,
+  "chars_guia": 2363,
+  "auditoria": [],
+  "plano_b": true,
+  "auditoria_planoB": [],
+  "chars_planoB": 3192
+ },
+ {
+  "id": "C3-brinco-argola",
+  "tipo": "joia",
+  "formato": "mesa",
+  "produto": "Brinco de argola dourada",
+  "cena": "brinco",
+  "chars_completo": 3181,
+  "chars_guia": 2272,
+  "auditoria": [],
+  "plano_b": true,
+  "auditoria_planoB": [],
+  "chars_planoB": 3162
+ },
+ {
+  "id": "C4-colar-ponto-de-luz",
+  "tipo": "joia",
+  "formato": "mesa",
+  "produto": "Colar ponto de luz",
+  "cena": "colar",
+  "chars_completo": 3006,
+  "chars_guia": 2113,
+  "auditoria": [],
+  "plano_b": true,
+  "auditoria_planoB": [],
+  "chars_planoB": 3034
+ },
+ {
+  "id": "C5-pijama-cetim",
+  "tipo": "roupa",
+  "formato": "mesa",
+  "produto": "Pijama de cetim",
+  "cena": "roupa",
+  "chars_completo": 3135,
+  "chars_guia": 2183,
+  "auditoria": [],
+  "plano_b": true,
+  "auditoria_planoB": [],
+  "chars_planoB": 3143
+ },
+ {
+  "id": "C6-calca-jeans",
+  "tipo": "roupa",
+  "formato": "mesa",
+  "produto": "Calça jeans",
+  "cena": "roupa",
+  "chars_completo": 3108,
+  "chars_guia": 2187,
+  "auditoria": [],
+  "plano_b": true,
+  "auditoria_planoB": [],
+  "chars_planoB": 3116
+ },
+ {
+  "id": "K1-pijama-cetim-espelho",
+  "tipo": "controle",
+  "formato": "espelho",
+  "produto": "Pijama de cetim",
+  "cena": "espelho",
+  "chars_completo": 3932,
+  "chars_guia": 2333,
+  "auditoria": [],
+  "plano_b": false
+ },
+ {
+  "id": "K2-calca-jeans-espelho",
+  "tipo": "controle",
+  "formato": "espelho",
+  "produto": "Calça jeans",
+  "cena": "espelho",
+  "chars_completo": 3880,
+  "chars_guia": 2325,
+  "auditoria": [],
+  "plano_b": false
+ }
+]
