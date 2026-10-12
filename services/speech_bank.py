@@ -622,7 +622,7 @@ CATEGORIES.extend([
                [_TAMANHO, _ESCURECE],
                [{'t': 'A argola {prep} {piece} me ganhou na hora.', 'req': 'argolas'},
                 {'t': 'A pedra {prep} {piece} me ganhou na hora.', 'req': 'pedra'}],
-               [{'t': 'E o formato dela é lindo, olha de pertinho.', 'req': 'argolas'},
+               [{'t': 'E o formato é lindo, olha de pertinho.', 'req': 'argolas'},
                 {'t': 'E a pedra brilha demais de pertinho.', 'req': 'pedra'},
                 {'t': 'E o banho de ouro dá um brilho lindo.', 'req': 'banho de ouro'},
                 {'t': 'Sério, combina com quase tudo.'}],

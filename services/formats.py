@@ -385,6 +385,8 @@ def script_hook(c, forms, pain=''):
         return f'Três jeitos de usar {dem} {piece}, do mais simples ao mais arrumado.'
     if fmt == 'unboxing':
         return f'Vamos abrir {dem} {piece} juntas e ver tudo de perto.'
+    if fmt == 'mesa' and mesa_kind(c) == 'roupa':
+        return f'Vem ver {dem} {piece} de pertinho, que eu separei aqui na mesa.'
     return ''
 
 
@@ -392,6 +394,15 @@ def script_development(c, forms, details=()):
     """Desenvolvimento do formato, ou '' para manter o normal. `details` sao
     os fatos confirmados ja com artigo ("a cintura alta")."""
     fmt = video_format(c)
+    if fmt == 'mesa' and mesa_kind(c) == 'roupa':
+        # A peca fica FORA do corpo na mesa: a fala de roupa ("olha como ela
+        # veste, bem certinha no corpo") mandava o Grok vestir a peca, a falha
+        # do "abrindo o pacote". Aqui o meio narra o que as maos mostram.
+        if len(details) >= 2:
+            return f'Assim que desdobro, já dá pra ver {details[0]}. Olha só {details[1]} de perto.'
+        if details:
+            return f'Assim que desdobro, já dá pra ver {details[0]}. Dá pra ver tudo de perto.'
+        return 'Assim que desdobro, já dá pra ver a cor e tudo de perto.'
     if fmt == 'unboxing':
         # O desenvolvimento padrao parte da dor ("quem ja passou por isso...")
         # e nao combina com abrir o pacote: aqui ele narra o que aparece.

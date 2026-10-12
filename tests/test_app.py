@@ -1731,6 +1731,24 @@ class WorkflowTests(unittest.TestCase):
         # Se so sobrar roupa, devolve tudo: melhor uma fala generica que nenhuma.
         self.assertEqual(_apparel_free(creme,candidates[:1]),candidates[:1])
 
+    def test_table_format_speech_never_dresses_the_garment(self):
+        # Na mesa a peca fica FORA do corpo. A fala de roupa dizia "olha como
+        # ela veste no corpo, bem certinha", o que manda o Grok vestir a peca
+        # (a falha do "abrindo o pacote"). O meio narra o que as maos mostram.
+        base=dict(model_name='Micaela',color='Azul claro',audience='',benefit='',angle='',tone='',style='',
+                  movements='',generator='grok',niche='dia-a-dia',objection='',offer='',video_mode='mesa')
+        for product,outfit,details in (('Calça jeans','calça jeans','lavagem clara, cintura alta'),
+                                       ('Pijama de cetim','pijama','cetim, gola e bolso'),
+                                       ('Legging cintura alta','legging','')):
+            c={**base,'product':product,'outfit':outfit,'details':details}
+            for index in range(3):
+                pack=generate(c,variant_index=index,audit=copywriter_audit)
+                spoken=' '.join(pack[k] for k in ('hook','development','cta')).casefold()
+                for vestida in ('veste','vesti ','no corpo','caimento'):
+                    self.assertNotIn(vestida,spoken,(product,index,spoken))
+                self.assertIn('de pertinho',pack['hook'])
+                self.assertEqual(copywriter_audit(pack,c),[],(product,index,pack['hook']))
+
     def test_video_mode_switch_accepts_formats_on_the_same_base(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
         self.cid=other['id']
