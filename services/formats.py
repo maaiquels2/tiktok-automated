@@ -74,7 +74,8 @@ _LOOKS = {
     'praia': ('com a saída de praia amarrada na cintura', 'com short jeans e camisa aberta por cima'),
     'academia': ('com uma jaqueta de moletom aberta por cima', 'com uma camiseta larga amarrada na cintura'),
     'intima': ('com um robe leve aberto por cima', 'com um cardigã fino por cima'),
-    'fantasia': ('com um acessório na cabeça', 'com uma capa leve por cima'),
+    # Fantasia costuma ja vir com capa ou chapeu: o complemento vai na mao.
+    'fantasia': ('com um acessório na cabeça', 'com uma cestinha na mão'),
 }
 _DEFAULT_LOOKS = ('com uma jaqueta jeans por cima', 'com uma camisa aberta e um cinto')
 
@@ -209,8 +210,19 @@ def script_hook(c, forms, pain=''):
     return ''
 
 
-def script_development(c, forms):
-    if video_format(c) != 'tres_jeitos':
+def script_development(c, forms, details=()):
+    """Desenvolvimento do formato, ou '' para manter o normal. `details` sao
+    os fatos confirmados ja com artigo ("a cintura alta")."""
+    fmt = video_format(c)
+    if fmt == 'unboxing':
+        # O desenvolvimento padrao parte da dor ("quem ja passou por isso...")
+        # e nao combina com abrir o pacote: aqui ele narra o que aparece.
+        if len(details) >= 2:
+            return f'Assim que abre, já dá pra ver {details[0]}. Desdobrando, olha só {details[1]} de perto.'
+        if details:
+            return f'Assim que abre, já dá pra ver {details[0]}. Desdobrando, dá pra ver a peça inteira de perto.'
+        return 'Assim que abre, já dá pra ver a cor. Desdobrando, dá pra ver a peça inteira de perto.'
+    if fmt != 'tres_jeitos':
         return ''
     a, b = looks(c)
     # Curto de proposito: acima de 50 palavras o roteiro corta a ultima frase

@@ -1677,7 +1677,8 @@ def _script_variation(c, color, index=0):
     # Formato escolhido (responder comentario, teste...): o gancho anuncia o
     # formato; no 3 jeitos o desenvolvimento lista os looks.
     selected_hook = formats.script_hook(c, forms, _objection_parts(c)[0]) or selected_hook
-    selected_development = formats.script_development(c, forms) or selected_development
+    selected_development = (formats.script_development(c, forms, [_with_article(f) for f in features[:2]])
+                            or selected_development)
 
     # Teto absoluto de 45 palavras faladas (~15s). Se estourar, encurta o
     # desenvolvimento pela ultima batida, nunca pela prova.
