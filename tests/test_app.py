@@ -1602,6 +1602,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('transição para a próxima cor',teste.json['variants'][0]['prompts']['video'])
         self.assertEqual(self.post('/video-mode',{'version':teste.json['version'],'video_mode':'unboxing'}).status_code,409)
 
+    def test_stress_cases_from_the_six_product_run(self):
+        # Achados do teste de estresse com os 6 produtos reais: espelho com
+        # closes, ousado e duas tecnicas passava do limite; 3 jeitos perdia o
+        # esticar o tecido.
+        legging=dict(model_name='Micaela',product='Calça legging tie dye',outfit='legging',color='Preto com branco',
+                     niche='academia',details='estampa tie dye, cintura alta',objection='fica transparente no agachamento',
+                     audience='Mulheres que treinam',benefit='A cintura alta e a estampa tie dye deixam o treino com mais estilo',
+                     angle='',tone='',style='',movements='',generator='grok',body_turns='leve_lado')
+        pesado=generate({**legging,'video_mode':'espelho','video_style':'closes,ousado,loop,estica'})['video']
+        self.assertLessEqual(len(pesado),3940)
+        self.assertIn('AÇÕES',pesado)
+        self.assertIn('loop sem emenda',pesado)
+        self.assertNotIn('MATERIAL CONFIRMADO: não especificada',pesado)
+        jeitos=generate({**legging,'video_mode':'tres_jeitos','video_style':'estica'})['video']
+        self.assertIn('estica o tecido',jeitos)
+        self.assertIn('três looks em sequência',jeitos)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)

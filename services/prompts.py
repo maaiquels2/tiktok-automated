@@ -2309,7 +2309,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     jeitos = formats.three_looks(c, f"{forms['art']} {forms['piece']}")
     lead = formats.lead_moves(c, lugar)
     if jeitos:
-        moves = jeitos
+        moves = '; '.join(lead + [jeitos])
     elif lead:
         moves = '; '.join(lead + [moves])
     if jeitos or lead or 'ousado' in estilo:
@@ -2340,7 +2340,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             f"sem troca de identidade ou redesenho. "
             f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "),
         (4, f"Ângulo de venda (contexto, não criar atributos): {angle_context}. "),
-        (0, f"FATOS CONFIRMADOS: {facts}. MATERIAL CONFIRMADO: {materials}. "
+        (0, f"FATOS CONFIRMADOS: {facts}. "
+            + (f"MATERIAL CONFIRMADO: {materials}. " if materials != 'não especificada' else '')
             + (f"Benefício a provar visualmente, só se for demonstrável: {benefit_l}." if _phrase(benefit) else '')
             + "\n"),
         (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}; fundo, objetos e luz só dessa foto, sem trocar "
@@ -2386,6 +2387,10 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         curto = (f'PROVA VISUAL — o fato abaixo precisa do seu gesto, executado entre {t1}s e {t2 - 1}s, '
                  f'sem interromper a fala: {gestures[0]}.\n')
         texto = _montar_video([(p, curto if t == proof_block else t) for p, t in blocos], limite)
+    if limite and len(texto) > limite and proof_block:
+        # Ultimo recurso (espelho com closes, ousado e duas tecnicas): os
+        # closes e as acoes ja mostram a peca; sem isso o Grok cortaria o fim.
+        texto = _montar_video([(p, '' if t == proof_block else t) for p, t in blocos], limite)
     return texto
 
 

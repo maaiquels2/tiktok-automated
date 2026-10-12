@@ -368,7 +368,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     jeitos = formats.three_looks(c, 'a peça')
     lead = formats.lead_moves(c, mode)
     if jeitos:
-        steps = [jeitos]
+        steps = lead + [jeitos]
     elif lead and mode != 'pov':
         steps = lead + steps
     fim = formats.ending(c, mode)
