@@ -53,13 +53,21 @@ CLIPES = [
 # Plano B: troca so o meio da cena por algo com menos risco para as mesmas mãos
 # (sem produto no rosto, sem objeto perto da orelha, sem desdobrar a peça toda).
 PLANO_B = {
-    'pele': 'risca um pouco do produto no dorso da outra mão e espalha com a ponta do dedo, mostrando a '
-            'textura para a lente',
-    'brinco': 'segura o brinco na palma da mão aberta, bem perto da lente, e o vira devagar',
-    'colar': 'segura o colar pela corrente com uma mão, deixando-o pendurado e balançando de leve, bem perto '
-             'da lente',
-    'roupa': 'segura a peça dobrada com as duas mãos e a abre só até a metade, mostrando a frente, e passa a '
-             'mão no tecido',
+    'pele': dict(middle='risca um pouco do produto no dorso da outra mão e espalha com a ponta do dedo, '
+                        'mostrando a textura para a lente'),
+    # Brinco: a outra opcao do teste real, pegar os DOIS ao mesmo tempo, um em cada mao, gesticulando.
+    'brinco': dict(open='pega os dois brincos da caixinha ao mesmo tempo, um em cada mão, e os mostra bem perto '
+                        'da lente, girando devagar',
+                   middle='gesticula com os dois brincos nas mãos enquanto fala, mostrando um e depois o outro, '
+                          'sem soltá-los',
+                   close='aproxima os dois brincos da lente, um em cada mão, e sustenta por um instante, '
+                         'sorrindo; a caixinha fica vazia, à vista',
+                   avoid='brinco que sai de uma mão e reaparece na outra, brinco voltando para a caixinha, mais '
+                         'ou menos de dois brincos nas mãos, prender o brinco na orelha, brinco mudando de forma'),
+    'colar': dict(middle='segura o colar pela corrente com uma mão, deixando-o pendurado e parado, bem perto da '
+                         'lente'),
+    'roupa': dict(middle='segura a peça dobrada com as duas mãos e a abre só até a metade, mostrando a frente, e '
+                         'passa a mão no tecido'),
 }
 
 
@@ -77,7 +85,7 @@ def pacote(c):
 def com_plano_b(c, kind):
     original = formats.MESA_SCENES[kind]
     try:
-        formats.MESA_SCENES[kind] = {**original, 'middle': PLANO_B[kind if kind in PLANO_B else 'roupa']}
+        formats.MESA_SCENES[kind] = {**original, **PLANO_B[kind if kind in PLANO_B else 'roupa']}
         return pacote(c)
     finally:
         formats.MESA_SCENES[kind] = original

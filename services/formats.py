@@ -266,21 +266,33 @@ MESA_SCENES = {
         close='aproxima o frasco da lente, ao lado do rosto, e sorri',
         avoid='borrifar perto do rosto, névoa exagerada, letras legíveis inventadas no frasco',
         frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    # Teste real: o numero de brincos mudava ao longo do video (um saia da caixa, outro
+    # aparecia na orelha, a caixa esvaziava sozinha). Agora ela ja usa o par e a caixa
+    # tem OUTRO par igual: tira um e o outro fica na caixa, sempre a vista.
     'brinco': dict(
-        start='sentada a uma mesa, uma caixinha aberta à frente com o par de brincos dentro, cabelo preso atrás '
-              'das orelhas',
-        open='pega um brinco da caixinha com a ponta de dois dedos e o traz até bem perto da lente, girando '
-             'devagar para o brilho aparecer',
-        middle='segura o brinco junto à orelha, sem prender, e vira o rosto de leve para um lado e para o outro',
-        close='estende o brinco de novo para a lente, bem perto, e sustenta por um instante, sorrindo',
-        avoid='prender o brinco na orelha, brinco mudando de forma ou de tamanho, orelha deformada',
+        start='sentada a uma mesa, já usando o par de brincos nas orelhas (as duas orelhas à vista, cabelo preso '
+              'atrás), uma caixinha aberta à frente com outro par igual dentro',
+        open='pega UM brinco da caixinha com a ponta de dois dedos e o traz até bem perto da lente, girando devagar '
+             'para o brilho aparecer; o outro continua parado dentro da caixinha, à vista',
+        middle='segura esse brinco ao lado do rosto, junto ao que já está na orelha, e vira o rosto de leve para um '
+               'lado e para o outro',
+        close='estende o brinco de novo para a lente, bem perto, e sustenta por um instante, sorrindo; o outro '
+              'continua na caixinha',
+        avoid='mais de um brinco na mão, brinco saindo da caixinha sozinho, o número de brincos mudando, prender o '
+              'brinco na orelha, brinco mudando de forma ou de tamanho, orelha deformada',
         frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    # Teste real: a modelo da foto ja usava um colar fino, que disputava com o do produto, e a
+    # corrente sumia quando o colar balancava perto da lente. Agora o pescoco fica livre e o
+    # colar fica esticado em V entre as duas maos, sem balancar, o pingente pendurado no meio.
     'colar': dict(
-        start='sentada a uma mesa, o colar estendido sobre a mesa à frente',
-        open='pega o colar pela corrente com as duas mãos e o levanta devagar, bem perto da lente',
-        middle='segura o colar junto ao pescoço, sem fechar o fecho, e vira o rosto de leve',
-        close='afasta o colar até a lente e o balança bem devagar, sorrindo',
-        avoid='fechar o fecho atrás do pescoço, corrente embaraçando ou mudando de forma',
+        start='sentada a uma mesa, sem nenhum outro colar no pescoço (pescoço e colo livres), o colar estendido '
+              'sobre a mesa à frente',
+        open='pega o colar pelas duas pontas da corrente, uma em cada mão, e o estica em V diante do peito, com o '
+             'pingente pendurado no meio, bem visível',
+        middle='sustenta o colar esticado em V e o aproxima do pescoço, sem fechar o fecho e sem soltar as pontas',
+        close='afasta o colar até perto da lente, ainda esticado em V, e sustenta parado por um instante, sorrindo',
+        avoid='balançar ou soltar o colar, corrente sumindo ou engrossando, pingente mudando de forma, outro colar '
+              'no pescoço, colar aparecendo no pescoço sem ela o ter colocado, fechar o fecho atrás do pescoço',
         frame='plano médio fechado (cabeça, ombros e a mesa)'),
     'pulso': dict(
         start='sentada a uma mesa, a peça já no pulso ou no dedo, a mão apoiada na mesa',

@@ -31,12 +31,12 @@
   "formato": "mesa",
   "produto": "Brinco de argola dourada",
   "cena": "brinco",
-  "chars_completo": 3181,
-  "chars_guia": 2272,
+  "chars_completo": 3431,
+  "chars_guia": 2522,
   "auditoria": [],
   "plano_b": true,
   "auditoria_planoB": [],
-  "chars_planoB": 3162
+  "chars_planoB": 3347
  },
  {
   "id": "C4-colar-ponto-de-luz",
@@ -44,12 +44,12 @@
   "formato": "mesa",
   "produto": "Colar ponto de luz",
   "cena": "colar",
-  "chars_completo": 3006,
-  "chars_guia": 2113,
+  "chars_completo": 3304,
+  "chars_guia": 2411,
   "auditoria": [],
   "plano_b": true,
   "auditoria_planoB": [],
-  "chars_planoB": 3034
+  "chars_planoB": 3298
  },
  {
   "id": "C5-pijama-cetim",

@@ -1691,7 +1691,6 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('caimento',sem['image'].casefold())
         # Brinco: segura junto a orelha, nunca prende; colar: nunca fecha o fecho.
         brinco=generate({**base,'product':'Brinco de argola','outfit':'brinco'})['video']
-        self.assertIn('sem prender',brinco)
         self.assertIn('prender o brinco na orelha',brinco)
 
     def test_table_format_is_validated_saved_and_briefed(self):
@@ -1748,6 +1747,46 @@ class WorkflowTests(unittest.TestCase):
                     self.assertNotIn(vestida,spoken,(product,index,spoken))
                 self.assertIn('de pertinho',pack['hook'])
                 self.assertEqual(copywriter_audit(pack,c),[],(product,index,pack['hook']))
+
+    def test_earring_scene_keeps_the_count_of_earrings(self):
+        # Teste real no Grok: o numero de brincos mudava ao longo do video. Ela ja
+        # usa o par; a caixa tem OUTRO par e, ao tirar um, o outro fica na caixa.
+        from services import formats
+        from services.prompt_improve import build_compact_video_prompt
+        c=dict(model_name='Micaela',product='Brinco de argola dourada',outfit='brinco',color='Dourado',audience='',
+               benefit='',angle='',tone='',style='',details='argola média, banhado a ouro',movements='',
+               generator='grok',niche='casual',objection='',offer='',video_mode='mesa')
+        pack=generate(c)
+        for texto in (pack['video'],pack['image']):
+            self.assertIn('já usando o par de brincos nas orelhas',texto)
+            self.assertIn('outro par igual',texto)
+        self.assertIn('pega UM brinco da caixinha',pack['video'])
+        self.assertIn('o outro continua parado dentro da caixinha',pack['video'])
+        self.assertIn('o número de brincos mudando',pack['video'])
+        self.assertIn('o outro continua parado dentro da caixinha',build_compact_video_prompt(c,pack,'Dourado'))
+        # Plano B do teste: pegar os dois ao mesmo tempo, um em cada mao.
+        original=formats.MESA_SCENES['brinco']
+        try:
+            formats.MESA_SCENES['brinco']={**original,'open':'pega os dois brincos da caixinha ao mesmo tempo, um '
+                                           'em cada mão, e os mostra bem perto da lente'}
+            self.assertIn('pega os dois brincos da caixinha ao mesmo tempo',generate(c)['video'])
+        finally:
+            formats.MESA_SCENES['brinco']=original
+
+    def test_necklace_scene_frees_the_neck_and_keeps_the_chain_taut(self):
+        # Teste real: a modelo da foto ja usava um colar fino e a corrente sumia
+        # quando o colar balancava perto da lente.
+        c=dict(model_name='Micaela',product='Colar ponto de luz',outfit='colar',color='Prateado',audience='',
+               benefit='',angle='',tone='',style='',details='pingente de zircônia, corrente fina',movements='',
+               generator='grok',niche='casual',objection='',offer='',video_mode='mesa')
+        pack=generate(c)
+        for texto in (pack['video'],pack['image']):
+            self.assertIn('sem nenhum outro colar no pescoço',texto)
+        video=pack['video']
+        self.assertIn('estica em V',video)
+        self.assertIn('pelas duas pontas da corrente',video)
+        self.assertIn('balançar ou soltar o colar',video)
+        self.assertNotIn('balança bem devagar',video)
 
     def test_video_mode_switch_accepts_formats_on_the_same_base(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
