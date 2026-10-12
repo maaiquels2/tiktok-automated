@@ -21,13 +21,17 @@ Em vez de insistir na emenda por último quadro, o que funciona hoje virou o cam
 
 - **Arcos de 3 clipes: prompts intactos.** A fórmula foi validada por você; os 6 prompts completos são
   idênticos aos de antes.
-- **Arcos de 2 clipes: ajuste fino.** (1) O clipe 2 agora diz a verdade sobre o primeiro quadro: *"o clipe abre
-  na pose da imagem anexada, já falando"*, em vez de pedir para retomar um último quadro que o Grok não recebe.
-  (2) Os clipes que não fecham a venda ganharam *"a última palavra é dita por inteiro antes do fim"* (a voz ia
-  até 15,0 s e podia cortar a palavra). (3) No arco B, 3 a 4 palavras a menos nos dois clipes (de 57 e 56 para
-  55 e 52): no teste, o `video_ruim` do clipe 2 tinha voz nos 60 trechos de 0,25 s, sem nenhum respiro, e os dois
-  "corrido" tinham 1 pausa. Foi um corte pequeno de propósito: a fala densa continua sendo a regra.
-- Os prompts de 2 clipes que você já usou ficaram em `clipe-N\v1-usado\`.
+- **Arcos de 2 clipes: ajuste fino, validado no Grok.** (1) O clipe 2 diz a verdade sobre o primeiro quadro:
+  *"o clipe abre na pose da imagem anexada, já falando"*, em vez de pedir para retomar um último quadro que o
+  Grok não recebe. (2) Os clipes que não fecham a venda ganharam *"a última palavra é dita por inteiro antes
+  do fim"* (a voz ia até 15,0 s e podia cortar a palavra). (3) No arco B, o clipe 2 perdeu 4 palavras (de 56
+  para 52) e deixou de ficar "corrido".
+- **Versão em uso de cada clipe de 2 clipes:** A1 e A2 = v2; **B1 = v1 original** (sempre ficou muito bom; o
+  ajuste fino o deixou lento, então voltou a ser intacto); B2 = v2. Cada um é idêntico ao que foi gerado e
+  aprovado. Os prompts anteriores ficam em `clipe-N\v1-usado\` e `clipe-N\v2-usado\`.
+- **Lição sobre medir:** medidas de áudio (pausas, sílabas por segundo) **não previram** o "corrido". O clipe 2
+  do B aprovado tem 63-64 sílabas medidas, o mesmo do reprovado. O que decide é o teste real no Grok, e uma
+  hipótese minha (o resumo antes do CTA causaria o "corrido") foi derrubada por ele.
 - A **emenda por último quadro** continua disponível (`ultimo_quadro.py`, `confere_emenda.py` e o prompt
   `3-extend-video.txt`) para quando quiser uma emenda invisível em vez de corte seco.
 

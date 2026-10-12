@@ -203,7 +203,7 @@ ARCOS = {
                 papel='A pergunta + o primeiro motivo desmontado (cintura alta)',
                 falas=('Sabe o que dizem por aí de calça jeans? Que ela não te valoriza.',
                        'Porque é baixa demais, porque a cor pesa, porque a perna é larga. Pode ser que você pense '
-                       'assim. Eu vou desmontar um por um, olha comigo.',
+                       'assim também. Mas eu vou desmontar um por um, olha comigo.',
                        'Primeiro, baixa demais? Olha a cintura alta. E os outros dois, já te mostro.'),
                 abertura='dá um passo até o espelho com sorriso confiante e cruza o olhar com a tela, como quem '
                          'faz uma pergunta',
@@ -215,9 +215,12 @@ ARCOS = {
                               'final',
                 tela='Calça jeans não te valoriza?',
                 amarra='"E os outros dois, já te mostro" + mão pousada na cintura',
+                # Sempre ficou muito bom com o prompt original; os ajustes finos deixaram o clipe lento. Intacto.
+                sem_refino=True,
             ),
             dict(
                 papel='Desmonta os outros dois motivos + resposta + fechamento (CTA)',
+                # Versão validada no Grok (muito boa). A 1ª versão, com 56 palavras, ficava "corrida".
                 falas=('Segundo, a cor que pesa? É lavagem clara, um azul leve.',
                        'Terceiro, perna larga? Ela desce reta da cintura ao tornozelo, e tem bolsos na frente. '
                        'Então a pergunta nunca foi se calça jeans valoriza, foi qual calça.',
@@ -270,7 +273,7 @@ def prompt_completo(n, total, clipe, quadro_anterior):
     # O gerador ajusta os tempos da shot list ao tamanho da fala (4–10 s, 10–15 s...): captura o início.
     ini = re.search(r'ENCERRAMENTO \((\d+)–15s\)', texto).group(1)
     base = parte_da_base(n, clipe)
-    refinado = clipe.get('_inicio') == 'imagem-base'
+    refinado = clipe.get('_inicio') == 'imagem-base' and not clipe.get('sem_refino')
     abertura = clipe['abertura_base'] if base else clipe['abertura']
     if final:
         texto = sub1(r'AÇÕES \(escolha 2 a 3[^)]*\): .*?ENCERRAMENTO \(\d+–15s\):',
@@ -325,7 +328,7 @@ def guia_compacto(n, total, clipe, quadro_anterior):
     texto = build_compact_video_prompt(CAMPANHA, pack, CAMPANHA['color'])
     final = n == total
     base = parte_da_base(n, clipe)
-    refinado = clipe.get('_inicio') == 'imagem-base'
+    refinado = clipe.get('_inicio') == 'imagem-base' and not clipe.get('sem_refino')
     acao = f'ela {clipe["abertura_base"] if base else clipe["abertura"]}, e, sem parar, {clipe["meio"]}'
     if final:
         acao += ('; no final, de frente para o espelho, a mão livre aponta uma vez para baixo com o indicador, '
@@ -393,6 +396,13 @@ def main():
                     (pasta / 'v1-usado').mkdir()
                     for f in antigos:
                         shutil.copy2(f, pasta / 'v1-usado' / f.name)
+            elif clipe['_inicio'] == 'imagem-base' and not (pasta / 'v2-usado').exists():
+                # A versão 2 (primeiro ajuste fino) também foi gerada no Grok: guarda antes de sobrescrever.
+                atuais = [f for f in pasta.glob('*.txt')]
+                if atuais:
+                    (pasta / 'v2-usado').mkdir()
+                    for f in atuais:
+                        shutil.copy2(f, pasta / 'v2-usado' / f.name)
             falas = falas_do(clipe)
             palavras = sum(_count_words(f) for f in falas)
             # Mesma régua de honestidade do app (termos de desempenho, urgência, direção de cena falada).
