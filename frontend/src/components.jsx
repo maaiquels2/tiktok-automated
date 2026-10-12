@@ -56,7 +56,7 @@ export function CopyButton({text,onError,label='Copiar'}){
 export function TextEditor({title,value,field,onSave,busy,onError,onDirty,readOnly=false,rows=5}){
   const [draft,setDraft]=useState(value||'');
   const changed=draft!==value;
-  return <section className="text-editor"><div className="section-title"><h3>{title}</h3><CopyButton text={draft} onError={onError}/></div><textarea aria-label={title} value={draft} rows={rows} readOnly={readOnly} onChange={e=>{setDraft(e.target.value);onDirty(true)}} maxLength={12000}/>{changed&&<button disabled={busy||!draft.trim()} onClick={()=>onSave({[field]:draft})}>Salvar texto</button>}</section>;
+  return <section className="text-editor"><div className="section-title"><h3>{title}</h3><CopyButton text={draft} onError={onError}/></div><textarea autoComplete="off" aria-label={title} value={draft} rows={rows} readOnly={readOnly} onChange={e=>{setDraft(e.target.value);onDirty(true)}} maxLength={12000}/>{changed&&<button disabled={busy||!draft.trim()} onClick={()=>onSave({[field]:draft})}>Salvar texto</button>}</section>;
 }
 export function AssetView({asset,title,compact=false}){
   if(!asset)return <div className="media-empty">{title}</div>;
@@ -245,7 +245,7 @@ export function StoryArcs({campaignId,variantId=null}){
             <div className="section-title"><strong>Clipe {clip.index} · {clip.role} <small>{clip.start} · ~{clip.seconds}s</small></strong></div>
             <label className="story-arc-lines">
               <span className="help">Falas (uma linha por trecho: 0–4 s, 4–12 s e 12–15 s) · {words} palavras</span>
-              <textarea rows={5} value={draft} onChange={e=>setDrafts(list=>list.map((text,i)=>i===index?e.target.value:text))}/>
+              <textarea autoComplete="off" rows={5} value={draft} onChange={e=>setDrafts(list=>list.map((text,i)=>i===index?e.target.value:text))}/>
             </label>
             {clip.problems.map(problem=><small key={problem} className="help story-arc-problem">⚠ {problem}</small>)}
             <div className="story-arc-copy">
@@ -498,7 +498,7 @@ function VariantScriptField({variant,field,value,busy,onSave}){
   useEffect(()=>setDraft(value),[value]);
   const dirty=draft!==value;
   return <div className="variant-script-field">
-    <textarea rows={field==='video'?6:3} maxLength={12000} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)}/>
+    <textarea autoComplete="off" rows={field==='video'?6:3} maxLength={12000} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)}/>
     {dirty&&<button type="button" className="full" disabled={busy||!draft.trim()} onClick={()=>onSave(variant.id,{[field]:draft})}>Salvar {field}</button>}
   </div>;
 }
@@ -606,7 +606,7 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
         return <div className={'mixer-row'+(on?' on':'')} key={v.id}>
           <label className="check-row" style={{margin:0}}><input type="checkbox" checked={on} disabled={busy||immutable||working} onChange={()=>toggle(v.id)}/><span>{label}</span></label>
           {on&&<>
-            <input type="number" min="0.2" step="0.1" placeholder="seg" title="Segundos a partir do inicio" value={seconds[v.id]??''} disabled={busy||immutable||working} onChange={e=>setSeconds(s=>({...s,[v.id]:e.target.value}))}/>
+            <input autoComplete="off" type="number" min="0.2" step="0.1" placeholder="seg" title="Segundos a partir do inicio" value={seconds[v.id]??''} disabled={busy||immutable||working} onChange={e=>setSeconds(s=>({...s,[v.id]:e.target.value}))}/>
             <button type="button" disabled={busy||immutable||working} onClick={()=>move(v.id,-1)} title="Subir">↑</button>
             <button type="button" disabled={busy||immutable||working} onClick={()=>move(v.id,1)} title="Descer">↓</button>
           </>}
@@ -615,7 +615,7 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
     </div>
     <div className="mixer-controls">
       <label>Salvar no slot<select value={slot} disabled={busy||immutable||working} onChange={e=>setSlot(e.target.value)}>{slotOptions.map(s=><option key={s} value={s}>{s}</option>)}</select></label>
-      <label>Duracao mix local (s)<input type="number" min="10" max="60" step="0.5" value={duration} disabled={busy||immutable||working} onChange={e=>setDuration(e.target.value)}/></label>
+      <label>Duracao mix local (s)<input autoComplete="off" type="number" min="10" max="60" step="0.5" value={duration} disabled={busy||immutable||working} onChange={e=>setDuration(e.target.value)}/></label>
     </div>
     <div className="mixer-actions">
       <button type="button" className="primary" disabled={busy||immutable||working||ordered.length<1} onClick={runAutoCut}>Auto-cut (Critico)</button>
@@ -689,7 +689,7 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
         </div>
         {editingCaption && !immutable && !done ? (
           <>
-            <textarea className="caption-editor" aria-label="Legenda TikTok" rows={4} maxLength={12000} value={captionDraft} disabled={busy} onChange={e=>setCaptionDraft(e.target.value)}/>
+            <textarea autoComplete="off" className="caption-editor" aria-label="Legenda TikTok" rows={4} maxLength={12000} value={captionDraft} disabled={busy} onChange={e=>setCaptionDraft(e.target.value)}/>
             <div className="publish-caption-edit-actions">
               <button type="button" className="primary" disabled={busy||!captionDraft.trim()||captionDraft.trim()===caption}
                 onClick={()=>{
@@ -723,7 +723,7 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
           {check('review','Revisei vídeo/áudio/direitos')}
           {check('published','Já publiquei no Studio')}
         </div>
-        <label className="publish-link-field">Link do vídeo (opcional)<input type="url" value={publishedUrl} onChange={e=>setPublishedUrl(e.target.value)} placeholder="https://www.tiktok.com/@…/video/…"/></label>
+        <label className="publish-link-field">Link do vídeo (opcional)<input autoComplete="off" type="url" value={publishedUrl} onChange={e=>setPublishedUrl(e.target.value)} placeholder="https://www.tiktok.com/@…/video/…"/></label>
         <button className="primary full" disabled={busy||!canRegister}
           onClick={()=>onPublishSlot({color:variant?.color,checklist:checks,published_url:publishedUrl})}>
           Registrar publicação · {variant?.color}
@@ -928,7 +928,7 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
   const video=videos.find(v=>(v.slot||v.metadata?.color)===variant?.color)||videos[0];
   // inputMode abre o teclado numerico no celular (type=number sozinho abre o
   // teclado completo em varios Android).
-  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input type={name==='notes'?'text':'number'} inputMode={name==='notes'?undefined:(step==='1'?'numeric':'decimal')} min={name==='notes'?undefined:'0'} step={step} value={metrics[name]??''} disabled={busy}
+  const field=(name,label,step='1')=><label className="metric-field" key={name}>{label}<input autoComplete="off" type={name==='notes'?'text':'number'} inputMode={name==='notes'?undefined:(step==='1'?'numeric':'decimal')} min={name==='notes'?undefined:'0'} step={step} value={metrics[name]??''} disabled={busy}
     onChange={e=>setMetrics(m=>({...m,[name]:e.target.value}))}/></label>;
   const num=v=>v===''||v==null?undefined:Number(v);
   const save=()=>onSavePerformance&&onSavePerformance({color:variant?.color,metrics:{
@@ -961,7 +961,7 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
       <div className="section-title"><h3>Teste de gancho</h3><span className="help">compare uma coisa por vez</span></div>
       <p className="help">Dê o mesmo nome a duas ou três campanhas da mesma peça em que só o gancho muda. O app ranqueia por R$ por mil visualizações — e usa retenção só enquanto não houver comissão lançada.</p>
       <div className="experiment-form">
-        <input aria-label="Nome do teste" value={experimento} maxLength={80} disabled={busy}
+        <input autoComplete="off" aria-label="Nome do teste" value={experimento} maxLength={80} disabled={busy}
           placeholder="ex.: gancho-legging-bolso" onChange={e=>setExperimento(e.target.value)}/>
         <button type="button" disabled={busy||!onSaveExperiment} onClick={()=>onSaveExperiment(experimento)}>Marcar campanha</button>
       </div>
@@ -1080,7 +1080,7 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
     <div className="published-link-box">
       <div className="section-title"><h3>Link da publicacao no TikTok</h3><span className="help">cole o link do video ja publicado</span></div>
       <label className="metric-field full">URL do video
-        <input type="url" placeholder="https://www.tiktok.com/@conta/video/123..." value={tiktokLink} disabled={busy} onChange={e=>setTiktokLink(e.target.value)}/>
+        <input autoComplete="off" type="url" placeholder="https://www.tiktok.com/@conta/video/123..." value={tiktokLink} disabled={busy} onChange={e=>setTiktokLink(e.target.value)}/>
       </label>
       <div className="studio-metrics-actions">
         <button type="button" className="primary" disabled={busy||!onSavePublishedLink||!tiktokLink.trim()} onClick={()=>onSavePublishedLink({published_url:tiktokLink.trim(),color:active||variants[0]?.color})}>Salvar link</button>
@@ -1221,7 +1221,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const field=(key,label,placeholder)=>(
     <div key={key} className={key==='product'?'product-field':''}>
       <label>{label}{REQUIRED_BRIEF[key]&&' *'}
-        <input value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>
+        <input autoComplete="off" value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>
         {key==='color'&&<small className="help">Separe as cores por vírgulas para criar uma variação de cada uma.</small>}
       </label>
       {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
@@ -1289,15 +1289,15 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               return <button type="button" key={o} className={'objection-chip'+(active?' selected':'')} aria-pressed={active} onClick={()=>change('objection',active?'':o)}>{o}</button>;
             })}
           </div>
-          <input id="objection-input" value={draft.objection||''} onChange={e=>change('objection',e.target.value)} placeholder="Toque numa dúvida acima ou escreva a sua" maxLength={500}/>
+          <input autoComplete="off" id="objection-input" value={draft.objection||''} onChange={e=>change('objection',e.target.value)} placeholder="Toque numa dúvida acima ou escreva a sua" maxLength={500}/>
           <small className="help">Com esse campo preenchido, o hook passa a falar da dor do cliente e o meio do roteiro mostra a prova que derruba a dúvida. Toque de novo na dúvida escolhida para limpar.</small>
         </div>
         <label>Oferta real (se existir)
-          <input value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
+          <input autoComplete="off" value={draft.offer||''} onChange={e=>change('offer',e.target.value)} placeholder="Ex.: 20% até domingo · últimas peças do P" maxLength={500}/>
           <small className="help">Só preencha se for verdade. É o único caso em que o roteiro usa urgência — prazo ou estoque inventado é propaganda enganosa e queima o perfil.</small>
         </label>
         <label>Prova social real (se existir)
-          <input value={draft.social_proof||''} onChange={e=>change('social_proof',e.target.value)} placeholder="Ex.: mais de 2 mil vendidos · nota 4,8" maxLength={500}/>
+          <input autoComplete="off" value={draft.social_proof||''} onChange={e=>change('social_proof',e.target.value)} placeholder="Ex.: mais de 2 mil vendidos · nota 4,8" maxLength={500}/>
           <small className="help">Copie da página do produto. Sem isso, o roteiro nunca fala em vendidos, nota ou avaliações.</small>
         </label>
         <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''}/>
@@ -1388,8 +1388,8 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <div className="niche-advanced">
           <div className="notice"><strong>Preenchido pelo nicho.</strong> Pode editar se quiser — o padrão já está otimizado pra TikTok Shop.</div>
           <div className="form-grid">{advanced.map(([k,l,p])=>field(k,l,p))}</div>
-          <label>Detalhes adicionais<textarea rows={3} value={draft.details||''} onChange={e=>change('details',e.target.value)} placeholder="Enquadramento, gestos e detalhes do produto" maxLength={5000}/></label>
-          <label>Movimentos para mostrar<textarea rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós" maxLength={1500}/><small className="help">Um movimento por vírgula ou por linha. O "Melhorar prompt" usa todos, até 4, na ordem escrita. Para 15 segundos, 2 ou 3 costumam ficar mais naturais.</small></label>
+          <label>Detalhes adicionais<textarea autoComplete="off" rows={3} value={draft.details||''} onChange={e=>change('details',e.target.value)} placeholder="Enquadramento, gestos e detalhes do produto" maxLength={5000}/></label>
+          <label>Movimentos para mostrar<textarea autoComplete="off" rows={3} value={draft.movements||''} onChange={e=>change('movements',e.target.value)} placeholder="Ex.: caminhar dois passos, virar de lado, ajustar o cós" maxLength={1500}/><small className="help">Um movimento por vírgula ou por linha. O "Melhorar prompt" usa todos, até 4, na ordem escrita. Para 15 segundos, 2 ou 3 costumam ficar mais naturais.</small></label>
         </div>
       )}
       {!showAdvanced && (
@@ -1437,14 +1437,14 @@ export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,o
     <div className="identity-modal-body">
       <p className="help">Cada PC tem a propria identidade. No outro notebook, troque nome, @handle e perfil Chrome — nao copie browser_profiles nem data desta conta.</p>
       <div className="identity-grid">
-        <label>Nome do estudio<input value={draft.studio_name||''} disabled={busy||saving} onChange={e=>set('studio_name',e.target.value)} placeholder="Estudio da Ana"/></label>
-        <label>Marca / app<input value={draft.brand_name||''} disabled={busy||saving} onChange={e=>set('brand_name',e.target.value)} placeholder="Fabrica TikTok"/></label>
-        <label>Nome da modelo<input value={draft.model_name||''} disabled={busy||saving} onChange={e=>set('model_name',e.target.value)} placeholder="Ana"/></label>
-        <label>@ TikTok<input value={draft.tiktok_handle||''} disabled={busy||saving} onChange={e=>set('tiktok_handle',e.target.value.replace(/^@/,''))} placeholder="handle_sem_arroba"/></label>
-        <label>Perfil Chrome<input value={draft.chrome_profile_hint||''} disabled={busy||saving} onChange={e=>set('chrome_profile_hint',e.target.value)} placeholder="Profile 7 ou nome no Chrome (ex.: Micaela)"/></label>
-        <label>Conta Grok (lembrete)<input value={draft.grok_account_hint||''} disabled={busy||saving} onChange={e=>set('grok_account_hint',e.target.value)} placeholder="email@…"/></label>
-        <label>Conta Flow (lembrete)<input value={draft.flow_account_hint||''} disabled={busy||saving} onChange={e=>set('flow_account_hint',e.target.value)} placeholder="email@…"/></label>
-        <label className="span-2">Notas<textarea rows={2} value={draft.notes||''} disabled={busy||saving} onChange={e=>set('notes',e.target.value)} placeholder="Lembretes locais"/></label>
+        <label>Nome do estudio<input autoComplete="off" value={draft.studio_name||''} disabled={busy||saving} onChange={e=>set('studio_name',e.target.value)} placeholder="Estudio da Ana"/></label>
+        <label>Marca / app<input autoComplete="off" value={draft.brand_name||''} disabled={busy||saving} onChange={e=>set('brand_name',e.target.value)} placeholder="Fabrica TikTok"/></label>
+        <label>Nome da modelo<input autoComplete="off" value={draft.model_name||''} disabled={busy||saving} onChange={e=>set('model_name',e.target.value)} placeholder="Ana"/></label>
+        <label>@ TikTok<input autoComplete="off" value={draft.tiktok_handle||''} disabled={busy||saving} onChange={e=>set('tiktok_handle',e.target.value.replace(/^@/,''))} placeholder="handle_sem_arroba"/></label>
+        <label>Perfil Chrome<input autoComplete="off" value={draft.chrome_profile_hint||''} disabled={busy||saving} onChange={e=>set('chrome_profile_hint',e.target.value)} placeholder="Profile 7 ou nome no Chrome (ex.: Micaela)"/></label>
+        <label>Conta Grok (lembrete)<input autoComplete="off" value={draft.grok_account_hint||''} disabled={busy||saving} onChange={e=>set('grok_account_hint',e.target.value)} placeholder="email@…"/></label>
+        <label>Conta Flow (lembrete)<input autoComplete="off" value={draft.flow_account_hint||''} disabled={busy||saving} onChange={e=>set('flow_account_hint',e.target.value)} placeholder="email@…"/></label>
+        <label className="span-2">Notas<textarea autoComplete="off" rows={2} value={draft.notes||''} disabled={busy||saving} onChange={e=>set('notes',e.target.value)} placeholder="Lembretes locais"/></label>
       </div>
       {draft.tiktok_handle ? <p className="help">URL: https://www.tiktok.com/@{(draft.tiktok_handle||'').replace(/^@/,'')} · pasta CDP: {draft.cdp_folder||'…'}</p> : null}
       <div className="form-actions">
@@ -1516,7 +1516,7 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
     </label>
     {data.provider && <>
       <label>Modelo
-        <input value={data.model||''} disabled={busy||saving} onChange={e=>change({model:e.target.value})} placeholder={(data.default_models||{})[data.provider]||''} maxLength={120}/>
+        <input autoComplete="off" value={data.model||''} disabled={busy||saving} onChange={e=>change({model:e.target.value})} placeholder={(data.default_models||{})[data.provider]||''} maxLength={120}/>
       </label>
       <label>Chave de API
         <input type="password" value={key} disabled={busy||saving} onChange={e=>setKey(e.target.value)}
@@ -1784,13 +1784,13 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
               <option value="__new__">+ Criar novo modelo…</option>
             </select>
           ) : (
-            <input value={activeModel} disabled={busy||loading} onChange={e=>setActiveModel(e.target.value)} placeholder="Ana"/>
+            <input autoComplete="off" value={activeModel} disabled={busy||loading} onChange={e=>setActiveModel(e.target.value)} placeholder="Ana"/>
           )}
         </label>
         {addingModel && (
           <form onSubmit={confirmNewModel} style={{display:'flex',gap:6,alignItems:'flex-end'}}>
             <label style={{display:'flex',flexDirection:'column',gap:4}}>
-              <input autoFocus value={newModelDraft} maxLength={80} onChange={e=>setNewModelDraft(e.target.value)} placeholder="Nome do novo modelo"/>
+              <input autoComplete="off" autoFocus value={newModelDraft} maxLength={80} onChange={e=>setNewModelDraft(e.target.value)} placeholder="Nome do novo modelo"/>
             </label>
             <button type="submit" className="primary" disabled={busy||loading}>Usar</button>
             <button type="button" disabled={busy||loading} onClick={()=>{setAddingModel(false);setNewModelDraft('')}}>Cancelar</button>
@@ -1810,7 +1810,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
           >
             {renaming===item.niche ? (
               <form className="niche-rename-row" onClick={e=>e.stopPropagation()} onSubmit={saveRename}>
-                <input
+                <input autoComplete="off"
                   autoFocus
                   value={renameDraft}
                   maxLength={60}
@@ -2226,10 +2226,10 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
           <Collapse id="analyze-link" title="Analisar link antigo" defaultOpen={true}>
             <div className="analyze-link-box flat">
               <label className="metric-field full">Link do video publicado
-                <input type="url" placeholder="https://www.tiktok.com/@conta/video/123..." value={url} disabled={busy||loading} onChange={e=>setUrl(e.target.value)}/>
+                <input autoComplete="off" type="url" placeholder="https://www.tiktok.com/@conta/video/123..." value={url} disabled={busy||loading} onChange={e=>setUrl(e.target.value)}/>
               </label>
               <label className="metric-field full">Nota (opcional)
-                <input type="text" placeholder="Ex.: post de junho, nao veio da fabrica" value={note} disabled={busy||loading} onChange={e=>setNote(e.target.value)}/>
+                <input autoComplete="off" type="text" placeholder="Ex.: post de junho, nao veio da fabrica" value={note} disabled={busy||loading} onChange={e=>setNote(e.target.value)}/>
               </label>
               <button type="button" className="primary" disabled={busy||loading||!url.trim()} onClick={analyze}>{loading?'Coletando do Studio…':'Analisar link'}</button>
               <p className="help">Abre analytics numa nova aba do Chrome da fabrica.</p>
@@ -2635,7 +2635,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     <span className="option-field-title" id="auto-style">Câmera e técnicas (opcional)</span>
     <StyleChips value={style} onChange={setStyle} labelledBy="auto-style"/>
     <small className="help">Até 2 técnicas por vídeo. Closes: o rosto sai do quadro por 1 a 2 s para mostrar o material.</small>
-    <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: laranja com floral branco; verde com floral branco" maxLength={300}/></label>
+    <label>Cores (opcional)<input autoComplete="off" value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: laranja com floral branco; verde com floral branco" maxLength={300}/></label>
     <small className="help">Separe as cores com ponto e vírgula. Vazio: a IA lê da foto das cores ou do print. Escrito aqui, vale o que você escreveu.</small>
     <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>
     {(!niche||!products.length||!description)&&<small className="help">Falta: {[!niche&&'a moda',!products.length&&'a foto do produto',!description&&'o print da descrição'].filter(Boolean).join(', ')}.</small>}

@@ -439,3 +439,14 @@
     max-width: none;
   }
 }
+
+/* Toque duplo em botão ou campo não dá zoom nem espera o atraso do navegador no celular. */
+a,
+button,
+input,
+select,
+textarea,
+label,
+summary {
+  touch-action: manipulation;
+}
