@@ -52,11 +52,12 @@ export function scorePrompt(text) {
   const outsideSpeech = speech.reduce((acc, line) => acc.split(line.toLowerCase()).join(' '), low);
   const totalWords = speech.reduce((n, line) => n + words(line), 0);
   // Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio. Quem vende
-  // fala o clipe inteiro: 48 a 60 palavras ocupam os 15 s.
-  if (speech.length && totalWords < 40) hit(4, `Fala curta: ${totalWords} palavras. Vão sobrar segundos de silêncio no fim dos 15 s; o ideal é de 48 a 60.`);
-  else if (speech.length && totalWords < 46) hit(2, `Fala um pouco curta: ${totalWords} palavras. Pode sobrar silêncio no fim; o ideal é de 48 a 60.`);
-  else if (totalWords > 68) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada.`);
-  else if (totalWords > 62) hit(1, `Fala no limite: ${totalWords} palavras em 15s.`);
+  // fala o clipe inteiro: 45 a 56 palavras ocupam os 15 s (acima de ~57 o
+  // segundo teste real ja saiu um pouco acelerado).
+  if (speech.length && totalWords < 40) hit(4, `Fala curta: ${totalWords} palavras. Vão sobrar segundos de silêncio no fim dos 15 s; o ideal é de 45 a 56.`);
+  else if (speech.length && totalWords < 44) hit(2, `Fala um pouco curta: ${totalWords} palavras. Pode sobrar silêncio no fim; o ideal é de 45 a 56.`);
+  else if (totalWords > 64) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada.`);
+  else if (totalWords > 58) hit(1, `Fala um pouco acelerada: ${totalWords} palavras em 15s; o ideal é até 56.`);
   if (speech[0] && words(speech[0]) > 20) hit(1, `O gancho tem ${words(speech[0])} palavras. Acima de 20 ele demora a prender.`);
 
   const actions = ACTIONS.filter(([needle]) => outsideSpeech.includes(needle)).map(([, label]) => label);

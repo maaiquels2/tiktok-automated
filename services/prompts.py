@@ -67,11 +67,15 @@ _PRODUCT_FEATURES = (
     ('tule', ('tule',)),
     ('decote nas costas', ('decote nas costas', 'costas abertas', 'costas nuas')),
     ('decote', ('decote',)),
+    # Detalhe decorativo vende mais que a alca: vem antes dela (teste real do
+    # maio: "argolas douradas" e "recortes" sumiam e o close ia para a alca).
+    ('argolas', ('argola', 'argolas')),
+    ('recorte', ('recorte', 'recortes', 'vazado', 'vazados')),
+    ('franzido', ('franzido', 'franzida', 'drapeado', 'drapeada')),
     ('alça regulável', ('alça regulável', 'alca regulavel', 'alças reguláveis', 'alcas regulaveis')),
     ('alça', ('alça', 'alca')),
     ('manga', ('manga',)),
     ('barra', ('barra',)),
-    ('recorte', ('recorte',)),
     ('costura', ('costura',)),
     ('estampa', ('estampa',)),
     ('acabamento', ('acabamento',)),
@@ -284,7 +288,7 @@ def _with_article(value):
         'cintura baixa': 'a', 'secagem rápida': 'a', 'sem transparência': 'a',
         'forro': 'o', 'zíper': 'o', 'botão': 'o', 'cordão': 'o',
         'elástico': 'o', 'capuz': 'o', 'gola': 'a', 'punho': 'o',
-        'botões': 'os', 'poliamida': 'a', 'courino': 'o', 'algodão': 'o',
+        'botões': 'os', 'argolas': 'as', 'franzido': 'o', 'poliamida': 'a', 'courino': 'o', 'algodão': 'o',
         'lã': 'a', 'elastano': 'o', 'poliéster': 'o',
         'bojo': 'o', 'renda': 'a', 'cetim': 'o', 'viscose': 'a', 'canelado': 'o',
         'amarração': 'a', 'fenda': 'a', 'crochê': 'o', 'tule': 'o',
@@ -345,17 +349,17 @@ def _benefit_clause(c):
     # Keep the spoken middle inside the 15-second budget even when a niche
     # default contains a long marketing paragraph.
     words = raw.split()
-    if len(words) > 12:
+    if len(words) > 16:
         # Prefer complete comma-separated claims over cutting a sentence in the
         # middle of a verb ("motiva postar…").
         clauses = [part.strip(' ,;:') for part in raw.split(',') if part.strip(' ,;:')]
         compact = []
         for clause in clauses:
             candidate = ', '.join(compact + [clause])
-            if len(candidate.split()) > 12:
+            if len(candidate.split()) > 16:
                 break
             compact.append(clause)
-        raw = ', '.join(compact) if compact else ' '.join(words[:12]).rstrip(' ,;:')
+        raw = ', '.join(compact) if compact else ' '.join(words[:16]).rstrip(' ,;:')
         # Nunca terminar em preposicao/artigo ("um visual marcante para").
         raw = re.sub(r'(\s+(?:para|pra|de|da|do|com|em|no|na|e|o|a|os|as|um|uma|que))+$', '', raw, flags=re.I)
     raw = re.sub(r'^produto de qualidade\b', 'qualidade', raw, flags=re.I)
@@ -528,6 +532,8 @@ _PROOF_GESTURES = {
     'costura': 'aproxima a peça da lente e passa o dedo na costura',
     'acabamento': 'aproxima a peça da lente e passa o dedo no acabamento',
     'recorte': 'gira de lado devagar até o recorte ficar visível',
+    'argolas': 'toca a argola com a ponta do dedo, deixando o dourado brilhar',
+    'franzido': 'passa o dedo pelo franzido, sem puxar o tecido',
     'estampa': 'abre a peça com as duas mãos, de frente para a lente',
     'alça': 'ajusta a alça com um dedo e solta',
     'decote': 'ajusta a peça no ombro, sem puxar',
@@ -1721,9 +1727,10 @@ def _script_variation(c, color, index=0):
         extra = _future_line(c, forms, i)
         if extra and extra.casefold() not in selected_development.casefold():
             selected_development = f'{selected_development.rstrip(". ")}. {extra}'
-    if total() > 60:
+    # Segundo teste: com ~57 palavras ficou um pouco acelerado; teto de 57.
+    if total() > 57:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 60:
+        while len(sentences) > 1 and total() > 57:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -2514,6 +2521,13 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         # Ultimo recurso (espelho com closes, ousado e duas tecnicas): os
         # closes e as acoes ja mostram a peca; sem isso o Grok cortaria o fim.
         texto = _montar_video([(p, '' if t == proof_block else t) for p, t in blocos], limite)
+    if limite and len(texto) > limite:
+        # Ultimo recurso 2 (3 jeitos com tecnicas e beneficio longo): o
+        # beneficio e contexto; fatos, acoes e falas ficam.
+        sem_beneficio = [(p, '' if proof_block and t == proof_block else
+                          re.sub(r'Benefício a provar visualmente, só se for demonstrável: [^\n]*', '', t))
+                         for p, t in blocos]
+        texto = _montar_video(sem_beneficio, limite)
     return texto
 
 
