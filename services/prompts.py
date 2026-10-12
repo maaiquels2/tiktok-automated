@@ -93,6 +93,25 @@ _PRODUCT_FEATURES = (
     ('lã', ('lã',)),
     ('elastano', ('elastano',)),
     ('poliéster', ('poliéster', 'poliester')),
+    # Beleza e acessorios: so entram quando o briefing cita (a fala usa o rotulo
+    # como `req`). Cor (dourado, prateado) fica de fora: e campo proprio.
+    ('textura leve', ('textura leve', 'textura fluida')),
+    ('textura cremosa', ('textura cremosa', 'cremoso', 'cremosa')),
+    ('toque seco', ('toque seco',)),
+    ('pote de vidro', ('pote de vidro', 'frasco de vidro')),
+    ('conta-gotas', ('conta-gotas', 'conta gotas')),
+    ('vitamina c', ('vitamina c',)),
+    ('acabamento matte', ('matte', 'fosco', 'fosca')),
+    ('perfume suave', ('perfume suave', 'cheiro suave')),
+    ('pérolas', ('pérola', 'pérolas', 'perola', 'perolas')),
+    ('pedra', ('pedra', 'zircônia', 'zirconia')),
+    ('pingente', ('pingente',)),
+    ('corrente fina', ('corrente fina',)),
+    ('banho de ouro', ('banhado a ouro', 'banhada a ouro', 'banho de ouro')),
+    ('fecho', ('fecho',)),
+    ('aro ajustável', ('aro ajustável', 'aro ajustavel')),
+    ('proteção uv', ('proteção uv', 'protecao uv', 'lente uv')),
+    ('acetato', ('acetato',)),
 )
 
 _MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster', 'viscose', 'cetim'}
@@ -186,6 +205,39 @@ def _feature_present(source: str, needle: str, label: str = '') -> bool:
 
 
 _FALLBACK_DETAIL = 'o caimento e os detalhes visíveis'
+# Sem atributo nem angulo, o detalhe de reserva e o que a camera realmente
+# mostra daquele tipo de produto: caimento num creme nao existe.
+_FALLBACK_BY_FAMILY = {
+    'beleza': ('a textura e os detalhes visíveis', 'a textura'),
+    'acessorio': ('o brilho e os detalhes visíveis', 'o brilho'),
+}
+
+
+def _fallback_detail(c):
+    return _FALLBACK_BY_FAMILY.get(_product_family(c), (_FALLBACK_DETAIL,))[0]
+
+
+def _fallback_short(c):
+    return _FALLBACK_BY_FAMILY.get(_product_family(c), ('', 'o caimento'))[1]
+
+
+# Familias sem corpo a vestir: os moldes genericos do gerador ("Vesti...",
+# "como ela veste", "com uma blusinha basica") foram escritos para roupa.
+_NO_APPAREL_FAMILIES = ('beleza', 'acessorio')
+_APPAREL_RE = re.compile(
+    r'caimento|vest(?:e|i|ir|indo|ida|ido)|vestid[ao]s?|blus|barra|agach|provador|fit check|'
+    r'cintura|cós|jaqueta|cinto|no corpo|costura|tecido|gir(?:a|ar|o|inho)', re.I)
+
+
+def _apparel_free(c, candidates):
+    """Tira dos candidatos (texto ou (molde, texto)) o que fala como roupa,
+    quando o produto nao e roupa. Se nada sobrar, devolve a lista inteira:
+    melhor uma fala genérica que nenhuma."""
+    if _product_family(c) not in _NO_APPAREL_FAMILIES:
+        return candidates
+    keep = [item for item in candidates
+            if not _APPAREL_RE.search(item[1] if isinstance(item, tuple) else item)]
+    return keep or candidates
 
 
 def _focus_parts(c):
@@ -213,7 +265,7 @@ def _focus_parts(c):
         if len(features) == 2:
             return f'{features[0]} e {features[1]}', features
         return f'{features[0]}, {features[1]} e {features[2]}', features
-    return _FALLBACK_DETAIL, []
+    return _fallback_detail(c), []
 
 
 def _focus_is_contradictory(c, focus: str) -> bool:
@@ -293,6 +345,10 @@ def _with_article(value):
         'bojo': 'o', 'renda': 'a', 'cetim': 'o', 'viscose': 'a', 'canelado': 'o',
         'amarração': 'a', 'fenda': 'a', 'crochê': 'o', 'tule': 'o',
         'decote nas costas': 'o', 'alça regulável': 'a',
+        'textura leve': 'a', 'textura cremosa': 'a', 'toque seco': 'o', 'pote de vidro': 'o',
+        'conta-gotas': 'o', 'vitamina c': 'a', 'acabamento matte': 'o', 'perfume suave': 'o',
+        'pérolas': 'as', 'pedra': 'a', 'pingente': 'o', 'corrente fina': 'a', 'banho de ouro': 'o',
+        'fecho': 'o', 'aro ajustável': 'o', 'proteção uv': 'a', 'acetato': 'o',
     }
     if value.casefold() in articles:
         return f"{articles[value.casefold()]} {value}"
@@ -1027,7 +1083,15 @@ _FAMILY_VOCAB = {
     'gadget': dict(noun='aparelho', gender='m', on='em uso', quality='acabamento'),
     'pet': dict(noun='item', gender='m', on='no pet', quality='acabamento'),
     'infantil': dict(noun='peça', gender='f', on='na criança', quality='caimento'),
+    'acessorio': dict(noun='peça', gender='f', on='na mão', quality='brilho'),
 }
+
+# Acessorios (joia, bijuteria, bolsa, oculos). Palavra inteira e so no nome do
+# produto: "anel" por substring casaria com "canelada", "colar" com "colarinho".
+_ACCESSORY_RE = re.compile(
+    r'(?<!\w)(?:brincos?|colar(?:es)?|gargantilhas?|pulseiras?|braceletes?|an[eé]is|anel|alian[cç]as?|'
+    r'rel[oó]gios?|[oó]culos|bolsas?|mochilas?|necessaires?|carteiras?|tiaras?|presilhas?|piercings?)(?!\w)',
+    re.I)
 
 _PIECE_GENDER = {
     'legging': 'f', 'calça': 'f', 'saia': 'f', 'blusa': 'f', 'camiseta': 'f', 'camisa': 'f',
@@ -1071,6 +1135,8 @@ _NICHE_OCCASION = {
 
 
 def _product_family(c):
+    if _ACCESSORY_RE.search(' '.join(_phrase(c.get(k)) for k in ('product', 'outfit'))):
+        return 'acessorio'
     blob = ' '.join(_phrase(c.get(k)).casefold() for k in ('product', 'outfit', 'details', 'audience'))
     for family, needles in _FAMILY_WORDS:
         if any(n in blob for n in needles):
@@ -1334,7 +1400,7 @@ def _hook_pool(c, detail, forms):
         item = cat['hooks'][int(tid.rsplit('-', 1)[1])]
         item = item if isinstance(item, dict) else {}
         (cat_dor if item.get('pain') else cat_fato if item.get('req') else cat_livre).append((tid, text))
-    if det == _FALLBACK_DETAIL:
+    if det == _fallback_detail(c):
         # Sem atributo nem angulo, os moldes genericos so repetiriam o texto
         # de reserva; a voz da categoria vem antes deles.
         descoberta, contraste, decide, uso = cat_livre + descoberta, [], [], uso + decide + contraste
@@ -1466,7 +1532,8 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     if cat:
         for n, occ in enumerate(cat['occasions'][:2]):
             fechos += _category_lines(c, 'closers', forms, occ=occ)
-    occasion = _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), '')
+    occasion = ('' if _product_family(c) in _NO_APPAREL_FAMILIES
+                else _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), ''))
     if occasion and not cat:
         fechos += [
             ('fe-usar', f'Dá pra usar {occasion} numa boa.'),
@@ -1509,7 +1576,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         candidates.sort(key=lambda item: item[0])
     candidates = [item[1] for item in candidates]
     # Sem piso alto: frase natural curta vale mais que enchimento.
-    return _pick_in_budget(candidates, index, 10, 36, used_keys)
+    return _pick_in_budget(_apparel_free(c, candidates), index, 10, 36, used_keys)
 
 
 def _cta_pool(c, forms):
@@ -1688,8 +1755,19 @@ _FUTURE_LINES = {
 }
 
 
+_FUTURE_BY_FAMILY = {
+    'beleza': ('Já tô pensando em usar logo cedo, antes de sair, sem pensar duas vezes.',
+               'Imagina se arrumar de manhã com um toque assim, sem pressa.',
+               'É daquelas coisinhas que dão vontade de ter sempre à mão.'),
+    'acessorio': ('Já tô me imaginando {com} numa festa, sério, nem vou esperar.',
+                  'Imagina chegar num jantar {com} e já resolver o look.',
+                  'É daquelas que fazem o look inteiro mudar sem esforço.'),
+}
+
+
 def _future_line(c, forms, index=0):
-    lines = _FUTURE_LINES.get(_niche_key(c)) or _FUTURE_LINES['casual']
+    lines = (_FUTURE_BY_FAMILY.get(_product_family(c)) or _FUTURE_LINES.get(_niche_key(c))
+             or _FUTURE_LINES['casual'])
     line = lines[int(index or 0) % len(lines)]
     return line.replace('{com}', 'com ela' if forms.get('art') == 'a' else 'com ele')
 
@@ -1700,11 +1778,11 @@ def _script_variation(c, color, index=0):
     # hook vale ~0,36s. Ela permanece na legenda e no prompt de imagem.
     forms = _piece_forms(c)
     focus, features = _focus_parts(c)
-    hook_detail = _with_article(features[0] if features else (focus or 'o caimento'))
-    detail = _with_article(focus if focus else 'o caimento')
+    hook_detail = _with_article(features[0] if features else (focus or _fallback_short(c)))
+    detail = _with_article(focus if focus else _fallback_short(c))
     i = int(index or 0)
 
-    selected_hook = _pick_in_budget(_hook_pool(c, hook_detail, forms), i, 10, 13,
+    selected_hook = _pick_in_budget(_apparel_free(c, _hook_pool(c, hook_detail, forms)), i, 10, 13,
                                     _used_keys(c, 'hook'))
     selected_development = _development_line(c, detail, features, forms, i,
                                              _used_keys(c, 'development'), hook=selected_hook)
@@ -2811,7 +2889,7 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     # postagem, onde a tipografia sai correta.
     forms_txt = _piece_forms(c)
     focus_txt, features_txt = _focus_parts(c)
-    detail_txt = _with_article(features_txt[0] if features_txt else (focus_txt or 'o caimento'))
+    detail_txt = _with_article(features_txt[0] if features_txt else (focus_txt or _fallback_short(c)))
     cover_text = _cover_text(c, forms_txt, detail_txt, variant_index)
     # Deslocado de proposito: capa e texto de tela aparecem juntos na postagem,
     # entao repetir a mesma frase nos dois desperdica o unico frame que quem

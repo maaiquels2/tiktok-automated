@@ -225,8 +225,8 @@ def script_development(c, forms, details=()):
         if len(details) >= 2:
             return f'Assim que abre, já dá pra ver {details[0]}. Desdobrando, olha só {details[1]} de perto.'
         if details:
-            return f'Assim que abre, já dá pra ver {details[0]}. Desdobrando, dá pra ver a peça inteira de perto.'
-        return 'Assim que abre, já dá pra ver a cor. Desdobrando, dá pra ver a peça inteira de perto.'
+            return f'Assim que abre, já dá pra ver {details[0]}. Desdobrando, dá pra ver tudo de perto.'
+        return 'Assim que abre, já dá pra ver a cor. Desdobrando, dá pra ver tudo de perto.'
     if fmt != 'tres_jeitos':
         return ''
     a, b = looks(c)

@@ -507,6 +507,181 @@ CATEGORIES = [
     },
 ]
 
+# --------------------------------------------------------------------------
+# Beleza e acessorios: produto sem corpo a vestir. Os moldes falam do que a
+# camera mostra de perto (textura, brilho, acabamento) e nunca de caimento,
+# provador ou resultado na pele. Cada categoria declara 'family'; _enrich nao
+# aplica a elas os moldes de roupa (look combinado, tamanho "no corpo").
+# Atributo (`req`) so aparece quando o briefing o confirma: os rotulos vem de
+# _PRODUCT_FEATURES em services/prompts.py.
+# --------------------------------------------------------------------------
+_BASE_HOOKS = [
+    {'t': 'Peguei {dem} {piece} pra te mostrar de pertinho, olha só.'},
+    {'t': 'Olha {dem} {piece} que eu achei, vem ver de pertinho.'},
+    {'t': 'Gente, olha {dem} {piece} que eu tô mostrando aqui na mesa.'},
+    {'t': 'Meu problema com {piece} sempre foi {pain}. Olha {dem} aqui.', 'pain': True},
+]
+_BASE_REACTIONS = [
+    {'t': 'E olha de pertinho, dá pra ver bem os detalhes.'},
+    {'t': 'Sinceramente, gostei muito mais do que eu imaginava.'},
+]
+_BASE_CTAS = ['Corre pro carrinho laranja e escolhe {teu}.', 'Tá no carrinho laranja, vai lá ver de pertinho.']
+_QUALITY = {'needles': ['qualidade', 'parece barat', 'frágil', 'fragil'], 'pain': 'parecer barato de perto',
+            'proof': 'Por isso quis te mostrar o acabamento de pertinho.'}
+
+
+def _sem_corpo(cid, label, piece, gender, family, keywords, occasions, tone, avoid, objections, hooks,
+               reactions, example, closers=None):
+    return {
+        'id': cid, 'label': label, 'piece': piece, 'gender': gender, 'family': family, 'keywords': keywords,
+        'occasions': occasions, 'tone': tone, 'avoid': avoid,
+        'objections': [*objections, _QUALITY],
+        'hooks': [*hooks, *_BASE_HOOKS],
+        'reactions': [*reactions, *_BASE_REACTIONS],
+        'closers': closers or ['Dá pra usar {occ} numa boa.', 'Eu usaria {occ}, sem pensar duas vezes.'],
+        'ctas': list(_BASE_CTAS), 'example': example,
+    }
+
+
+_ACESSORIO_AVOID = ('Não dizer o material, o banho, a garantia nem que "não escurece" sem isso no briefing. '
+                    'Mostrar de perto, sem prometer durabilidade.')
+_BELEZA_AVOID = ('Nunca prometer resultado na pele, hidratação, cheiro, proteção ou duração sem isso no briefing. '
+                 'Falar só do que a câmera mostra: textura, cor, embalagem.')
+_TAMANHO = {'needles': ['tamanho', 'medida', 'pequeno', 'grande'], 'pain': 'errar o tamanho',
+            'proof': 'Por isso tô segurando aqui perto, pra você ter noção do tamanho.'}
+_ESCURECE = {'needles': ['escurece', 'oxida', 'enferruja', 'mancha'], 'pain': 'escurecer com o tempo',
+             'proof': 'Por isso quis te mostrar o acabamento de pertinho.'}
+
+CATEGORIES.extend([
+    _sem_corpo('creme', 'Creme', 'creme', 'm', 'beleza',
+               ['creme', 'hidratante', 'loção', 'locao', 'esfoliante'],
+               ['de manhã', 'à noite', 'no dia a dia'],
+               'Calmo e próximo, de quem mostra um achado da rotina.', _BELEZA_AVOID,
+               [{'needles': ['pesado', 'oleoso', 'grudent', 'gordur'], 'pain': 'ficar pesado na pele',
+                 'proof': 'Por isso tô aqui mostrando a textura de pertinho.'}],
+               [{'t': 'A textura {de} {piece} me ganhou assim que eu abri.', 'req': 'textura leve'},
+                {'t': 'O pote {de} {piece} já me conquistou na mesa.', 'req': 'pote de vidro'}],
+               [{'t': 'E a textura é leve, olha como ele espalha.', 'req': 'textura leve'},
+                {'t': 'E é cremoso, dá pra ver na ponta do dedo.', 'req': 'textura cremosa'},
+                {'t': 'E o pote é de vidro, fica lindo na mesa.', 'req': 'pote de vidro'},
+                {'t': 'E o cheirinho é suave.', 'req': 'perfume suave'}],
+               {'det': 'a textura leve', 'pain': 'ficar pesado na pele'}),
+    _sem_corpo('serum', 'Sérum', 'sérum', 'm', 'beleza',
+               ['sérum', 'serum', 'tônico', 'tonico'],
+               ['de manhã', 'à noite', 'no dia a dia'],
+               'Calmo e próximo, de quem mostra um achado da rotina.', _BELEZA_AVOID,
+               [{'needles': ['pesado', 'oleoso', 'grudent'], 'pain': 'ficar grudento na pele',
+                 'proof': 'Por isso tô aqui mostrando a textura de pertinho.'}],
+               [{'t': 'O conta-gotas {de} {piece} me chamou atenção na hora.', 'req': 'conta-gotas'}],
+               [{'t': 'E tem conta-gotas, dá pra pegar só um pouquinho.', 'req': 'conta-gotas'},
+                {'t': 'E é de vitamina C, igual eu pesquisei.', 'req': 'vitamina c'},
+                {'t': 'E a textura é leve, olha na ponta do dedo.', 'req': 'textura leve'}],
+               {'det': 'o conta-gotas', 'pain': 'ficar grudento na pele'}),
+    _sem_corpo('protetor', 'Protetor solar', 'protetor solar', 'm', 'beleza',
+               ['protetor solar', 'protetor facial', 'filtro solar'],
+               ['de manhã', 'no dia a dia', 'antes de sair de casa'],
+               'Prático e direto, de quem mostra uma rotina simples.', _BELEZA_AVOID,
+               [{'needles': ['pesado', 'oleoso', 'branco', 'grudent'], 'pain': 'deixar a pele pesada',
+                 'proof': 'Por isso tô aqui mostrando a textura de pertinho.'}],
+               [{'t': 'O toque seco {de} {piece} me chamou atenção na hora.', 'req': 'toque seco'}],
+               [{'t': 'E o toque é seco, olha aqui na minha mão.', 'req': 'toque seco'},
+                {'t': 'E a textura é leve, olha como ele espalha.', 'req': 'textura leve'}],
+               {'det': 'o toque seco', 'pain': 'deixar a pele pesada'}),
+    _sem_corpo('batom', 'Batom', 'batom', 'm', 'beleza',
+               ['batom', 'gloss', 'lip tint', 'tint labial'],
+               ['no dia a dia', 'pra sair', 'num jantar'],
+               'Animado e próximo, de quem testa a cor na hora.', _BELEZA_AVOID,
+               [{'needles': ['cor', 'tom', 'diferente'], 'pain': 'a cor ser diferente da foto',
+                 'proof': 'Por isso risquei a cor aqui na mão, pra você ver o tom.'}],
+               [{'t': 'O acabamento matte {de} {piece} me ganhou na hora.', 'req': 'acabamento matte'}],
+               [{'t': 'E o acabamento é matte, olha a cor aqui na mão.', 'req': 'acabamento matte'},
+                {'t': 'E é cremoso, dá pra ver o tom bem de pertinho.', 'req': 'textura cremosa'}],
+               {'det': 'o acabamento matte', 'pain': 'a cor ser diferente da foto'}),
+    _sem_corpo('esmalte', 'Esmalte', 'esmalte', 'm', 'beleza',
+               ['esmalte'],
+               ['no dia a dia', 'pra uma festa'],
+               'Animado e próximo, de quem mostra a cor nas unhas.', _BELEZA_AVOID,
+               [{'needles': ['cor', 'tom', 'diferente'], 'pain': 'a cor ser diferente da foto',
+                 'proof': 'Por isso tô mostrando a cor nas minhas unhas, de pertinho.'}],
+               [{'t': 'A cor {de} {piece} me ganhou na hora, olha nas unhas.'}],
+               [{'t': 'E é cremoso, olha o tom aqui nas unhas.', 'req': 'textura cremosa'}],
+               {'det': 'a textura cremosa', 'pain': 'a cor ser diferente da foto'}),
+    _sem_corpo('perfume', 'Perfume', 'perfume', 'm', 'beleza',
+               ['perfume', 'colônia', 'colonia', 'body splash'],
+               ['no dia a dia', 'pra sair', 'num jantar'],
+               'Elegante e calmo, de quem mostra um achado.', _BELEZA_AVOID,
+               [],
+               [{'t': 'O frasco {de} {piece} já me conquistou na mesa.', 'req': 'pote de vidro'}],
+               [{'t': 'E o frasco é de vidro, fica lindo na mesa.', 'req': 'pote de vidro'},
+                {'t': 'E o cheirinho é suave.', 'req': 'perfume suave'}],
+               {'det': 'o frasco de vidro', 'pain': ''}),
+    _sem_corpo('brinco', 'Brinco', 'brinco', 'm', 'acessorio',
+               ['brinco', 'brincos'],
+               ['pra sair com as amigas', 'num jantar', 'no dia a dia'],
+               'Delicado e animado, de quem mostra um achado de perto.', _ACESSORIO_AVOID,
+               [_TAMANHO, _ESCURECE],
+               [{'t': 'A argola {prep} {piece} me ganhou na hora.', 'req': 'argolas'},
+                {'t': 'A pedra {prep} {piece} me ganhou na hora.', 'req': 'pedra'}],
+               [{'t': 'E o formato dela é lindo, olha de pertinho.', 'req': 'argolas'},
+                {'t': 'E a pedra brilha demais de pertinho.', 'req': 'pedra'},
+                {'t': 'E o banho de ouro dá um brilho lindo.', 'req': 'banho de ouro'},
+                {'t': 'Sério, combina com quase tudo.'}],
+               {'det': 'as argolas', 'pain': 'errar o tamanho'}),
+    _sem_corpo('colar', 'Colar', 'colar', 'm', 'acessorio',
+               ['colar', 'gargantilha'],
+               ['pra sair com as amigas', 'num jantar', 'no dia a dia'],
+               'Delicado e animado, de quem mostra um achado de perto.', _ACESSORIO_AVOID,
+               [_TAMANHO, _ESCURECE],
+               [{'t': 'O pingente {prep} {piece} me ganhou na hora.', 'req': 'pingente'}],
+               [{'t': 'E o pingente balança lindo, olha só.', 'req': 'pingente'},
+                {'t': 'E a corrente é fininha, bem delicada.', 'req': 'corrente fina'},
+                {'t': 'Sério, combina com quase tudo.'}],
+               {'det': 'o pingente', 'pain': 'errar o tamanho'}),
+    _sem_corpo('pulseira', 'Pulseira', 'pulseira', 'f', 'acessorio',
+               ['pulseira', 'bracelete'],
+               ['pra sair com as amigas', 'num jantar', 'no dia a dia'],
+               'Delicado e animado, de quem mostra um achado de perto.', _ACESSORIO_AVOID,
+               [_TAMANHO, _ESCURECE],
+               [{'t': 'As pérolas {prep} {piece} me ganharam na hora.', 'req': 'pérolas'}],
+               [{'t': 'E as pérolas dão um charme, olha de pertinho.', 'req': 'pérolas'},
+                {'t': 'E é de elástico, dá pra ajustar fácil.', 'req': 'elástico'},
+                {'t': 'Sério, combina com quase tudo.'}],
+               {'det': 'as pérolas', 'pain': 'errar o tamanho'}),
+    _sem_corpo('anel', 'Anel', 'anel', 'm', 'acessorio',
+               ['anel', 'anéis', 'aliança', 'alianca'],
+               ['pra sair com as amigas', 'num jantar', 'no dia a dia'],
+               'Delicado e animado, de quem mostra um achado de perto.', _ACESSORIO_AVOID,
+               [_TAMANHO, _ESCURECE],
+               [{'t': 'A pedra {prep} {piece} me ganhou na hora.', 'req': 'pedra'}],
+               [{'t': 'E a pedra brilha demais de pertinho.', 'req': 'pedra'},
+                {'t': 'E o aro é ajustável, serve em vários dedos.', 'req': 'aro ajustável'},
+                {'t': 'Sério, combina com quase tudo.'}],
+               {'det': 'a pedra', 'pain': 'errar o tamanho'}),
+    _sem_corpo('oculos', 'Óculos', 'óculos', 'm', 'acessorio',
+               ['óculos', 'oculos'],
+               ['no dia a dia', 'na praia', 'pra dirigir'],
+               'Descontraído e animado, de quem mostra o achado no rosto.', _ACESSORIO_AVOID,
+               [_TAMANHO],
+               [{'t': 'A armação {de} {piece} me ganhou na hora.', 'req': 'acetato'}],
+               [{'t': 'E a armação é de acetato, olha de pertinho.', 'req': 'acetato'},
+                {'t': 'E a lente tem proteção UV.', 'req': 'proteção uv'},
+                {'t': 'Sério, combina com quase tudo.'}],
+               {'det': 'a armação de acetato', 'pain': 'errar o tamanho'}),
+    _sem_corpo('bolsa', 'Bolsa', 'bolsa', 'f', 'acessorio',
+               ['bolsa', 'mochila', 'necessaire', 'carteira'],
+               ['no dia a dia', 'no trabalho', 'pra sair'],
+               'Prático e animado, de quem mostra o achado por dentro e por fora.', _ACESSORIO_AVOID,
+               [{'needles': ['tamanho', 'cabe', 'espaço', 'espaco'], 'pain': 'não saber se cabe tudo',
+                 'proof': 'Por isso abri aqui, pra você ver o tamanho por dentro.'}],
+               [{'t': 'A alça {prep} {piece} me ganhou na hora.', 'req': 'alça regulável'},
+                {'t': 'O zíper {de} {piece} me ganhou na hora.', 'req': 'zíper'}],
+               [{'t': 'E a alça é regulável, ajusto do meu jeito.', 'req': 'alça regulável'},
+                {'t': 'E tem zíper, olha como fecha.', 'req': 'zíper'},
+                {'t': 'E por dentro tem forro, olha aqui.', 'req': 'forro'},
+                {'t': 'Sério, combina com quase tudo.'}],
+               {'det': 'o zíper', 'pain': 'não saber se cabe tudo'}),
+])
+
 # Combinacoes que a modelo veste junto (opiniao de estilo, nao fato da peca).
 # Vem dos exemplos de "uma peca, varias combinacoes" do material de vendas,
 # reescritos em primeira pessoa.
@@ -530,6 +705,8 @@ def _enrich(cat: dict) -> None:
     fem = cat['gender'] == 'f'
     pron = 'ela' if fem else 'ele'
     cat['hooks'].append({'t': 'Antes de escolher {teu} {piece}, olha {dem} que eu achei.'})
+    if cat.get('family'):
+        return
     combos = _COMBOS.get(cat['id'])
     if combos:
         cat['hooks'].append({'t': f'Vesti {{dem}} {{piece}} com {combos[0]} e olha como ficou.'})

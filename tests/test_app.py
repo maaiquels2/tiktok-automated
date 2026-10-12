@@ -1598,6 +1598,67 @@ class WorkflowTests(unittest.TestCase):
         from services.copywriter import build_brief
         self.assertIn('FORMATO: resposta a comentário',build_brief({**self.brief,'video_mode':'comentario'}))
 
+    def test_beauty_and_accessories_speak_about_what_the_camera_shows(self):
+        # Creme e brinco falavam de caimento, "como ele veste" e "uma blusinha
+        # basica": os moldes eram de roupa. Agora cada produto cai na familia
+        # e na categoria de fala dele, e nenhuma fala/texto de tela cita roupa.
+        from services import speech_bank
+        from services.prompts import _APPAREL_RE, _product_family
+        base=dict(model_name='Micaela',color='Branco',audience='',benefit='',angle='',tone='',style='',details='',
+                  movements='',generator='grok',niche='casual',objection='',offer='')
+        cases=(('Creme hidratante facial','creme hidratante','beleza','creme'),
+               ('Sérum vitamina C','sérum facial','beleza','serum'),
+               ('Protetor solar facial','protetor solar','beleza','protetor'),
+               ('Batom matte','batom','beleza','batom'),
+               ('Esmalte cremoso','esmalte','beleza','esmalte'),
+               ('Perfume floral','perfume','beleza','perfume'),
+               ('Brinco de argola dourada','brinco','acessorio','brinco'),
+               ('Colar ponto de luz','colar','acessorio','colar'),
+               ('Pulseira de pérolas','pulseira','acessorio','pulseira'),
+               ('Anel solitário','anel','acessorio','anel'),
+               ('Óculos de sol quadrado','óculos de sol','acessorio','oculos'),
+               ('Bolsa de ombro','bolsa','acessorio','bolsa'))
+        for product,outfit,family,category in cases:
+            c={**base,'product':product,'outfit':outfit}
+            self.assertEqual(_product_family(c),family,product)
+            self.assertEqual(speech_bank.detect(c),category,product)
+            for index in range(4):
+                pack=generate(c,variant_index=index,audit=copywriter_audit)
+                spoken=' '.join(pack[k] for k in ('hook','development','cta','screen_text','cover_text'))
+                self.assertIsNone(_APPAREL_RE.search(spoken),(product,index,spoken))
+                self.assertEqual(copywriter_audit(pack,c),[],(product,index,pack['hook']))
+
+    def test_accessory_family_matches_whole_words_only(self):
+        from services.prompts import _product_family
+        for product in ('Calça canelada','Vestido com bolsos','Camisa colarinho','Legging cintura alta'):
+            self.assertEqual(_product_family({'product':product,'outfit':''}),'moda',product)
+        for product in ('Brinco de argola','Anéis dourados','Óculos de sol','Gargantilha de pérolas'):
+            self.assertEqual(_product_family({'product':product,'outfit':''}),'acessorio',product)
+
+    def test_clothing_objection_proofs_do_not_leak_into_other_families(self):
+        # O preset de durabilidade manda "olhar a costura": num creme ou num
+        # brinco isso era dito em voz alta. O filtro de familia derruba a frase.
+        from services.prompts import _APPAREL_RE
+        base=dict(model_name='Micaela',color='Branco',audience='',benefit='',angle='',tone='',style='',details='',
+                  movements='',generator='grok',niche='casual',offer='')
+        for product,outfit in (('Creme hidratante facial','creme hidratante'),('Brinco de argola','brinco'),
+                               ('Colar ponto de luz','colar'),('Batom matte','batom')):
+            for objection in ('estraga rápido na lavagem','não sei se serve no tamanho','parece barato de perto'):
+                for index in range(3):
+                    pack=generate({**base,'product':product,'outfit':outfit,'objection':objection},variant_index=index)
+                    spoken=' '.join(pack[k] for k in ('hook','development','cta','screen_text','cover_text'))
+                    self.assertIsNone(_APPAREL_RE.search(spoken),(product,objection,index,spoken))
+
+    def test_apparel_keeps_its_own_speech_after_the_family_filter(self):
+        from services.prompts import _apparel_free
+        candidates=[('a','Vesti essa legging e olha o caimento.'),('b','Olha o bolso lateral.')]
+        legging={'product':'Legging cintura alta','outfit':'legging'}
+        self.assertEqual(_apparel_free(legging,candidates),candidates)
+        creme={'product':'Creme facial','outfit':'creme'}
+        self.assertEqual(_apparel_free(creme,candidates),[('b','Olha o bolso lateral.')])
+        # Se so sobrar roupa, devolve tudo: melhor uma fala generica que nenhuma.
+        self.assertEqual(_apparel_free(creme,candidates[:1]),candidates[:1])
+
     def test_video_mode_switch_accepts_formats_on_the_same_base(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
         self.cid=other['id']
