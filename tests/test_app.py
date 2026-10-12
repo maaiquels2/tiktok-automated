@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import os
 import sqlite3
 import struct
@@ -1787,6 +1788,186 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('pelas duas pontas da corrente',video)
         self.assertIn('balançar ou soltar o colar',video)
         self.assertNotIn('balança bem devagar',video)
+
+    # ---- Sequencia storytelling de 2 ou 3 clipes (services/story_arcs.py) -------------------------------
+    ARC_PRODUCTS={
+        'jeans':dict(product='Calça jeans',outfit='calça jeans',color='Azul claro',niche='dia-a-dia',
+                     details='lavagem clara, cintura alta, modelagem reta, bolsos na frente'),
+        'legging':dict(product='Legging cintura alta com bolso',outfit='legging',color='Preto',niche='academia',
+                       details='tecido grosso, cintura alta, bolso lateral, sem transparência'),
+        'vestido':dict(product='Vestido midi de cetim',outfit='vestido',color='Laranja',niche='casual',
+                       details='cetim, fenda, alça ajustável'),
+    }
+
+    def arc_campaign(self,name='jeans',**extra):
+        return {**dict(model_name='Micaela',audience='',benefit='',angle='',tone='',style='',movements='',
+                       generator='grok',objection='',offer='',video_mode='espelho'),
+                **self.ARC_PRODUCTS[name],**extra}
+
+    def test_story_arc_motives_are_the_facts_the_briefing_confirms(self):
+        from services.story_arcs import arc_facts
+        facts=arc_facts(self.arc_campaign())
+        self.assertEqual([f['text'] for f in facts],
+                         ['lavagem clara','cintura alta','modelagem reta','bolsos na frente'])
+        # Fato conhecido leva o gesto que o prova; o desconhecido leva um gesto generico, nunca inventado.
+        self.assertIn('passa a mão na cintura',facts[1]['gesture'])
+        self.assertIn('lavagem clara',facts[0]['gesture'])
+        # Direcao de cena e texto longo nao viram motivo; fato repetido nem os atributos duplicam.
+        c=self.arc_campaign(details='cintura alta, mostrar o cós de perto, uma frase longa demais para ser um fato '
+                                    'confirmado do produto, cintura alta, bolso')
+        self.assertEqual([f['text'] for f in arc_facts(c)],['cintura alta','bolso'])
+        # Sem Detalhes, valem os atributos que o gerador reconhece no nome da peca.
+        sem_detalhes=arc_facts({**self.arc_campaign(),'product':'Calça jeans cintura alta com bolso','details':''})
+        self.assertEqual(sorted(f['label'] for f in sem_detalhes),['bolso','cintura alta'])
+
+    def test_story_arc_drafts_pass_the_audit_and_the_word_budget_for_every_product(self):
+        from services.story_arcs import WORD_CEILING,WORD_FLOOR,build_story_arc
+        for name in self.ARC_PRODUCTS:
+            c=self.arc_campaign(name)
+            for arc in ('motivos','questionada'):
+                for clips in (2,3):
+                    seq=build_story_arc(c,c['color'],arc,clips)
+                    label=(name,arc,clips)
+                    self.assertEqual(len(seq['clips']),clips,label)
+                    self.assertEqual(seq['total_seconds'],15*clips,label)
+                    for clip in seq['clips']:
+                        self.assertEqual(clip['problems'],[],(label,clip['index'],clip['lines']))
+                        self.assertTrue(WORD_FLOOR<=clip['words']<=WORD_CEILING,(label,clip['index'],clip['words']))
+                        self.assertLessEqual(len(clip['prompt']),3940,(label,clip['index']))
+                        pede_compra='carrinho' in clip['spoken'].casefold()
+                        self.assertEqual(pede_compra,clip['final'],(label,clip['index']))
+                    # Os motivos citados nas falas sao os do briefing, na ordem em que o operador escreveu.
+                    dito=' '.join(clip['spoken'] for clip in seq['clips']).casefold()
+                    for fato in seq['facts']:
+                        self.assertIn(fato.casefold(),dito,(label,fato))
+            motivos=build_story_arc(c,c['color'],'motivos',3)
+            self.assertIn('Três motivos',motivos['clips'][0]['lines'][0])
+            self.assertIn('não te valoriza',build_story_arc(c,c['color'],'questionada',3)['clips'][0]['lines'][0])
+
+    def test_story_arc_prompts_keep_the_structure_validated_on_grok(self):
+        from services.prompts import generate
+        from services.story_arcs import build_story_arc
+        c=self.arc_campaign()
+        seq=build_story_arc(c,c['color'],'motivos',3)
+        primeiro,meio,ultimo=(clip['prompt'] for clip in seq['clips'])
+        # Clipe 1: o gancho do espelho do app, intacto, e a imagem aprovada como primeiro quadro.
+        original=generate({**c,'video_mode':'espelho'},script=dict(
+            hook=seq['clips'][0]['lines'][0],development=seq['clips'][0]['lines'][1],cta=seq['clips'][0]['lines'][2]))['video']
+        self.assertEqual(re.search(r'0–\d+s HOOK: [^\n]*?Fala',primeiro).group(0),
+                         re.search(r'0–\d+s HOOK: [^\n]*?Fala',original).group(0))
+        self.assertIn('ANEXE a IMAGEM APROVADA',primeiro)
+        self.assertNotIn('CONTINUIDADE',primeiro)
+        self.assertNotIn('a última palavra é dita por inteiro',primeiro)
+        # Clipes seguintes: partem da MESMA imagem e dizem isso, sem "retomar um ultimo quadro" que o Grok nao recebe.
+        for texto in (meio,ultimo):
+            self.assertIn('ANEXE a IMAGEM APROVADA',texto)
+            self.assertIn('o clipe abre na pose da imagem anexada, já falando',texto)
+            self.assertIn('CONTINUAÇÃO (não é um hook novo',texto)
+            self.assertNotIn('ÚLTIMO QUADRO',texto)
+            self.assertNotIn('HOOK:',texto)
+        # So o ultimo clipe fecha a venda e aponta para o carrinho.
+        for texto in (primeiro,meio):
+            self.assertIn('FIM DO TRECHO (a venda NÃO fecha aqui)',texto)
+            self.assertNotIn('apontando para baixo uma vez',texto)
+            self.assertIn('convite de compra',texto)
+        self.assertIn('a última palavra é dita por inteiro',meio)
+        self.assertIn('CTA: apontando para baixo uma vez',ultimo)
+        self.assertIn('carrinho laranja',seq['clips'][2]['spoken'])
+        # Os gestos que provam cada fato entram na coreografia do clipe onde ele e falado.
+        self.assertIn('passa a mão na cintura',meio)
+        # Guia do Grok e Extend Video: so o clipe 1 nao tem Extend; o guia segue as mesmas travas.
+        self.assertEqual([bool(clip['extend']) for clip in seq['clips']],[False,True,True])
+        self.assertIn('Continuação do mesmo take',seq['clips'][1]['extend'])
+        guia=[clip['guide'] for clip in seq['clips']]
+        self.assertNotIn('CONTINUIDADE',guia[0])
+        self.assertIn('o clipe abre na pose da imagem anexada',guia[1])
+        self.assertNotIn('aponta uma vez para baixo',guia[0]+guia[1])
+        self.assertIn('aponta uma vez para baixo',guia[2])
+
+    def test_story_arc_refuses_what_it_cannot_do_with_a_clear_message(self):
+        from services.story_arcs import ArcError,build_story_arc
+        c=self.arc_campaign()
+        def erro(campanha,arc='motivos',clips=3,**kw):
+            with self.assertRaises(ArcError) as ctx:
+                build_story_arc(campanha,campanha['color'],arc,clips,**kw)
+            return ctx.exception
+        self.assertEqual(erro(c,arc='dancinha').status,400)
+        self.assertEqual(erro(c,clips=4).status,400)
+        self.assertIn('Celular no espelho',str(erro({**c,'video_mode':''})))
+        self.assertIn('Na mesa',str(erro({**c,'product':'Creme facial','outfit':'creme'})))
+        poucos=erro({**c,'details':'cintura alta, lavagem clara'})
+        self.assertEqual(poucos.status,409)
+        self.assertIn('Detalhes',str(poucos))
+        self.assertIn('Só encontrei 2',str(poucos))
+        # Falas editadas: precisam de 3 trechos por clipe.
+        self.assertEqual(erro(c,lines=[['a','b','c']]).status,400)
+        self.assertEqual(erro(c,lines=[['a','b','c']]*2+[['a','b','']]).status,400)
+
+    def test_story_arc_edited_lines_are_used_and_audited(self):
+        from services.story_arcs import build_story_arc
+        c=self.arc_campaign()
+        base=build_story_arc(c,c['color'],'motivos',2)
+        editadas=[list(clip['lines']) for clip in base['clips']]
+        editadas[0][1]='Essa calça tem compressão e modela o corpo, olha só que coisa mais linda de ver ao vivo.'
+        seq=build_story_arc(c,c['color'],'motivos',2,lines=editadas)
+        self.assertFalse(seq['drafted'])
+        self.assertIn('Essa calça tem compressão',seq['clips'][0]['prompt'])
+        problemas=' '.join(seq['clips'][0]['problems'])
+        self.assertIn('compressão',problemas)          # afirmacao de desempenho que o briefing nao confirma
+        self.assertIn('fala curta',problemas)           # o que foi escrito nao e enchido por baixo dos panos
+        # Texto com quebras de linha tambem vale (e o que a tela manda).
+        como_texto=build_story_arc(c,c['color'],'motivos',2,lines=['\n'.join(clip['lines']) for clip in base['clips']])
+        self.assertEqual([clip['lines'] for clip in como_texto['clips']],[clip['lines'] for clip in base['clips']])
+        # Convite de compra fora do ultimo clipe e barrado.
+        editadas[0][2]='Corre pro carrinho laranja e garante a tua.'
+        self.assertIn('só o último clipe pode pedir a compra',
+                      ' '.join(build_story_arc(c,c['color'],'motivos',2,lines=editadas)['clips'][0]['problems']))
+
+    def test_story_arc_endpoint_is_read_only_and_follows_the_color_variant(self):
+        brief={**self.brief,**self.ARC_PRODUCTS['jeans'],'color':'Azul claro, Preto','video_mode':'espelho',
+               'generator':'grok'}
+        created=self.client.post('/api/campaigns',json=brief,headers=self.headers)
+        self.assertEqual(created.status_code,201,created.json)
+        self.cid=created.json['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        antes=self.get()
+        resp=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(resp.status_code,200,resp.json)
+        self.assertEqual(resp.json['clips_count'],2)
+        self.assertEqual(resp.json['color'],'Azul claro')
+        self.assertIn('ANEXE a IMAGEM APROVADA da cor Azul claro',resp.json['clips'][0]['prompt'])
+        # Segunda cor: o prompt edita a imagem aprovada daquela cor, como o de 15 s do app.
+        segunda=antes['variants'][1]
+        resp2=self.post('/story-arc',dict(arc='questionada',clips=3,variant=segunda['id']))
+        self.assertEqual(resp2.status_code,200,resp2.json)
+        self.assertEqual(resp2.json['color'],'Preto')
+        self.assertIn('imagem aprovada desta campanha',resp2.json['clips'][0]['prompt'])
+        # Somente leitura: nada mudou na campanha.
+        depois=self.get()
+        self.assertEqual(antes['version'],depois['version'])
+        self.assertEqual(antes['prompts'],depois['prompts'])
+        # Erros chegam como mensagem para o operador.
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=4)).status_code,400)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips='x')).status_code,400)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,variant=99999)).status_code,404)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,variant='abc')).status_code,400)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,lines=[['a','b','c']])).status_code,400)
+
+    def test_story_arc_endpoint_explains_when_the_campaign_does_not_fit(self):
+        mesa=self.client.post('/api/campaigns',json={**self.brief,**self.ARC_PRODUCTS['jeans'],'video_mode':'pov'},
+                              headers=self.headers).json
+        self.cid=mesa['id']
+        resp=self.post('/story-arc',dict(arc='motivos',clips=3))
+        self.assertEqual(resp.status_code,409)
+        self.assertIn('Celular no espelho',resp.json['error'])
+        poucos=self.client.post('/api/campaigns',json={**self.brief,**self.ARC_PRODUCTS['jeans'],
+                                                       'details':'cintura alta','video_mode':'espelho'},
+                                headers=self.headers).json
+        self.cid=poucos['id']
+        resp=self.post('/story-arc',dict(arc='motivos',clips=3))
+        self.assertEqual(resp.status_code,409)
+        self.assertIn('Detalhes',resp.json['error'])
 
     def test_video_mode_switch_accepts_formats_on_the_same_base(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json

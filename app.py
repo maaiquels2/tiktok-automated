@@ -3171,6 +3171,37 @@ def create_app(config=None):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de montar a sequência.',409)
         return jsonify(build_story_sequence(c,prompts,color))
 
+    # Sequencia STORYTELLING de 2 ou 3 clipes (arcos Motivos e Questionada) com fala nova em cada clipe
+    # (services/story_arcs.py). So leitura, como a de cima: nada e gravado na campanha. E POST porque o
+    # operador pode mandar as falas que editou para gerar os prompts de novo.
+    @app.post('/api/campaigns/<int:cid>/story-arc')
+    def story_arc(cid):
+        from services.story_arcs import ArcError, build_story_arc
+        data=body()
+        c=detail(cid)
+        color,base_image=c.get('color') or '',False
+        vid=data.get('variant')
+        if vid is not None:
+            try:
+                vid=int(vid)
+            except (TypeError,ValueError):
+                raise Invalid('Variação de cor inválida.')
+            index=next((i for i,v in enumerate(c['variants']) if v['id']==vid),None)
+            if index is None:
+                raise Invalid('Variação de cor não encontrada.',404)
+            color,base_image=c['variants'][index]['color'],index>0
+        elif c['variants']:
+            color=c['variants'][0]['color']
+        try:
+            clips=int(data.get('clips') or 0)
+        except (TypeError,ValueError):
+            raise Invalid('Escolha 2 ou 3 clipes.')
+        try:
+            return jsonify(build_story_arc(c,color,str(data.get('arc') or ''),clips,data.get('lines'),
+                                           base_image=base_image))
+        except ArcError as error:
+            raise Invalid(str(error),error.status)
+
     @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
     def edit_variant_prompts(cid,vid):
         data=body()
