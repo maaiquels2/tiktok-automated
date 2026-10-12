@@ -1852,6 +1852,57 @@ class WorkflowTests(unittest.TestCase):
               'niche':'dia-a-dia','video_mode':'espelho'}
         self.assertIn('Outras peças citadas na fala não entram no vídeo.',generate(leve)['video'])
 
+    RINGS_MOVES='ajustar as amarrações do top; mostrar os bordados de perto; mostrar a regulagem lateral da calcinha; virar de leve para o lado'
+
+    def test_fastening_moves_never_reach_the_actions_of_a_wearable(self):
+        # Teste real: "mostrar a regulagem lateral da calcinha" fez o Grok amarrar lacos laterais que a peca
+        # (argolas) nao tem. Nao ha gesto que prove regulagem sem puxar ou amarrar a peca.
+        from services import formats
+        from services.prompt_improve import build_compact_video_prompt
+        from services.prompts import fastening_move
+        for modo in ['','espelho','pov','movimento','comentario','teste']:
+            c={**self.BIKINI,'movements':self.RINGS_MOVES,'video_mode':modo}
+            video=generate(c)['video']
+            self.assertNotIn('regulagem lateral da calcinha',video,modo)
+            self.assertIn('amarrações do top',video,modo)   # o top tem amarracao: o gesto continua
+            guia=build_compact_video_prompt(c,generate(c),c['color'])
+            self.assertNotIn('regulagem',guia.split('O que ela diz',1)[0],modo)
+        for acao in ('mostrar a regulagem lateral da calcinha','ajustar a lateral da calcinha','soltar o laço',
+                     'desamarrar a tira'):
+            self.assertTrue(fastening_move(acao,{**self.BIKINI,'details':'suplex com forro'}),acao)
+        for acao in ('ajustar as amarrações do top','ajustar a peça no corpo','puxar o cós de leve',
+                     'mostrar os bordados de perto','virar de leve para o lado'):
+            self.assertFalse(fastening_move(acao,self.BIKINI),acao)
+
+    def test_fastening_move_stays_when_the_briefing_confirms_the_tie_there(self):
+        from services.prompts import fastening_move
+        c={**self.BIKINI,'details':'suplex com forro, calcinha com laço lateral'}
+        self.assertFalse(fastening_move('ajustar o laço lateral da calcinha',c))
+        self.assertIn('ajustar o laço lateral da calcinha',
+                      generate({**c,'movements':'ajustar o laço lateral da calcinha; mostrar os bordados',
+                                'video_mode':''})['video'])
+
+    def test_fastening_filter_leaves_products_that_are_not_worn_alone(self):
+        from services.prompts import fastening_move
+        creme={**self.BIKINI,'product':'Creme hidratante facial','outfit':'creme','details':'textura leve'}
+        self.assertFalse(fastening_move('ajustar a regulagem lateral',creme))
+
+    def test_closing_hand_of_swimwear_rests_on_the_waist_instead_of_adjusting_the_hem(self):
+        # Biquini nao tem "barra": a mao "ajustando a barra" ia para a calcinha e o Grok amarrava o lado.
+        for modo in ('','comentario'):
+            video=generate({**self.BIKINI,'video_mode':modo})['video']
+            self.assertIn('com uma das mãos pousada na cintura, sem mexer na peça',video,modo)
+            self.assertNotIn('tocando a barra do biquíni',video,modo)
+        maio=generate({**self.BIKINI,'product':'Maiô canelado','outfit':'maiô canelado','video_mode':''})['video']
+        self.assertIn('pousada na cintura',maio)
+        # Peca com barra de verdade continua ajustando a barra; calca, o cos.
+        vestido=generate({**self.BIKINI,'product':'Vestido midi de cetim','outfit':'vestido','niche':'casual',
+                          'details':'cetim, fenda','video_mode':''})['video']
+        self.assertIn('tocando a barra do vestido',vestido)
+        jeans=generate({**self.BIKINI,'product':'Calça jeans','outfit':'calça jeans','niche':'dia-a-dia',
+                        'details':'cintura alta','video_mode':''})['video']
+        self.assertIn('tocando o cós da calça',jeans)
+
     # ---- Sequencia storytelling de 2 ou 3 clipes (services/story_arcs.py) -------------------------------
     ARC_PRODUCTS={
         'jeans':dict(product='Calça jeans',outfit='calça jeans',color='Azul claro',niche='dia-a-dia',

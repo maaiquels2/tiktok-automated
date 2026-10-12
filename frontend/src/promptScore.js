@@ -28,7 +28,7 @@ const ATTRIBUTES = [
 
 function speechLines(text) {
   const lines = [];
-  const re = /(?:Fala[^:]*|Ela diz|Narração|She says|says):\s*["“]([^"”]+)["”]/gi;
+  const re = /(?:Fala[^:]*|Ela diz|O que ela diz[^:]*|Narração|She says|says):\s*["“]([^"”]+)["”]/gi;
   let m;
   while ((m = re.exec(text))) lines.push((m[1] || '').trim());
   return lines;
@@ -58,11 +58,22 @@ export function scorePrompt(text) {
   else if (speech.length && totalWords < 44) hit(2, `Fala um pouco curta: ${totalWords} palavras. Pode sobrar silêncio no fim; o ideal é de 45 a 56.`);
   else if (totalWords > 64) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada.`);
   else if (totalWords > 58) hit(1, `Fala um pouco acelerada: ${totalWords} palavras em 15s; o ideal é até 56.`);
-  if (speech[0] && words(speech[0]) > 20) hit(1, `O gancho tem ${words(speech[0])} palavras. Acima de 20 ele demora a prender.`);
+  if (speech.length > 1 && words(speech[0]) > 20) hit(1, `O gancho tem ${words(speech[0])} palavras. Acima de 20 ele demora a prender.`);
 
   const actions = ACTIONS.filter(([needle]) => outsideSpeech.includes(needle)).map(([, label]) => label);
   if (actions.length >= 6) hit(3, `Ações e ângulos demais para 15s (${actions.length}): ${actions.join(', ')}. Escolha 2 ou 3.`);
   else if (actions.length >= 4) hit(1, `Muitas ações e ângulos para 15s (${actions.length}): ${actions.join(', ')}.`);
+
+  // Teste real (biquíni com argolas, "Com fala"): a fala dizia "saída de praia amarrada na cintura" e "short jeans", e o
+  // prompt pedia para mostrar a "regulagem lateral" e ajustar a barra. O Grok encenou tudo isso e amarrou laços na
+  // calcinha. Só o formato "3 jeitos de usar" mostra outras peças de propósito.
+  const threeLooks = /3 jeitos de usar|três looks/.test(low);
+  const otherPieces = [...new Set(speech.flatMap(line => line.toLowerCase()
+    .match(/saída de praia|canga|kimono|short(?:inho)? jeans|(?:camisa|jaqueta|blusa|calça|saia) (?:aberta )?por cima|camisa aberta/g) || []))];
+  if (otherPieces.length && !threeLooks)
+    hit(2, `A fala cita outras peças (${otherPieces.join(', ')}) fora do formato "3 jeitos de usar": o gerador costuma encenar isso e trocar ou amarrar a peça. Fale só da peça da imagem.`);
+  if (/regulagem lateral|regula(?:r|gem) (?:d[ao] |na )?(?:lateral|calcinha)|ajust\w+ (?:a |as |o |os )?(?:\w+ )?(?:lateral|laterais|calcinha|tiras?|cord[ãa]o)|desamarr\w*|tocando a barra d[oa] (?:biqu|maiô)/.test(outsideSpeech))
+    hit(3, 'O prompt cita regulagem ou ajuste da lateral da peça (ex.: "regulagem lateral", "ajustar a calcinha"): o gerador costuma amarrar um laço que a peça não tem. Descreva só o que se vê (ex.: "argolas douradas nas laterais, sem laço").');
 
   const forbidIdx = low.search(/não inventar|nao inventar/);
   if (forbidIdx >= 0) {

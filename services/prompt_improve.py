@@ -23,7 +23,8 @@ import re
 import unicodedata
 
 from services import formats, persuasion
-from services.prompts import _with_article, bold_move, close_target, shows_unconfirmed_feature, video_style
+from services.prompts import (
+    _with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
 from services.prompts import (
     piece_lock_short, _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
@@ -153,7 +154,7 @@ def _moves(c: dict) -> list[str]:
     # parada ("emendando em seguida: pose inicial frontal"). Mostrar atributo
     # nao confirmado ("mostrar bolso") tambem sai.
     items = [m for m in items if not re.search(r'\bpose\b|\bposar\b|\bcta\b|sorri|\bolhar\b', m, re.I)
-             and not shows_unconfirmed_feature(m, c)]
+             and not shows_unconfirmed_feature(m, c) and not fastening_move(m, c)]
     moves = []
     for item in items:
         # "vestir/ajustar": fica a primeira alternativa que faz sentido vestida.

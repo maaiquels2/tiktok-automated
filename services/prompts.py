@@ -797,10 +797,37 @@ def shows_unconfirmed_feature(action: str, c: dict) -> bool:
                for label, needles in _PRODUCT_FEATURES)
 
 
+# Teste real (biquini com argolas nas laterais da calcinha): o movimento "mostrar a regulagem lateral da calcinha" e o
+# encerramento "mao tocando a barra, como quem ajusta a peca" fizeram o Grok amarrar lacos laterais a partir dos 4 s.
+# Nao existe gesto que prove "regulagem" sem puxar ou amarrar a peca, entao esse movimento sai da lista de acoes,
+# a menos que o briefing confirme laco/tira no mesmo lugar. ("ajustar as amarracoes do top" continua: o top tem.)
+_FASTENING_MOVE_RE = re.compile(
+    r'\bregul\w*'
+    r'|\b(?:ajust|mex|puxa|solt|desfaz|desfa[çc]|aperta|afrouxa|desamarr)\w*\s+(?:\w+\s+){0,3}?'
+    r'(?:laterais|lateral|tiras?|cord[ãa]o|cord[õo]es|argolas?|la[çc]os?)\b', re.I)
+
+
+def fastening_move(action: str, c: dict) -> bool:
+    low = _phrase(action).casefold()
+    if _product_family(c) not in ('moda', 'infantil') or not _FASTENING_MOVE_RE.search(low):
+        return False
+    ties = ' '.join(_tie_mentions(c))
+    places = re.findall(r'lateral\w*|calcinha|tira|cord\w+|argola|la[çc]o', low)
+    return not any(place[:5] in ties for place in places)
+
+
+def without_fastening_moves(value, c: dict) -> str:
+    raw = _phrase(value)
+    if not raw:
+        return ''
+    chunks = [part.strip(' .,:;') for part in re.split(r'\s*;\s*|\n+', raw) if part.strip(' .,:;')]
+    return '; '.join(part for part in chunks if not fastening_move(part, c))
+
+
 def _configured_movement_plan(value: str, c: dict, limit: int = 6) -> str:
     """Combine safe product actions with the one explicitly allowed rotation."""
     value = '; '.join(part for part in re.split(r'\s*;\s*|\n+', _phrase(value))
-                      if part.strip() and not shows_unconfirmed_feature(part, c))
+                      if part.strip() and not shows_unconfirmed_feature(part, c) and not fastening_move(part, c))
     cleaned = _movement_without_unapproved_turns(value)
     _direction, turn_action = _turn_direction(c)
     combined = '; '.join(part for part in (cleaned, turn_action) if part)
@@ -2033,7 +2060,8 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis da peça"
-    moves = _movement_plan(_filter_actions(_movement_without_unapproved_turns(movements), _CTA_ACTION_RE))
+    moves = _movement_plan(_filter_actions(
+        _movement_without_unapproved_turns(without_fastening_moves(movements, c)), _CTA_ACTION_RE))
     turn_direction, _turn_action = _turn_direction(c)
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas nem texto na tela): {video_notes}." if video_notes else ""
@@ -2149,7 +2177,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis do produto"
-    moves = (_movement_plan(_filter_actions(movements, _POV_SKIP_RE))
+    moves = (_movement_plan(_filter_actions(without_fastening_moves(movements, c), _POV_SKIP_RE))
              or "manuseio natural que mostre o produto de perto")
     pov_lead = formats.pov_lead_moves(c)
     if pov_lead:
@@ -2446,6 +2474,17 @@ def piece_lock_short(c):
     return text
 
 
+# Biquini, maio e top nao tem "barra": "mao tocando a barra, como quem ajusta a peca" levava a mao a calcinha e o
+# Grok amarrava o lado. Nessas pecas a mao pousa na cintura, sem mexer na peca.
+_NO_HEM_PIECES = ('biquíni', 'maiô', 'top')
+
+
+def _closing_hand(forms, anchor):
+    if forms['piece'] in _NO_HEM_PIECES:
+        return 'com uma das mãos pousada na cintura, sem mexer na peça'
+    return f"com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, como quem ajusta a peça"
+
+
 def _unconfirmed_line(c):
     """Lista do que nao inventar, sem o que o briefing confirmou: com
     "tecido macio" confirmado, proibir "maciez" contradizia o proprio prompt."""
@@ -2595,9 +2634,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
                 "tecido quando fala dele e volta a mão para a peça; nada de mãos paradas nem braços duros. "
                 "Sem movimento artificial de IA. ")
         abre = cena['hook']
-        fecha = (f"já de frente para a lente, com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, como "
-                 "quem ajusta a peça; a outra aponta UMA vez para baixo com o indicador e volta, "
-                 "sorrindo, sem parar de falar e sem pose final. ")
+        fecha = (f"já de frente para a lente, {_closing_hand(forms, anchor)}; a outra aponta UMA vez para baixo com "
+                 "o indicador e volta, sorrindo, sem parar de falar e sem pose final. ")
     if 'ousado' in estilo:
         ousado, giro = bold_move(c, espelho=espelho)
         moves = f"{ousado}; {moves}"
