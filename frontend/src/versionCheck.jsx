@@ -8,7 +8,7 @@ const CHECK_EVERY_MS = 10 * 60 * 1000;
 const MIN_GAP_MS = 60 * 1000;
 
 export function assetSignature(html) {
-  const found = [...String(html || '').matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)].map(m => m[1]);
+  const found = [...String(html || '').matchAll(/(?:src|href)="(\/assets\/[^"?#]+)[^"]*"/g)].map(m => m[1]);
   return [...new Set(found)].sort().join('|');
 }
 
