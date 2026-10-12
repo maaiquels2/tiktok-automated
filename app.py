@@ -32,6 +32,17 @@ from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
 STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
+# Limites de tentativas (tabela rate_limits, no banco: na Vercel cada acesso
+# pode cair numa instancia diferente, entao memoria nao serve).
+RATE_LIMITS_SQL = ('CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL DEFAULT 0, '
+                   'window_start DOUBLE PRECISION NOT NULL DEFAULT 0, '
+                   'locked_until DOUBLE PRECISION NOT NULL DEFAULT 0)')
+LOGIN_USER_LIMIT, LOGIN_IP_LIMIT, LOGIN_WINDOW = 5, 20, 15 * 60
+AI_LIMIT, AI_WINDOW = 20, 60
+# Rotas que chamam a OpenAI (cada chamada gasta a chave do estudio).
+AI_ENDPOINTS = {'analyze_product_photo', 'analyze_product_photo_confirm', 'quick_brief', 'save_writer_settings',
+                'test_writer', 'generate_prompts', 'generate_prompt_variants', 'refresh_single_script',
+                'refresh_variant_script', 'refresh_all_variant_scripts'}
 FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
@@ -260,6 +271,14 @@ def create_app(config=None):
                             f'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS {name} {definition}')
                     if missing:
                         conn.commit()
+                    # Limite de tentativas (login e IA): fica no banco porque
+                    # na Vercel cada acesso pode cair numa instancia diferente.
+                    if not conn.execute(
+                            "SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() "
+                            "AND table_name='rate_limits'").fetchone():
+                        conn.execute(RATE_LIMITS_SQL)
+                        conn.execute('ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY')
+                        conn.commit()
             except Exception as exc:
                 # Sem permissao de DDL (ou banco fora do ar) o app continua
                 # subindo: quem usa colunas antigas segue trabalhando, e o log
@@ -326,6 +345,7 @@ def create_app(config=None):
                     role TEXT NOT NULL DEFAULT 'editor',active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
+            conn.execute(RATE_LIMITS_SQL)
             if version<1:
                 conn.execute("UPDATE campaigns SET migration_note='Campanha importada do protótipo (estado anterior: ' || status || '). Reanexe as mídias e revise as etapas.',status='briefing' WHERE status!='briefing'")
                 conn.execute('PRAGMA user_version=1')
@@ -494,12 +514,78 @@ def create_app(config=None):
                 session.pop('user_id',None)
                 raise Invalid('Faça login para acessar a Fábrica TikTok.',401)
             g.current_user=dict(user)
+        if request.method in {'POST','PATCH'} and request.endpoint in AI_ENDPOINTS:
+            # Cada chamada destas gasta a chave da OpenAI: limite por pessoa.
+            quem=(getattr(g,'current_user',None) or {}).get('id') or client_ip()
+            chave=f'ai:{quem}'
+            espera=rate_locked((chave,))
+            if espera:
+                raise Invalid(f'Muitas chamadas à IA em sequência. Espere {espera} s e tente de novo.',429)
+            rate_hit(chave,AI_LIMIT,AI_WINDOW,AI_WINDOW)
+
+    def client_ip():
+        # Na Vercel o IP real vem no X-Forwarded-For (o primeiro e o cliente).
+        if cloud_mode:
+            ip=(request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+            if ip:
+                return ip
+        return request.remote_addr or 'desconhecido'
+
+    def rate_row(key):
+        return db().execute('SELECT hits,window_start,locked_until FROM rate_limits WHERE key=?',(key,)).fetchone()
+
+    def rate_locked(keys):
+        """Segundos que faltam para liberar a chave mais travada (0 = livre)."""
+        agora=time.time()
+        espera=0
+        for key in keys:
+            row=rate_row(key)
+            if row and float(row['locked_until'] or 0)>agora:
+                espera=max(espera,int(float(row['locked_until'])-agora)+1)
+        return espera
+
+    def rate_hit(key,limit,window,lock):
+        """Conta uma tentativa na janela; ao chegar no limite, trava por `lock` s."""
+        agora=time.time()
+        row=rate_row(key)
+        if not row or agora-float(row['window_start'] or 0)>window:
+            hits,inicio=1,agora
+        else:
+            hits,inicio=int(row['hits'])+1,float(row['window_start'])
+        travado=agora+lock if hits>=limit else 0
+        db().execute('INSERT INTO rate_limits(key,hits,window_start,locked_until) VALUES(?,?,?,?) '
+                     'ON CONFLICT(key) DO UPDATE SET hits=excluded.hits,window_start=excluded.window_start,'
+                     'locked_until=excluded.locked_until',(key,hits,inicio,travado))
+        db().commit()
+
+    def rate_clear(key):
+        db().execute('DELETE FROM rate_limits WHERE key=?',(key,))
+        db().commit()
+
+    # CSP: so o proprio site, as fontes do Google e o Supabase do projeto (o
+    # navegador sobe arquivos direto para o Storage e recebe imagens de la).
+    supabase_origin=storage_url if storage_url.startswith('https://') else ''
+    content_security_policy='; '.join([
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' data: https://fonts.gstatic.com",
+        f"img-src 'self' data: blob: {supabase_origin}".strip(),
+        f"media-src 'self' blob: {supabase_origin}".strip(),
+        f"connect-src 'self' {supabase_origin}".strip(),
+        "frame-ancestors 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "object-src 'none'",
+    ])
 
     @app.after_request
     def headers(response):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='no-referrer'
         response.headers['X-Frame-Options']='DENY'
+        response.headers['Content-Security-Policy']=content_security_policy
+        response.headers['Permissions-Policy']='camera=(), microphone=(), geolocation=(), payment=(), usb=()'
         if request.path.startswith('/assets/'):
             # Os arquivos em /assets/ saem do Vite com hash no nome
             # (index-XXXXXXXX.js) - o nome so muda quando o conteudo muda.
@@ -581,9 +667,18 @@ def create_app(config=None):
         data=body()
         username=clean_username(data.get('username'))
         password=data.get('password') or ''
+        # 5 senhas erradas seguidas travam o usuario por 15 min; 20 erros do
+        # mesmo IP travam o IP (redes compartilhadas erram mais).
+        chaves=(f'login:user:{username}',f'login:ip:{client_ip()}')
+        espera=rate_locked(chaves)
+        if espera:
+            raise Invalid(f'Muitas tentativas de login. Tente de novo em {max(1,-(-espera//60))} min.',429)
         row=db().execute('SELECT * FROM users WHERE username=? AND active=1',(username,)).fetchone()
         if not row or not check_password_hash(row['password_hash'],password):
+            rate_hit(chaves[0],LOGIN_USER_LIMIT,LOGIN_WINDOW,LOGIN_WINDOW)
+            rate_hit(chaves[1],LOGIN_IP_LIMIT,LOGIN_WINDOW,LOGIN_WINDOW)
             raise Invalid('Usuário ou senha incorretos.',401)
+        rate_clear(chaves[0])
         session.clear();session['user_id']=row['id']
         return jsonify(authenticated=True,user=public_user(row))
 
@@ -962,7 +1057,10 @@ def create_app(config=None):
             a=dict(row)
             a['metadata']=json.loads(a['metadata'])
             a['url']=f"/api/assets/{a['id']}/file"
-            a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
+            if not cloud_mode:
+                # Caminho no disco: serve ao Critico no PC; na nuvem e uma
+                # pasta temporaria do servidor que nao deve vazar.
+                a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
             c['assets'].append(a)
         c['device_videos']=device_videos_of(cid)
         # Dica de edicao do formato (juntar as cores, responder comentario...).
@@ -973,7 +1071,8 @@ def create_app(config=None):
             a['kind']='product'
             a['metadata']=json.loads(a['metadata'])
             a['url']=f"/api/product-assets/{a['id']}/file"
-            a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
+            if not cloud_mode:
+                a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
             c['product_assets'].append(a)
         c['variants']=[]
         for row in db().execute('SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)):

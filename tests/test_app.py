@@ -714,7 +714,7 @@ class WorkflowTests(unittest.TestCase):
                 executadas.append(self.last)
                 return self
             def fetchone(self):
-                return None
+                return {'existe': 1} if 'information_schema.tables' in self.last else None
             def fetchall(self):
                 if 'information_schema.columns' in self.last:
                     return [{'column_name': n} for n in CAMPAIGN_COLUMNS]
@@ -2960,6 +2960,46 @@ class AuthenticationPrototypeTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_login_locks_after_five_wrong_passwords(self):
+        self.client.post('/api/auth/setup',json={'display_name':'Maiquel','username':'maiquel',
+                                                 'password':'senha-segura-1'},headers=self.headers)
+        self.client.post('/api/auth/logout',json={},headers=self.headers)
+        for _ in range(5):
+            errada=self.client.post('/api/auth/login',json={'username':'maiquel','password':'errada'},headers=self.headers)
+            self.assertEqual(errada.status_code,401)
+        # Depois de 5 erros, nem a senha certa entra ate passar o bloqueio.
+        travado=self.client.post('/api/auth/login',json={'username':'maiquel','password':'senha-segura-1'},
+                                 headers=self.headers)
+        self.assertEqual(travado.status_code,429)
+        self.assertIn('Muitas tentativas de login',travado.json['error'])
+
+    def test_successful_login_clears_the_failure_count(self):
+        self.client.post('/api/auth/setup',json={'display_name':'Maiquel','username':'maiquel',
+                                                 'password':'senha-segura-1'},headers=self.headers)
+        self.client.post('/api/auth/logout',json={},headers=self.headers)
+        for _ in range(4):
+            self.client.post('/api/auth/login',json={'username':'maiquel','password':'errada'},headers=self.headers)
+        self.assertEqual(self.client.post('/api/auth/login',json={'username':'maiquel','password':'senha-segura-1'},
+                                          headers=self.headers).status_code,200)
+        self.client.post('/api/auth/logout',json={},headers=self.headers)
+        self.assertEqual(self.client.post('/api/auth/login',json={'username':'maiquel','password':'errada'},
+                                          headers=self.headers).status_code,401)
+
+    def test_ai_routes_have_a_per_user_rate_limit_and_security_headers(self):
+        self.client.post('/api/auth/setup',json={'display_name':'Maiquel','username':'maiquel',
+                                                 'password':'senha-segura-1'},headers=self.headers)
+        for _ in range(20):
+            self.assertNotEqual(self.client.post('/api/quick-brief',data={},headers=self.headers).status_code,429)
+        excesso=self.client.post('/api/quick-brief',data={},headers=self.headers)
+        self.assertEqual(excesso.status_code,429)
+        self.assertIn('Muitas chamadas à IA',excesso.json['error'])
+        # Rotas que nao chamam a IA continuam livres.
+        self.assertEqual(self.client.get('/api/campaigns').status_code,200)
+        resposta=self.client.get('/api/auth/session')
+        self.assertIn("default-src 'self'",resposta.headers['Content-Security-Policy'])
+        self.assertIn("frame-ancestors 'none'",resposta.headers['Content-Security-Policy'])
+        self.assertIn('camera=()',resposta.headers['Permissions-Policy'])
 
     def test_owner_creates_shared_second_access_and_both_can_login(self):
         state=self.client.get('/api/auth/session').json
