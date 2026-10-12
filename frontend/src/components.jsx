@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank, persuasionPreview, quickBrief } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, storyArc, speechBank, deleteFromSpeechBank, persuasionPreview, quickBrief } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus, Palette } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -181,6 +181,91 @@ export function StorySequence({campaignId,variantId=null,onError}){
   </section>;
 }
 
+// Sequencia STORYTELLING de 2 ou 3 clipes (services/story_arcs.py): arcos Motivos e Questionada, com falas novas em
+// cada clipe. As falas chegam como RASCUNHO editavel; "Atualizar prompts" manda as editadas de volta. So leitura:
+// nao grava nada na campanha. Todos os clipes partem da MESMA imagem aprovada (e como foi validado no Grok).
+const ARC_OPTIONS=[
+  ['motivos','Motivos','“Três motivos pra essa peça estar no seu guarda-roupa”'],
+  ['questionada','Questionada','“Sabe o que dizem por aí? Que ela não te valoriza”, e a resposta'],
+];
+const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];
+const wordCount=text=>(text||'').trim().split(/\s+/).filter(Boolean).length;
+export function StoryArcs({campaignId,variantId=null}){
+  const [open,setOpen]=useState(false);
+  const [arc,setArc]=useState('motivos');
+  const [clips,setClips]=useState(3);
+  const [data,setData]=useState(null);
+  const [drafts,setDrafts]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [message,setMessage]=useState('');
+  async function build(lines){
+    setLoading(true);setMessage('');
+    try{
+      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines});
+      setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
+    }catch(e){setData(null);setMessage(e.message)}
+    finally{setLoading(false)}
+  }
+  const choose=(setter,value)=>{setter(value);setData(null);setMessage('')};
+  return <section className="story-sequence story-arcs">
+    <button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={open}>
+      <span className="rd-story-eyebrow">STORYTELLING EM VÁRIOS CLIPES</span>
+      <strong>{open?'Fechar sequência em 2 ou 3 clipes':'Sequência em 2 ou 3 clipes'}</strong>
+      <small>Falas novas em cada clipe (motivos ou pergunta e resposta), os prompts e a montagem no CapCut.</small>
+    </button>
+    {open&&<div className="story-sequence-body">
+      <div className="option-field">
+        <span className="option-field-title" id="story-arc-title">Arco</span>
+        <div className="generator-options" role="radiogroup" aria-labelledby="story-arc-title">
+          {ARC_OPTIONS.map(([id,label,hint])=><label key={id} className={'generator-option '+(arc===id?'selected':'')}>
+            <input type="radio" name="story-arc" value={id} checked={arc===id} onChange={()=>choose(setArc,id)}/>
+            <span><strong>{label}</strong><small>{hint}</small></span>
+          </label>)}
+        </div>
+      </div>
+      <div className="option-field">
+        <span className="option-field-title" id="story-clips-title">Quantos clipes</span>
+        <div className="generator-options" role="radiogroup" aria-labelledby="story-clips-title">
+          {ARC_CLIPS.map(([id,label,hint])=><label key={id} className={'generator-option '+(clips===id?'selected':'')}>
+            <input type="radio" name="story-clips" value={id} checked={clips===id} onChange={()=>choose(setClips,id)}/>
+            <span><strong>{label}</strong><small>{hint}</small></span>
+          </label>)}
+        </div>
+      </div>
+      <button type="button" className="primary" disabled={loading} onClick={()=>build()}>{loading?'Montando…':data?'Montar de novo (rascunho novo)':'Montar sequência'}</button>
+      {message&&<p className="help story-arc-message" role="alert">{message}</p>}
+      {data&&<>
+        <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
+        <small className="help">Motivos usados (do campo Detalhes): {data.facts.join(' · ')}</small>
+        {data.notes.map(note=><small key={note} className="help">{note}</small>)}
+        {data.clips.map((clip,index)=>{
+          const draft=drafts[index]??clip.lines.join('\n');
+          const words=wordCount(draft);
+          return <div key={clip.index} className="variant-prompt story-clip">
+            <div className="section-title"><strong>Clipe {clip.index} · {clip.role} <small>{clip.start} · ~{clip.seconds}s</small></strong></div>
+            <label className="story-arc-lines">
+              <span className="help">Falas (uma linha por trecho: 0–4 s, 4–12 s e 12–15 s) · {words} palavras</span>
+              <textarea rows={5} value={draft} onChange={e=>setDrafts(list=>list.map((text,i)=>i===index?e.target.value:text))}/>
+            </label>
+            {clip.problems.map(problem=><small key={problem} className="help story-arc-problem">⚠ {problem}</small>)}
+            <div className="story-arc-copy">
+              <CopyButton text={clip.prompt} label="Copiar prompt completo"/>
+              <CopyButton text={clip.guide} label="Copiar Guia do Grok"/>
+              {clip.extend&&<CopyButton text={clip.extend} label="Copiar Extend Video"/>}
+            </div>
+            <p className="story-screen-text"><strong>Texto na tela (CapCut):</strong> {clip.screen_text}</p>
+          </div>;
+        })}
+        <button type="button" disabled={loading} onClick={()=>build(drafts)}>Atualizar prompts com as falas editadas</button>
+        <h4>Como gerar no Grok</h4>
+        <ul>{data.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>
+        <h4>Montagem no CapCut</h4>
+        <ol>{data.capcut.map(step=><li key={step}>{step}</li>)}</ol>
+      </>}
+    </div>}
+  </section>;
+}
+
 // Formatos de video (services/formats.py): os quatro de base e os que rodam
 // sobre eles. Abrindo o pacote usa a base POV; Close ASMR, a de so movimento.
 export const FORMAT_OPTIONS=[
@@ -285,7 +370,8 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
             <li className={hasVideo?'is-done':''}><b>{hasVideo?'✓':'3'}</b>Gerar 2 ou 3 vezes e trazer o melhor MP4</li>
           </ol>
         </section>
-        {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/></div>}
+        {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>
+          {(campaign.video_mode||'')==='espelho'&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
       </div>
 
       <section className="rd-drop" ref={dropRef} aria-label={`Vídeo de ${name}`}>

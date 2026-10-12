@@ -49,6 +49,7 @@ export const health=()=>api('/health');
 
 // Sequencia de 3 partes (Extend Video do Grok + montagem no CapCut). So leitura.
 export const storySequence=(cid,variantId)=>api(`/campaigns/${cid}/sequence${variantId?`?variant=${variantId}`:''}`);
+export const storyArc=(cid,body)=>api(`/campaigns/${cid}/story-arc`,{method:'POST',body});
 
 // Upload direto ao Supabase Storage (usado na versao online, no lugar do
 // FormData de sempre): o navegador manda o arquivo para o Storage sem
