@@ -14,6 +14,23 @@ auditoria de honestidade. O custo é só o tempo e as gerações do Grok.
   (praticamente iguais) contra 15 a 35 para fim do clipe anterior x início. No corte, a pose e o
   enquadramento reiniciam. Funciona como corte seco, mas não é a emenda invisível que se quer avaliar.
 
+## Decisão depois do segundo teste (arcos de 2 clipes)
+
+Os arcos de 2 clipes também foram gerados partindo da imagem-base nos dois clipes (5,2 em todos os pares).
+Em vez de insistir na emenda por último quadro, o que funciona hoje virou o caminho padrão:
+
+- **Arcos de 3 clipes: prompts intactos.** A fórmula foi validada por você; os 6 prompts completos são
+  idênticos aos de antes.
+- **Arcos de 2 clipes: ajuste fino.** (1) O clipe 2 agora diz a verdade sobre o primeiro quadro: *"o clipe abre
+  na pose da imagem anexada, já falando"*, em vez de pedir para retomar um último quadro que o Grok não recebe.
+  (2) Os clipes que não fecham a venda ganharam *"a última palavra é dita por inteiro antes do fim"* (a voz ia
+  até 15,0 s e podia cortar a palavra). (3) No arco B, 3 a 4 palavras a menos nos dois clipes (de 57 e 56 para
+  55 e 52): no teste, o `video_ruim` do clipe 2 tinha voz nos 60 trechos de 0,25 s, sem nenhum respiro, e os dois
+  "corrido" tinham 1 pausa. Foi um corte pequeno de propósito: a fala densa continua sendo a regra.
+- Os prompts de 2 clipes que você já usou ficaram em `clipe-N\v1-usado\`.
+- A **emenda por último quadro** continua disponível (`ultimo_quadro.py`, `confere_emenda.py` e o prompt
+  `3-extend-video.txt`) para quando quiser uma emenda invisível em vez de corte seco.
+
 ## Os 4 arcos
 
 | Arco | Clipes | Resumo |

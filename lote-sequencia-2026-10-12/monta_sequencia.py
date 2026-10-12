@@ -24,6 +24,7 @@ Como rodar (na pasta Fabrica_TikTok):
 import io
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -155,6 +156,7 @@ ARCOS = {
     # --- Versões de 2 clipes (cerca de 30 s): uma só emenda. Falas próprias: não dá para só tirar o clipe do
     # meio, porque ele carrega as perguntas abertas e o clipe 3 carrega o CTA.
     'A-motivos-2clipes': dict(
+        inicio='imagem-base',
         titulo='3 motivos para a calça jeans estar no guarda-roupa (2 clipes)',
         capa='3 motivos pra essa calça estar no seu guarda-roupa',
         clipes=[
@@ -181,6 +183,8 @@ ARCOS = {
                        'Corre pro carrinho laranja e garante a tua.'),
                 abertura='retoma a pose do último quadro e desce a mão pela lateral da perna até o tornozelo, '
                          'marcando a modelagem reta',
+                abertura_base='começa na pose da imagem anexada (mão livre no bolso), já falando, e desce a mão '
+                              'pela lateral da perna até o tornozelo, marcando a modelagem reta',
                 meio='apoia a mão em um dos bolsos da frente e gesticula como quem conversa com uma amiga, '
                      'passando a mão pela cintura e pela perna enquanto fala dos looks',
                 fim=None,
@@ -191,6 +195,7 @@ ARCOS = {
         ],
     ),
     'B-questionada-2clipes': dict(
+        inicio='imagem-base',
         titulo='"Calça jeans não te valoriza?" e a resposta (2 clipes)',
         capa='Calça jeans não te valoriza?',
         clipes=[
@@ -198,7 +203,7 @@ ARCOS = {
                 papel='A pergunta + o primeiro motivo desmontado (cintura alta)',
                 falas=('Sabe o que dizem por aí de calça jeans? Que ela não te valoriza.',
                        'Porque é baixa demais, porque a cor pesa, porque a perna é larga. Pode ser que você pense '
-                       'assim também. Mas eu vou desmontar um por um, olha comigo.',
+                       'assim. Eu vou desmontar um por um, olha comigo.',
                        'Primeiro, baixa demais? Olha a cintura alta. E os outros dois, já te mostro.'),
                 abertura='dá um passo até o espelho com sorriso confiante e cruza o olhar com a tela, como quem '
                          'faz uma pergunta',
@@ -213,11 +218,13 @@ ARCOS = {
             ),
             dict(
                 papel='Desmonta os outros dois motivos + resposta + fechamento (CTA)',
-                falas=('Segundo, a cor que pesa? É lavagem clara, um azul leve, olha só.',
+                falas=('Segundo, a cor que pesa? É lavagem clara, um azul leve.',
                        'Terceiro, perna larga? Ela desce reta da cintura ao tornozelo, e tem bolsos na frente. '
-                       'Então a pergunta nunca foi se calça jeans valoriza ou não, foi qual calça.',
+                       'Então a pergunta nunca foi se calça jeans valoriza, foi qual calça.',
                        'Cintura alta, lavagem clara, perna reta. Corre pro carrinho laranja e garante a tua.'),
                 abertura='retoma a pose do último quadro e toca a calça mostrando a lavagem clara',
+                abertura_base='começa na pose da imagem anexada (mão livre no bolso), já falando, e toca a calça '
+                              'mostrando a lavagem clara',
                 meio='desce a mão pela perna até o tornozelo marcando a perna reta, apoia a mão em um dos bolsos '
                      'da frente e gesticula como quem dá a resposta',
                 fim=None,
@@ -231,6 +238,18 @@ ARCOS = {
 
 CONTINUIDADE = ('CONTINUIDADE: clipe {n} de {total} da MESMA gravação: mesma modelo, mesmo espelho, mesma roupa e '
                 'mesma luz do clipe anterior, não uma cena nova. Abre retomando este quadro: {quadro}. ')
+
+
+# Arcos de 2 clipes: o clipe 2 parte da MESMA imagem-base do clipe 1 (é como foi gerado e funcionou). O prompt
+# diz isso com honestidade, em vez de pedir para "retomar o último quadro" que o Grok não recebe.
+CONTINUIDADE_BASE = ('CONTINUIDADE: clipe {n} de {total} da MESMA gravação: mesma modelo, mesmo espelho, mesma roupa e '
+                     'mesma luz; o clipe abre na pose da imagem anexada, já falando, sem saudação e sem '
+                     'reapresentar a peça. ')
+ULTIMA_PALAVRA = 'a última palavra é dita por inteiro antes do fim do clipe'
+
+
+def parte_da_base(n, clipe):
+    return n > 1 and clipe.get('_inicio') == 'imagem-base'
 
 
 def sub1(padrao, novo, texto, flags=0):
@@ -250,29 +269,38 @@ def prompt_completo(n, total, clipe, quadro_anterior):
     # Ações e encerramento do clipe (o clipe final mantém o gesto de carrinho do app).
     # O gerador ajusta os tempos da shot list ao tamanho da fala (4–10 s, 10–15 s...): captura o início.
     ini = re.search(r'ENCERRAMENTO \((\d+)–15s\)', texto).group(1)
+    base = parte_da_base(n, clipe)
+    refinado = clipe.get('_inicio') == 'imagem-base'
+    abertura = clipe['abertura_base'] if base else clipe['abertura']
     if final:
         texto = sub1(r'AÇÕES \(escolha 2 a 3[^)]*\): .*?ENCERRAMENTO \(\d+–15s\):',
-                     f'AÇÕES (na ordem, emendadas, sem parar nem posar): {clipe["abertura"]}; {clipe["meio"]}. '
+                     f'AÇÕES (na ordem, emendadas, sem parar nem posar): {abertura}; {clipe["meio"]}. '
                      f'ENCERRAMENTO ({ini}–15s):', texto, re.S)
     else:
         texto = sub1(r'AÇÕES \(escolha 2 a 3[^)]*\): .*? EXPRESSÃO:',
-                     f'AÇÕES (na ordem, emendadas, sem parar nem posar): {clipe["abertura"]}; {clipe["meio"]}. '
+                     f'AÇÕES (na ordem, emendadas, sem parar nem posar): {abertura}; {clipe["meio"]}. '
                      f'ENCERRAMENTO ({ini}–15s): {clipe["fim"]}. EXPRESSÃO:', texto, re.S)
         texto = sub1(r'EXPRESSÃO: encanto → orgulho → convite sorridente\.',
                      'EXPRESSÃO: encanto → curiosidade (sem convite de compra).', texto)
     # Linhas da shot list.
     rotulo = 'HOOK' if n == 1 else 'CONTINUAÇÃO (não é um hook novo: não recomeçar, não reapresentar a peça)'
     # A descrição completa da retomada já está em AÇÕES e em CONTINUIDADE: aqui só a referência curta.
-    abre_shot = clipe['abertura'] if n == 1 else 'retoma o gesto do último quadro, sem recomeçar'
+    abre_shot = (clipe['abertura'] if n == 1 else
+                 'já falando, na pose da imagem anexada, sem recomeçar' if base else
+                 'retoma o gesto do último quadro, sem recomeçar')
     texto = sub1(r'0–(\d+)s HOOK: [^\n]*?Fala \(PT-BR\):',
                  lambda m: f'0–{m.group(1)}s {rotulo}: olhar na tela do celular, {abre_shot}. '
                            'Fala (PT-BR):', texto)
     if not final:
         texto = sub1(r'(\d+)–15s CTA: [^\n]*?Fala \(PT-BR\):',
                      lambda m: f'{m.group(1)}–15s FIM DO TRECHO (a venda NÃO fecha aqui): sem apontar para baixo e '
-                               'sem pose de fechamento; segue o gesto e a fala. Fala (PT-BR):', texto)
+                               'sem pose de fechamento; segue o gesto e a fala'
+                               + (f'; {ULTIMA_PALAVRA}' if refinado else '') + '. Fala (PT-BR):', texto)
     # Primeiro quadro: o clipe 1 usa a imagem aprovada; os seguintes, o último quadro do anterior.
-    if n > 1:
+    if base:
+        texto = sub1(r'(ANEXE a IMAGEM APROVADA da cor [^.]*\.)',
+                     lambda m: m.group(1) + ' ' + CONTINUIDADE_BASE.format(n=n, total=total), texto)
+    elif n > 1:
         texto = sub1(r'ANEXE a IMAGEM APROVADA da cor [^.]*\.',
                      f'ANEXE o ÚLTIMO QUADRO do clipe {n - 1} como primeiro quadro e referência contínua. '
                      + CONTINUIDADE.format(n=n, total=total, quadro=quadro_anterior), texto)
@@ -296,18 +324,23 @@ def guia_compacto(n, total, clipe, quadro_anterior):
     pack = dict(hook=falas[0], development=falas[1], cta=falas[2])
     texto = build_compact_video_prompt(CAMPANHA, pack, CAMPANHA['color'])
     final = n == total
-    acao = f'ela {clipe["abertura"]}, e, sem parar, {clipe["meio"]}'
+    base = parte_da_base(n, clipe)
+    refinado = clipe.get('_inicio') == 'imagem-base'
+    acao = f'ela {clipe["abertura_base"] if base else clipe["abertura"]}, e, sem parar, {clipe["meio"]}'
     if final:
         acao += ('; no final, de frente para o espelho, a mão livre aponta uma vez para baixo com o indicador, '
                  'sorrindo')
     else:
-        acao += f'; {clipe["fim"]}'
+        acao += f'; {clipe["fim"]}' + (f'; {ULTIMA_PALAVRA}' if refinado else '')
     texto = sub1(r'(?m)^Ação contínua, sem pausas:.*$',
                  f'Ação contínua, sem pausas: {acao}. Cada gesto começa enquanto o anterior termina: nada de parar, '
                  'posar ou recomeçar entre uma ação e outra.', texto)
     if not final:
         texto = sub1(r'(?m)^Expressão: .*$', 'Expressão: encanto → curiosidade (sem convite de compra).', texto)
-    if n > 1:
+    if base:
+        texto = sub1(r'(?m)^A imagem anexada é o primeiro quadro: ',
+                     CONTINUIDADE_BASE.format(n=n, total=total) + 'A imagem anexada é o primeiro quadro: ', texto)
+    elif n > 1:
         texto = sub1(r'(?m)^A imagem anexada é o primeiro quadro: ',
                      CONTINUIDADE.format(n=n, total=total, quadro=quadro_anterior)
                      + 'A imagem anexada é o último quadro do clipe anterior, agora o primeiro quadro: ', texto)
@@ -352,6 +385,14 @@ def main():
         for i, clipe in enumerate(dados['clipes'], 1):
             quadro_ant = dados['clipes'][i - 2]['ultimo_quadro'] if i > 1 else ''
             pasta = PASTA / 'sequencias' / arco / f'clipe-{i}'
+            clipe['_inicio'] = dados.get('inicio', 'ultimo-quadro')
+            if clipe['_inicio'] == 'imagem-base' and not (pasta / 'v1-usado').exists():
+                # Guarda os prompts que você já usou antes do ajuste fino.
+                antigos = [f for f in pasta.glob('*.txt')]
+                if antigos:
+                    (pasta / 'v1-usado').mkdir()
+                    for f in antigos:
+                        shutil.copy2(f, pasta / 'v1-usado' / f.name)
             falas = falas_do(clipe)
             palavras = sum(_count_words(f) for f in falas)
             # Mesma régua de honestidade do app (termos de desempenho, urgência, direção de cena falada).
