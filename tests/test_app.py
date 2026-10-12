@@ -1545,9 +1545,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('cortes fora das trocas de look',jeitos['video'])
         caixa=generate({**base,'video_mode':'unboxing'})
         self.assertEqual(_video_mode({'video_mode':'unboxing'}),'pov')
-        self.assertIn('VÍDEO POV',caixa['video'])
+        self.assertIn('VÍDEO ABRINDO O PACOTE',caixa['video'])
+        # Teste real: terceira mao, calca girando no ar e caixa demorando a abrir.
+        self.assertIn('exatamente duas mãos',caixa['video'])
+        self.assertIn('NUNCA girar a peça no ar',caixa['video'])
+        self.assertIn('nos 2 primeiros segundos',caixa['video'])
+        self.assertNotIn('girar,',caixa['video'])
         self.assertIn('embalagem aberta',caixa['image'])
-        self.assertIn('a mão tira legging cintura alta da embalagem aberta',caixa['video'])
+        self.assertIn('as duas mãos já tiram legging cintura alta da caixa aberta',caixa['video'])
         self.assertNotIn('comprei',caixa['hook'].casefold())
         som=generate({**base,'video_mode':'asmr'})
         self.assertIn('ÁUDIO (é o conteúdo do vídeo)',som['video'])
@@ -1555,7 +1560,9 @@ class WorkflowTests(unittest.TestCase):
         # O Guia do Grok segue o mesmo formato.
         self.assertIn('lê uma pergunta',build_compact_video_prompt({**base,'video_mode':'comentario'},com,'Preto'))
         self.assertIn('sons nítidos',build_compact_video_prompt({**base,'video_mode':'asmr'},som,'Preto'))
-        self.assertIn('embalagem',build_compact_video_prompt({**base,'video_mode':'unboxing'},caixa,'Preto'))
+        guia_caixa=build_compact_video_prompt({**base,'video_mode':'unboxing'},caixa,'Preto')
+        self.assertIn('Mãos: exatamente duas',guia_caixa)
+        self.assertIn('nunca girando no ar',guia_caixa)
 
     def test_retention_techniques_fit_the_grok_limit_and_keep_the_actions(self):
         import itertools

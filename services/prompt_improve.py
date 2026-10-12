@@ -393,6 +393,23 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     light = 'Luz: a mesma da imagem, sem trocar a cena nem escurecer.'
     close = closing_rules(c, product, keeps)
 
+    if formats.video_format(c) == 'unboxing':
+        # Abrindo o pacote: peca fora do corpo, celular apoiado, duas maos.
+        return '\n'.join([
+            f'Vídeo vertical 9:16 abrindo o pacote, em primeira pessoa, 15 segundos, {res}.',
+            'A imagem anexada é o primeiro quadro: mesma caixa, mesmo ambiente e mesma luz do começo ao fim.',
+            'Câmera: o celular está apoiado acima, apontado para baixo, quase parado, um único take sem cortes nem '
+            'zoom; por isso as duas mãos ficam livres.',
+            'Mãos: exatamente duas, as mesmas da imagem; nunca uma terceira mão; nunca aparece rosto nem corpo.',
+            f'Ação contínua, sem pausas: {formats.pov_opening(c, product)}; depois as mãos mostram os detalhes de '
+            'perto, um de cada vez; para mostrar o verso, apoiam a peça na caixa e viram como uma página, nunca '
+            'girando no ar; no final, apoiam a peça aberta sobre a caixa e o indicador aponta uma vez para baixo.'
+            f'{POV_LOOP if "loop" in formats.techniques(c) else ""} {seamless}',
+            f'Narração, do começo ao fim, num fôlego só: "{fala}"',
+            SPEECH_POV,
+            closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: a peça nunca é vestida; ', 1),
+        ])
+
     if mode == 'pov':
         hands = pov_hands(c, spoken)
         return '\n'.join([

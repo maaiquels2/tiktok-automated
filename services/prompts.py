@@ -2072,7 +2072,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
         (0, "EVITAR TAMBÉM: pose de apresentador; comportamento de influenciador; sensação de anúncio; textos, "
             "ícones, carrinho ou botões na tela (o carrinho só é falado); marcas inventadas; deformação do produto.\n"),
         (0, proof_block),
-        (0, "MÃOS: são o único ponto de identidade visível; manuseiam o produto com naturalidade (pegar, girar, testar, "
+        (0, "MÃOS: são o único ponto de identidade visível; manuseiam o produto com naturalidade (pegar, virar de leve, testar, "
             "mostrar), com pressão coerente com o tipo de produto; sem gesto ensaiado, pausas e imperfeições bem-vindas. "),
         (0 if pov_lead else 1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; não precisa usar todas): {moves}. "),
         (0, "ENCERRAMENTO (12–15s): a câmera se aproxima com calma de um detalhe final do produto nas mãos, ainda com o "
@@ -2126,6 +2126,83 @@ _UNCONFIRMED = (
     ('suporte', ('suporte', 'sustenta')),
     ('composição', ()),
 )
+
+
+# Gestos de prova com a peca FORA do corpo (abrindo o pacote).
+_UNBOX_GESTURES = (
+    (('bolso',), 'aponta o bolso e passa o dedo pela costura dele'),
+    (('botão', 'botões', 'botao', 'botoes'), 'passa o dedo pelos botões, um por um'),
+    (('cintura alta', 'cós', 'elástico', 'elastico'), 'segura o cós aberto com as duas mãos, de frente para a lente'),
+    (('estampa', 'tie dye', 'floral', 'listra'), 'abre a peça de frente para a estampa aparecer inteira'),
+    (('argola', 'dourad', 'fivela', 'metal'), 'aproxima o detalhe metálico da lente e mostra de perto'),
+    (('cetim', 'seda'), 'deixa o tecido escorregar entre os dedos, mostrando o brilho'),
+    (('courino', 'couro'), 'passa a ponta dos dedos no courino, mostrando a textura'),
+    (('renda',), 'aproxima a renda da lente, sem esticar'),
+    (('laço', 'laco', 'capuz', 'gola', 'lapela'), 'ajeita esse detalhe com os dedos e aproxima da lente'),
+)
+
+
+def _unbox_gesture(feature):
+    low = feature.casefold()
+    for words, gesture in _UNBOX_GESTURES:
+        if any(w in low for w in words):
+            return f'{feature} → {gesture}'
+    return f'{feature} → aproxima esse detalhe da lente e mostra de perto'
+
+
+def _build_unboxing_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development,
+                                 cta, base_image=False):
+    """Abrindo o pacote: a peca FORA do corpo, vista de cima.
+
+    A primeira versao herdava o POV de quem veste: celular na mao (uma mao a
+    menos), "girar" a peca e provas no corpo. No teste real o Grok inventou
+    uma terceira mao, girou a calca no ar (ela "pulava" para o verso) e
+    demorou a abrir a caixa. Aqui o celular esta apoiado (duas maos livres),
+    a peca sai da caixa logo no inicio e o verso aparece virando a peca
+    sobre a caixa, nunca girando no ar."""
+    model = _phrase(c.get('model_name')) or 'a pessoa'
+    color_l = _phrase(color) or 'a cor escolhida'
+    product_l = product or 'o produto'
+    _focus, features = _focus_parts(c)
+    facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
+    materials = ', '.join(_material_facts(c))
+    scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
+                  else 'o mesmo ambiente mostrado na foto de referência da modelo')
+    gestures = [_unbox_gesture(f) for f in _product_features(c, limit=2)]
+    extra = formats.pov_lead_moves(c)
+    loop = ('No último quadro, a peça e as mãos voltam à posição do primeiro, para o vídeo recomeçar sem emenda. '
+            if 'loop' in formats.techniques(c) else '')
+    return _montar_video([
+        (0, f"VÍDEO ABRINDO O PACOTE, em primeira pessoa, TikTok Shop vertical 9:16, exatamente 15 segundos, "
+            f"{resolution}. ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+            f"Produto: {product_l} na cor {color_l}. FATOS CONFIRMADOS: {facts}. "
+            + (f"MATERIAL CONFIRMADO: {materials}. " if materials else '') + "\n"),
+        (0, "CÂMERA: o celular está apoiado acima da superfície, apontado para baixo, quase parado (só um leve "
+            "tremor natural), um único take contínuo, sem cortes nem zoom. Por isso as DUAS mãos ficam livres. "),
+        (0, f"MÃOS: exatamente duas mãos, a esquerda e a direita de {model}, entrando pela parte de baixo do quadro, "
+            "com o mesmo tom de pele, unhas e acessórios da imagem; nunca uma terceira mão, nunca braço ou dedo a "
+            "mais; nunca aparece rosto, pescoço ou reflexo. "),
+        (0, f"CENÁRIO FIXO: {scene_lock}; fundo, caixa, papel de seda e luz só dessa imagem. "),
+        (0, "A PEÇA: sempre fora do corpo, ninguém veste. Ela começa à vista na caixa aberta, como na imagem, e já "
+            "sai da caixa nos 2 primeiros segundos (nada de caixa fechada nem de abrir devagar). As mãos seguram a "
+            "peça aberta, de frente para a lente. Para mostrar o verso, apoiam a peça sobre a caixa e viram de uma "
+            "vez, como quem vira uma página; NUNCA girar a peça no ar nem dar volta de 360 graus. "),
+        (0, ('PROVA VISUAL — com a peça nas mãos, entre 3s e 11s: ' + '; '.join(gestures) + '. ') if gestures else ''),
+        (0, f"Também: {'; '.join(extra)}. " if extra else ''),
+        (0, "EVITAR: terceira mão, dedos deformados, peça girando no ar, peça mudando de forma ou de cor, vestir a "
+            "peça, rosto ou corpo, textos, ícones, carrinho, botões ou stickers na tela, marcas na caixa, cortes.\n"),
+        (0, "SHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n"
+            f"0–3s ABERTURA: {formats.pov_opening(c, product_l)}. Fala (PT-BR), tom espontâneo: \"{hook}\"\n"
+            "3–11s DETALHES: as mãos mostram os detalhes de perto, um de cada vez, emendados, enquanto a fala "
+            f"continua na mesma respiração. Fala (PT-BR): \"{development}\"\n"
+            "11–15s FECHAMENTO: as mãos apoiam a peça aberta, de frente, sobre a caixa, e o indicador aponta uma vez "
+            f"para baixo. {loop}Fala (PT-BR): \"{cta}\"\n"),
+        (0, _unconfirmed_line(c)),
+        (0, " As três falas são UM discurso contínuo, sem pausa entre os trechos. Áudio: voz feminina em português "
+            "do Brasil, espontânea, ritmo de conversa real, som do papel e do tecido ao fundo, sem música; fale só as "
+            "falas entre aspas, palavra por palavra; nunca leia títulos, instruções, câmera, shot list ou notas. "),
+        (0, "Sem promessas não demonstradas no vídeo."),
+    ], _limite_video(c))
 
 
 def _unconfirmed_line(c):
@@ -2654,6 +2731,8 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         'movimento': _build_movement_video_prompt,
         'espelho': lambda *a, **k: _build_video_prompt(*a, formato='espelho', **k),
     }.get(_video_mode(c), _build_video_prompt)
+    if formats.video_format(c) == 'unboxing':
+        build_video = _build_unboxing_video_prompt
     video = build_video(
         c,
         resolution=resolution,

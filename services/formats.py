@@ -159,7 +159,8 @@ def pov_opening(c, product):
     tec = techniques(c)
     product = _lower_first(product)
     if video_format(c) == 'unboxing':
-        base = f'a mão tira {product} da embalagem aberta e desdobra na frente da lente, com curiosidade genuína'
+        base = (f'as duas mãos já tiram {product} da caixa aberta e seguram a peça aberta, de frente para a '
+                'lente, com curiosidade genuína')
     else:
         base = 'a mão pega ou revela o produto pela primeira vez, com curiosidade genuína'
     antes = []
@@ -271,8 +272,10 @@ def brief_lines(c, pain=''):
         return [f'FORMATO: 3 jeitos de usar — só a peça; {a}; {b}. O desenvolvimento cita os três looks nessa '
                 'ordem. Os complementos não são vendidos: não diga que vêm junto.']
     if fmt == 'unboxing':
-        return ['FORMATO: abrindo o pacote em primeira pessoa. Não diga que comprou, que chegou pelo correio nem '
-                'há quanto tempo tem a peça: só o que se vê ao abrir.']
+        return ['FORMATO: abrindo o pacote em primeira pessoa. O vídeo mostra só as mãos com a peça FORA do '
+                'corpo: não fale em vestir, no corpo, em caimento, em treino nem em "contra a luz"; fale só do que '
+                'as mãos mostram (estampa, tecido, costura, botões, bolsos, elástico, detalhes). Não diga que '
+                'comprou, que chegou pelo correio nem há quanto tempo tem a peça.']
     if fmt == 'asmr':
         return ['FORMATO: close ASMR, sem fala no vídeo (as falas servem só para a legenda).']
     return []
