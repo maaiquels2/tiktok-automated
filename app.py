@@ -1655,11 +1655,15 @@ def create_app(config=None):
         from services.model_library import NICHE_IDS
         produtos=[f for f in request.files.getlist('product') if f and f.filename][:3]
         descricao=request.files.get('description')
+        cores=request.files.get('colors')
         if not produtos:
             raise Invalid('Envie pelo menos uma foto do produto.')
         images=[]
         pares=[(f,'foto do produto/roupa' if len(produtos)==1 else f'foto do produto/roupa (ângulo {i})')
                for i,f in enumerate(produtos,start=1)]
+        # Foto das cores (opcional): seletor de cores ou variacoes lado a lado.
+        if cores and cores.filename:
+            pares.append((cores,'foto das cores à venda (leia cada cor com seus detalhes)'))
         if descricao and descricao.filename:
             pares.append((descricao,'print da página do produto (descrição, preço, avaliações)'))
         for arquivo,rotulo in pares:

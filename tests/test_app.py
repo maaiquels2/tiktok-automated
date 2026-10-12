@@ -1383,6 +1383,27 @@ class WorkflowTests(unittest.TestCase):
         # Nada foi criado: a campanha so nasce depois da conferencia.
         self.assertEqual(len(self.client.get('/api/campaigns',headers=self.headers).json),1)
 
+    def test_quick_brief_reads_the_optional_colors_photo(self):
+        # Cores dificeis de descrever (laranja com floral branco): a foto das
+        # cores vai identificada, antes do print, e cada cor volta com detalhe.
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        resposta=json.dumps({'product':'Biquíni cortininha floral','colors':['Laranja com floral branco','Verde com floral branco'],
+                             'niche':'praia','details':'amarração lateral'})
+        with patch('services.copywriter._call_with_deadline',return_value=resposta) as chamada:
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),
+                'colors':(io.BytesIO(image_bytes()),'cores.png'),
+                'description':(io.BytesIO(image_bytes()),'print.png'),'niche':'praia'})
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(r.json['brief']['colors'],'Laranja com floral branco, Verde com floral branco')
+        user=chamada.call_args.args[3]
+        self.assertIn('Foto 2: foto das cores à venda',user)
+        self.assertIn('Foto 3: print da página do produto',user)
+        self.assertEqual(len(chamada.call_args.args[4]),3)
+        self.assertIn('SEM vírgula dentro da cor',chamada.call_args.args[2])
+        from services.prompts import color_variants
+        self.assertEqual(color_variants(r.json['brief']['colors']),['Laranja com floral branco','Verde com floral branco'])
+
     def test_quick_brief_drops_vague_offer_and_unknown_niche(self):
         from services.copywriter import _parse_quick
         campos=_parse_quick(json.dumps({'product':'Pijama de cetim','niche':'balada','offer':'preço imperdível',

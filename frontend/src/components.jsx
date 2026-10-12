@@ -4,7 +4,7 @@ import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
 import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank, persuasionPreview, quickBrief } from './api';
-import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
+import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus, Palette } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
   useEffect(()=>{ref.current.showModal();const el=ref.current;return()=>el.close()},[]);
@@ -2471,6 +2471,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [niche,setNiche]=useState('');
   const [products,setProducts]=useState([]);
   const [description,setDescription]=useState(null);
+  const [colorsPhoto,setColorsPhoto]=useState(null);
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
   const [turn,setTurn]=useState(true);
@@ -2479,19 +2480,19 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
-    const list=[...products,...(description?[description]:[])].map(f=>URL.createObjectURL(f));
+    const list=[...products,...(description?[description]:[]),...(colorsPhoto?[colorsPhoto]:[])].map(f=>URL.createObjectURL(f));
     setUrls(list);
     return()=>list.forEach(u=>URL.revokeObjectURL(u));
-  },[products,description]);
+  },[products,description,colorsPhoto]);
   const start=async()=>{
     onError?.('');setReading(true);
     try{
-      const {brief}=await quickBrief(products,description,niche);
+      const {brief}=await quickBrief(products,description,niche,colorsPhoto);
       const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':'',
         video_style:[closes&&'closes',bold&&'ousado'].filter(Boolean).join(',')};
-      if(!values.color){onError?.('A IA não achou as cores no print. Escreva as cores do produto e tente de novo.');return}
+      if(!values.color){onError?.('A IA não achou as cores. Suba a foto das cores ou escreva as cores e tente de novo.');return}
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
-      const message='Campanha automática criada: roteiro e prompts do Grok prontos.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
+      const message='Campanha automática criada: roteiro e prompts do Grok prontos. Cores: '+values.color+'.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
       await onCreate?.(values,products,message);
     }catch(e){onError?.(e.message||String(e))}
     finally{setReading(false)}
@@ -2517,6 +2518,11 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
       <Upload size={22}/><strong>Print da descrição</strong><small>Página do produto com tecido, preço e avaliações</small>
       {description&&<span className="quick-thumbs"><img src={urls[products.length]} alt=""/></span>}
     </label>
+    <label className="quick-tile">
+      <input type="file" accept="image/*" onChange={e=>setColorsPhoto(e.target.files?.[0]||null)}/>
+      <Palette size={22}/><strong>Foto das cores (opcional)</strong><small>Print do seletor de cores ou as cores lado a lado: a IA descreve cada uma com os detalhes</small>
+      {colorsPhoto&&<span className="quick-thumbs"><img src={urls[products.length+(description?1:0)]} alt=""/></span>}
+    </label>
     <span className="option-field-title" id="auto-format">Formato do vídeo</span>
     <div className="quick-niches" role="radiogroup" aria-labelledby="auto-format">
       {[['','Com fala'],['espelho','Celular no espelho'],['pov','POV'],['movimento','Só movimento']].map(([id,label])=>
@@ -2526,7 +2532,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     <label className="quick-confirm"><input type="checkbox" checked={turn} onChange={e=>setTurn(e.target.checked)}/> Girar um pouco de lado para mostrar a peça (sem mostrar as costas)</label>
     <label className="quick-confirm"><input type="checkbox" checked={closes} onChange={e=>setCloses(e.target.checked)}/> Closes no material do produto (o rosto sai do quadro por 1 a 2 s)</label>
     <label className="quick-confirm"><input type="checkbox" checked={bold} onChange={e=>setBold(e.target.checked)}/> Movimentos mais ousados (giro, passada, agachamento — conforme a peça)</label>
-    <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: preto, vermelho — vazio: a IA usa as cores do print" maxLength={200}/></label>
+    <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: laranja com floral branco; verde com floral branco" maxLength={300}/></label>
+    <small className="help">Separe as cores com ponto e vírgula. Vazio: a IA lê da foto das cores ou do print. Escrito aqui, vale o que você escreveu.</small>
     <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>
     {(!niche||!products.length||!description)&&<small className="help">Falta: {[!niche&&'a moda',!products.length&&'a foto do produto',!description&&'o print da descrição'].filter(Boolean).join(', ')}.</small>}
   </div>;

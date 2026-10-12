@@ -1218,8 +1218,9 @@ def analyze_product(images: list[tuple[bytes, str, str]], settings: dict, contex
 # --------------------------------------------------------------------------- criar com IA
 QUICK_VISION_PROMPT = """Você monta o briefing de um vídeo UGC de TikTok Shop a partir de fotos.
 
-Você recebe, nesta ordem: uma a três fotos do produto/roupa e, por último (se houver), o print da
-página do produto no TikTok Shop ou na loja (título, especificações, preço, avaliações).
+Você recebe, nesta ordem: uma a três fotos do produto/roupa; se houver, a foto das cores (print do
+seletor de cores da loja ou as variações lado a lado); e, por último (se houver), o print da página do
+produto no TikTok Shop ou na loja (título, especificações, preço, avaliações).
 Cada foto vem identificada na mensagem do usuário.
 
 Olhe SOMENTE o que está visível ou escrito nas fotos e devolva um JSON com estes campos, em
@@ -1227,8 +1228,12 @@ português do Brasil:
 
 - "product": nome curto e claro da peça, como a cliente falaria (ex.: "Biquíni de amarração com bojo",
   "Calça jeans wide leg"). Sem marca, sem código, no máximo 8 palavras.
-- "colors": as cores da peça, separadas por vírgula. Se o print listar várias cores à venda, use
-  essas; senão, a cor que aparece na foto.
+- "colors": uma lista com cada cor à venda. Descreva cada cor como a cliente diria: a cor de fundo
+  mais o detalhe visível que a diferencia (estampa, flores, listras, debrum, cordão), no máximo 6
+  palavras e SEM vírgula dentro da cor (ex.: ["Laranja com floral branco", "Verde com floral branco"]).
+  Fonte, em ordem de prioridade: a foto das cores; as cores listadas no print; a cor da foto do
+  produto. Olhe a cor real dos pixels, não o nome comercial (se o print diz "Terracota" e a peça é
+  laranja, escreva "Laranja"). Nunca invente uma cor que não aparece.
 - "niche": exatamente um destes: "praia", "academia", "casual", "dia-a-dia", "intima", "fantasia".
 - "details": fatos do produto que estão escritos ou claramente visíveis (tecido/composição, forro,
   bojo, bolso, cintura alta, amarração, renda, zíper...), separados por vírgula. Nada de opinião.
@@ -1250,7 +1255,7 @@ Responda SOMENTE com o JSON, sem texto antes ou depois."""
 
 QUICK_FIELDS = ('product', 'colors', 'niche', 'details', 'benefit', 'angle', 'movements',
                 'objection', 'offer', 'social_proof')
-QUICK_LIMITS = {'product': 120, 'colors': 200, 'niche': 20, 'details': 1500, 'benefit': 300,
+QUICK_LIMITS = {'product': 120, 'colors': 300, 'niche': 20, 'details': 1500, 'benefit': 300,
                 'angle': 300, 'movements': 800, 'objection': 200, 'offer': 300, 'social_proof': 200}
 
 
