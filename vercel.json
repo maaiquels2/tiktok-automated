@@ -7,7 +7,7 @@
   "buildCommand": "cd frontend && npm ci && npm run build",
   "functions": {
     "wsgi.py": {
-      "maxDuration": 60,
+      "maxDuration": 300,
       "excludeFiles": "{tests/**,work/**,browser_profiles/**,data/**,media/**,reports/**,outputs/**,_patch/**,*.md}"
     }
   }
