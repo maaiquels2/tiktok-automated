@@ -276,7 +276,7 @@ def pov_hands(c: dict, spoken: str = '') -> str:
 # locutor. Tom de conversa com amiga, nao de propaganda.
 SPEECH = ('Fala: uma conversa só, do começo ao fim, sem pausa entre as frases, como quem conta uma descoberta para uma amiga; '
           'tom espontâneo e animado na medida, entonação que sobe e desce, sorriso na voz; nada de locução '
-          'nem de anúncio. Ritmo natural, sem correr. Voz feminina em português do Brasil, lábios '
+          'nem de anúncio. A fala ocupa os 15 segundos até o fim, sem silêncio no final. Voz feminina em português do Brasil, lábios '
           'sincronizados; fala só o que está entre aspas, palavra por palavra; som ambiente baixo, sem música.')
 # Maos vivas: no teste real, "uma mao sempre na peca" + "movimentos lentos"
 # deixou a modelo dura e em camera lenta. Gente de verdade gesticula enquanto

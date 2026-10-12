@@ -1445,7 +1445,7 @@ class WorkflowTests(unittest.TestCase):
                       'Fala (PT-BR)','palavra por palavra'):
             self.assertIn(trava,video)
         for fluxo in ('Clima:','dolly-in suave e contínuo','ela gesticula enquanto fala','sem parar nem posar',
-                      'EXPRESSÃO:','ritmo natural sem correr'):
+                      'EXPRESSÃO:','ocupa os 15 s até o fim'):
             self.assertIn(fluxo,video)
         for velho in ('uma sempre em contato com a peça','Corpo parado','ação silenciosa','pose frontal no final',
                       'close no tecido','tem os drapeados'):
@@ -2755,7 +2755,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('mulheres que treinam', prompts['development'])
         self.assertIn('cós', prompts['development'].lower())
         budget=script_budget(prompts['hook'],prompts['development'],prompts['cta'])
-        self.assertLessEqual(budget['development']['words'],24)
+        self.assertLessEqual(budget["development"]["words"],40)
         self.assertGreaterEqual(budget['development']['words'],8)
 
     def test_negative_attributes_are_not_presented_as_features(self):

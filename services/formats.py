@@ -118,8 +118,12 @@ def lead_moves(c, mode=''):
         name, action = test_move(c)
         out.append(f'o teste {name}: {action}')
     if 'estica' in techniques(c):
-        where = 'do espelho' if mode == 'espelho' else 'da lente'
-        out.append(f'estica o tecido de leve com as duas mãos bem perto {where}, mostrando a textura, e solta')
+        # No espelho uma mao segura o celular: esticar com as duas criaria a
+        # terceira mao que o Grok inventou no teste real.
+        if mode == 'espelho':
+            out.append('com a mão livre, estica o tecido de leve bem perto do espelho, mostrando a textura, e solta')
+        else:
+            out.append('estica o tecido de leve com as duas mãos bem perto da lente, mostrando a textura, e solta')
     return out
 
 
@@ -130,7 +134,7 @@ def three_looks(c, piece):
     a, b = looks(c)
     return (f'três looks em sequência, sempre com {piece} à mostra: primeiro só como está na imagem; depois {a}; '
             f'por último {b}; em cada troca, a mão cobre a lente por meio segundo e, ao sair, ela já está no look '
-            'seguinte, no mesmo lugar e na mesma luz')
+            'seguinte, no mesmo lugar e luz')
 
 
 def ending(c, mode=''):

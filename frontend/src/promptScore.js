@@ -44,15 +44,20 @@ export function scorePrompt(text) {
   let score = 10;
   const hit = (points, message) => { score -= points; issues.push(message); };
 
-  if (prompt.length > 3000) hit(2, `Texto muito longo (${prompt.length} caracteres). Acima de 3.000 o gerador costuma ignorar partes.`);
-  else if (prompt.length > 2000) hit(1, `Texto longo (${prompt.length} caracteres). Prompts mais curtos são seguidos com mais fidelidade.`);
+  // Limite real do Grok. O prompt completo usa ~3.900 de proposito: no teste
+  // real ele gerou videos melhores que o Guia curto.
+  if (prompt.length > 4000) hit(2, `Passa do limite do Grok (${prompt.length} de 4.000 caracteres): o fim do prompt é cortado.`);
 
   const speech = speechLines(prompt);
   const outsideSpeech = speech.reduce((acc, line) => acc.split(line.toLowerCase()).join(' '), low);
   const totalWords = speech.reduce((n, line) => n + words(line), 0);
-  if (totalWords > 50) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada. O ideal é até 46.`);
-  else if (totalWords > 46) hit(1, `Fala no limite: ${totalWords} palavras em 15s.`);
-  if (speech[0] && words(speech[0]) > 14) hit(1, `O gancho (0–4s) tem ${words(speech[0])} palavras. Em 4 segundos cabem até 14.`);
+  // Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio. Quem vende
+  // fala o clipe inteiro: 48 a 60 palavras ocupam os 15 s.
+  if (speech.length && totalWords < 40) hit(4, `Fala curta: ${totalWords} palavras. Vão sobrar segundos de silêncio no fim dos 15 s; o ideal é de 48 a 60.`);
+  else if (speech.length && totalWords < 46) hit(2, `Fala um pouco curta: ${totalWords} palavras. Pode sobrar silêncio no fim; o ideal é de 48 a 60.`);
+  else if (totalWords > 68) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada.`);
+  else if (totalWords > 62) hit(1, `Fala no limite: ${totalWords} palavras em 15s.`);
+  if (speech[0] && words(speech[0]) > 20) hit(1, `O gancho tem ${words(speech[0])} palavras. Acima de 20 ele demora a prender.`);
 
   const actions = ACTIONS.filter(([needle]) => outsideSpeech.includes(needle)).map(([, label]) => label);
   if (actions.length >= 6) hit(3, `Ações e ângulos demais para 15s (${actions.length}): ${actions.join(', ')}. Escolha 2 ou 3.`);
@@ -79,8 +84,10 @@ export function scorePrompt(text) {
   if (!/\bluz\b|ilumina|golden hour|contraluz/.test(outsideSpeech))
     hit(1, 'Luz não nomeada. Diga qual luz usar (ex.: "a mesma luz da imagem", "luz natural de janela").');
 
-  const handRules = (low.match(/\bmãos?\b/g) || []).length;
-  if (handRules >= 7) hit(1, `Regras demais para as mãos (${handRules} menções). O gerador costuma travar os gestos.`);
+  // Contradicao real (nao contagem de palavras): uma mao presa no celular e
+  // uma acao que pede as duas. Foi o que gerou a terceira mao no teste real.
+  if (/celular (sempre )?na mão|segura o celular/.test(outsideSpeech) && /com as duas mãos/.test(outsideSpeech))
+    hit(2, 'Contradição de mãos: uma mão segura o celular e uma ação pede as duas mãos. O gerador costuma inventar uma terceira mão.');
 
   score = Math.max(1, Math.min(10, Math.round(score)));
   const tone = score >= 8 ? 'good' : score >= 5 ? 'warn' : 'bad';

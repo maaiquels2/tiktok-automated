@@ -1658,6 +1658,36 @@ def _screen_text(c, forms, detail, index=0):
     return opcoes[int(index or 0) % len(opcoes)]
 
 
+# Frase de imaginacao de uso por moda: so ocasiao, nenhum atributo. Tres por
+# moda, escolhidas pelo indice da variacao, para nao repetir entre roteiros.
+_FUTURE_LINES = {
+    'praia': ('Já tô me imaginando {com} na praia no próximo fim de semana, sem pensar duas vezes.',
+              'Imagina chegar na piscina {com} e todo mundo perguntando de onde é.',
+              'Já separei {com} pra viagem de verão, sério, nem vou esperar.'),
+    'academia': ('Já quero ir treinar {com} amanhã cedo, sério, nem vou esperar.',
+                 'Imagina chegar na academia {com} e já se sentir pronta pro treino.',
+                 'É daquelas que dá vontade de usar no treino e depois sair direto.'),
+    'casual': ('Já tô pensando em sair {com} no fim de semana, com uma blusinha básica.',
+               'Imagina chegar no barzinho {com} e já resolver o look da noite.',
+               'É daquelas peças que salvam quando eu não sei o que vestir pra sair.'),
+    'dia-a-dia': ('É daquelas peças que eu usaria a semana inteira, do trabalho ao fim de semana.',
+                  'Imagina abrir o guarda-roupa e já ter o look do dia resolvido.',
+                  'Já tô pensando em usar {com} amanhã mesmo, com um tênis branco.'),
+    'intima': ('Já me imagino {com} numa manhã preguiçosa de domingo, com um café do lado.',
+               'Imagina acordar {com} e já se sentir arrumada dentro de casa.',
+               'É aquele mimo que dá vontade de usar todo dia antes de dormir.'),
+    'fantasia': ('Já tô me vendo chegando na festa {com}, e todo mundo perguntando de onde é.',
+                 'Imagina entrar na festa {com} e já virar assunto da noite.',
+                 'Já tô pensando nas fotos da festa {com}, vai ficar lindo.'),
+}
+
+
+def _future_line(c, forms, index=0):
+    lines = _FUTURE_LINES.get(_niche_key(c)) or _FUTURE_LINES['casual']
+    line = lines[int(index or 0) % len(lines)]
+    return line.replace('{com}', 'com ela' if forms.get('art') == 'a' else 'com ele')
+
+
 def _script_variation(c, color, index=0):
     # Constroi as tres falas a partir de evidencia explicita do briefing.
     # A cor NAO entra no hook: o espectador ja a ve na tela, e cada palavra do
@@ -1684,9 +1714,16 @@ def _script_variation(c, color, index=0):
     # desenvolvimento pela ultima batida, nunca pela prova.
     def total():
         return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
-    if total() > 50:
+    # Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio no fim
+    # dos 15 s. Fala de quem vende ocupa o clipe inteiro: abaixo de 46
+    # palavras entra uma frase de imaginacao de uso (sem afirmar nada novo).
+    if _count_words(selected_development) < 26 and formats.video_format(c) != 'tres_jeitos':
+        extra = _future_line(c, forms, i)
+        if extra and extra.casefold() not in selected_development.casefold():
+            selected_development = f'{selected_development.rstrip(". ")}. {extra}'
+    if total() > 60:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 50:
+        while len(sentences) > 1 and total() > 60:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -2458,8 +2495,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             f"{t2}–15s CTA: apontando para baixo uma vez, concluindo o mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
         (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos, como quem conta uma descoberta "
-            "para uma amiga. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, ritmo natural "
-            "sem correr, lábios sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; "
+            "para uma amiga. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, a fala ocupa "
+            "os 15 s até o fim, sem silêncio, lábios sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; "
             "nunca leia títulos, instruções, câmera, shot list ou notas. Som ambiente baixo, sem música. "),
         (2, f"Estilo visual: {style}. "),
         (4, f"Total das falas: {words} palavras; se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
