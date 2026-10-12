@@ -1957,7 +1957,7 @@ def create_app(config=None):
             return pack, ''
         written, motivo = precomputed if precomputed is not None else copywriter.write_script(campaign, settings)
         if not written:
-            app.logger.info('Escrita por IA recusada: %s', motivo)
+            app.logger.warning('Escrita por IA recusada: %s', motivo)
             registrar('local', motivo)
             if required:
                 raise Invalid('O ChatGPT não gerou um roteiro aprovado: '+(motivo or 'resposta inválida.'), 422)
@@ -2915,9 +2915,13 @@ def create_app(config=None):
                 'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')},
             })
 
-        written,motivo=copywriter.write_scripts(briefs,settings)
+        # Muitas cores numa chamada so estouravam a janela de 45 s do provedor (8 cores: 422 depois de 52 s).
+        # Grupos de ate 4 cores rodam ao mesmo tempo e o lote continua tudo-ou-nada.
+        began=time.monotonic()
+        written,motivo=copywriter.write_scripts_in_groups(briefs,settings)
         if not written:
-            app.logger.info('Escrita em lote por IA recusada: %s',motivo)
+            app.logger.warning('refresh-all campanha %s: %s cores recusadas apos %.1fs: %s',
+                               cid,len(briefs),time.monotonic()-began,motivo)
             raise Invalid('O ChatGPT não gerou todos os roteiros aprovados: '
                           +(motivo or 'resposta inválida.'),422)
 
@@ -2927,10 +2931,13 @@ def create_app(config=None):
         for row,_,_,key in prepared:
             script=written.get(key)
             if not script or any(not str(script.get(field) or '').strip() for field in fields):
+                app.logger.warning('refresh-all campanha %s: roteiro incompleto na cor %s',cid,row['color'])
                 raise Invalid(f'O ChatGPT não devolveu o roteiro completo da cor {row["color"]}.',422)
         diversity_issues=copywriter.batch_diversity_issues([
             (row['color'],written[key]) for row,_,_,key in prepared])
         if diversity_issues:
+            app.logger.warning('refresh-all campanha %s: roteiros repetidos entre cores: %s',
+                               cid,'; '.join(diversity_issues[:4]))
             raise Invalid('O ChatGPT repetiu o mesmo roteiro entre as cores: '
                           +'; '.join(diversity_issues)+'. Nenhuma cor foi alterada.',422)
 

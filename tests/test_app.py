@@ -2574,6 +2574,160 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('DIREÇÃO MANUAL PRESERVADA',response.json['variants'][0]['prompts']['video'])
         self.assertEqual(response.json['checklist']['writer']['scope'],'all_colors')
 
+    # ---- Lote de cores em grupos (8 cores numa chamada so estouravam os 45 s do provedor) ------------------
+    EIGHT_SCRIPTS=(
+        ('Eu quase descartei esse vestido até reparar melhor no acabamento',
+         'A costura ficou bonita no corpo, e o tecido leve acompanhou meus passos sem tirar a aparência arrumada da produção.',
+         'Vai no carrinho laranja ver o acabamento de pertinho.'),
+        ('Eu precisava de uma peça que acompanhasse dois momentos do dia',
+         'Com esse caimento, montei uma produção para o trabalho e outra para sair, aproveitando o mesmo vestido de maneiras diferentes.',
+         'No carrinho laranja você escolhe a versão que combina contigo.'),
+        ('Eu me senti muito mais arrumada quando coloquei esse vestido',
+         'O visual ganhou presença sem complicação, e eu gostei de como a peça acompanhou meu corpo enquanto caminhava pela cidade.',
+         'Passa pelo carrinho laranja e olha o visual completo.'),
+        ('Eu achei que esse vestido seria comum, até olhar melhor no corpo',
+         'Quando vesti, o tecido leve acompanhou meu corpo, e eu gostei do caimento arrumado para usar durante o trabalho.',
+         'Entra no carrinho laranja e vê como ficou esse vestido.'),
+        ('Eu queria uma produção simples que também funcionasse para sair depois',
+         'A mesma peça ganhou outra cara quando mudei a combinação, e meu visual ficou pronto sem precisar pensar em muitos detalhes.',
+         'O carrinho laranja tem todas as versões esperando por você.'),
+        ('Eu não esperava gostar tanto da cor quando abri o pacote',
+         'Fiquei olhando o tom por um bom tempo, porque ele combinou com os acessórios que eu já tinha guardados em casa.',
+         'Dá um pulo no carrinho laranja e escolhe o teu tom.'),
+        ('Eu sempre travo na hora de escolher roupa para viajar',
+         'Essa peça resolveu minha mala, porque funcionou de dia, com uma sandália, e à noite, com um brinco mais chamativo.',
+         'Pelo carrinho laranja você monta a sua mala de viagem.'),
+        ('Eu reparei num detalhe que quase passou despercebido',
+         'Olhando de perto, a modelagem tem um corte limpo que deixou o look mais bem resolvido sem esforço nenhum da minha parte.',
+         'No carrinho laranja você confere cada detalhe com calma.'),
+    )
+
+    def provider_for_eight(self,fail_key=None,barrier=None,order=None):
+        """Provedor falso: devolve um roteiro diferente por chave, registra cada chamada e, com `barrier`,
+        so deixa a chamada terminar quando as outras tambem estao em andamento (prova o paralelismo)."""
+        import threading
+        from services.copywriter import ProviderError
+        calls,lock=[],threading.Lock()
+        # Com `order`, o roteiro de cada chave e fixo (as threads chegam em ordem diferente a cada rodada).
+        assigned={key:self.EIGHT_SCRIPTS[index%len(self.EIGHT_SCRIPTS)] for index,key in enumerate(order or [])}
+        def caller(settings,system,user):
+            keys=re.findall(r'### CHAVE: (\S+)',user)
+            axes=re.findall(r'EIXO NARRATIVO OBRIGATÓRIO: ([^—]+) —',user)
+            with lock:
+                calls.append(dict(keys=keys,axes=[a.strip() for a in axes],timeout=settings.get('_request_timeout')))
+                for key in keys:
+                    assigned.setdefault(key,self.EIGHT_SCRIPTS[len(assigned)%len(self.EIGHT_SCRIPTS)])
+            if barrier is not None:
+                barrier.wait(timeout=10)
+            if fail_key is not None and fail_key in keys:
+                raise ProviderError('o provedor de IA não respondeu em 45 segundos. Nenhuma fala foi alterada.')
+            return json.dumps({'scripts':[
+                {'key':key,'options':[dict(zip(('hook','development','cta'),assigned[key]))]} for key in keys]},
+                ensure_ascii=False)
+        return caller,calls,assigned
+
+    def test_split_even_makes_balanced_groups(self):
+        from services.copywriter import split_even
+        self.assertEqual([len(g) for g in split_even(list(range(8)))],[4,4])
+        self.assertEqual([len(g) for g in split_even(list(range(5)))],[3,2])
+        self.assertEqual([len(g) for g in split_even(list(range(9)))],[3,3,3])
+        self.assertEqual([len(g) for g in split_even(list(range(4)))],[4])
+        self.assertEqual(split_even([]),[])
+        self.assertEqual([x for g in split_even(list(range(7))) for x in g],list(range(7)))
+
+    def test_batch_copywriter_runs_eight_colors_as_two_groups_at_the_same_time(self):
+        import threading
+        from services import copywriter as cw
+        campaigns=[{**self.brief,'color':f'Cor {i}','batch_key':f'c{i}'} for i in range(8)]
+        # A barreira so abre se os DOIS grupos estiverem em andamento juntos: sequencial estoura o prazo.
+        caller,calls,_=self.provider_for_eight(barrier=threading.Barrier(2))
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts_in_groups(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'})
+        self.assertEqual(reason,'')
+        self.assertEqual(set(result),{f'c{i}' for i in range(8)})
+        self.assertEqual(len(calls),2)
+        self.assertEqual(sorted(len(call['keys']) for call in calls),[4,4])
+        self.assertEqual(sorted(k for call in calls for k in call['keys']),sorted(f'c{i}' for i in range(8)))
+        # Cada cor tem o seu eixo narrativo no pedido inteiro, sem repetir o do outro grupo.
+        axes=[axis for call in calls for axis in call['axes']]
+        self.assertEqual(len(axes),8)
+        self.assertEqual(len(set(axes)),8,axes)
+        # Cada chamada continua com a janela propria do lote.
+        self.assertTrue(all(call['timeout']==cw.BATCH_TIMEOUT for call in calls))
+
+    def test_batch_copywriter_keeps_one_call_up_to_four_colors(self):
+        from services import copywriter as cw
+        campaigns=[{**self.brief,'color':f'Cor {i}','batch_key':f'c{i}'} for i in range(4)]
+        caller,calls,_=self.provider_for_eight()
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts_in_groups(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'})
+        self.assertEqual(reason,'')
+        self.assertEqual(len(calls),1)
+        self.assertEqual(len(result),4)
+
+    def test_batch_copywriter_rejects_everything_when_one_group_fails(self):
+        from services import copywriter as cw
+        campaigns=[{**self.brief,'color':f'Cor {i}','batch_key':f'c{i}'} for i in range(6)]
+        caller,calls,_=self.provider_for_eight(fail_key='c5')
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            result,reason=cw.write_scripts_in_groups(
+                campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'})
+        self.assertIsNone(result)                       # tudo ou nada: o grupo que passou nao salva nada
+        self.assertEqual(len(calls),2)
+        self.assertIn('não respondeu em 45 segundos',reason)
+        self.assertIn('grupo 2 de 2',reason)
+        self.assertIn('Cor 3, Cor 4, Cor 5',reason)
+
+    def test_refresh_all_with_eight_colors_writes_every_color_in_two_groups(self):
+        colors=['Azul','Branco','Preto','Verde','Rosa','Vermelho','Amarelo','Roxo']
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':', '.join(colors)},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        before=self.get()
+        self.assertEqual(len(before['variants']),8)
+        import services.copywriter as cw
+        caller,calls,assigned=self.provider_for_eight(order=[str(v['id']) for v in before['variants']])
+        with patch.dict(cw.CALLERS,{'openai':caller}):
+            response=self.post('/variants/refresh-all',{'fields':['hook','development','cta'],'writer_mode':'ai',
+                                                       'version':before['version']})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(sorted(len(call['keys']) for call in calls),[4,4])
+        hooks=[variant['prompts']['hook'] for variant in response.json['variants']]
+        self.assertEqual(len(set(hooks)),8)             # as 8 cores saem com roteiros diferentes
+        for variant in response.json['variants']:
+            hook,development,cta=assigned[str(variant['id'])]
+            self.assertEqual(variant['prompts']['hook'],hook)
+            self.assertIn(hook,variant['prompts']['video'])
+
+    def test_refresh_all_group_failure_changes_nothing_and_logs_the_reason(self):
+        colors=['Azul','Branco','Preto','Verde','Rosa','Vermelho']
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':', '.join(colors)},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        before=self.get()
+        last_id=str(before['variants'][-1]['id'])
+        import services.copywriter as cw
+        caller,calls,_=self.provider_for_eight(fail_key=last_id)
+        with patch.dict(cw.CALLERS,{'openai':caller}), self.assertLogs(self.app.logger,level='WARNING') as logs:
+            response=self.post('/variants/refresh-all',{'fields':['hook','development','cta'],'writer_mode':'ai',
+                                                       'version':before['version']})
+        self.assertEqual(response.status_code,422)
+        self.assertIn('grupo',response.json['error'])
+        after=self.get()
+        self.assertEqual(after['version'],before['version'])
+        self.assertEqual([v['prompts'] for v in after['variants']],[v['prompts'] for v in before['variants']])
+        # O motivo agora aparece no log do servidor (antes ia para um nivel que o Vercel nao mostra).
+        texto=' '.join(logs.output)
+        self.assertIn(f'refresh-all campanha {self.cid}',texto)
+        self.assertIn('6 cores recusadas',texto)
+        self.assertIn('não respondeu em 45 segundos',texto)
+
     def test_batch_refresh_rejects_repeated_scripts_without_changing_any_color(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
         self.cid=other['id']

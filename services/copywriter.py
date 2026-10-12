@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 import os
 import re
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from services import formats, persuasion, speech_bank
@@ -965,12 +967,17 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
 
 def write_scripts(campaigns: list[dict], settings: dict,
                   attempts: int = 1,
-                  orcamento_s: float = BUDGET_SECONDS) -> tuple[dict[str, dict] | None, str]:
+                  orcamento_s: float = BUDGET_SECONDS,
+                  index_offset: int = 0) -> tuple[dict[str, dict] | None, str]:
     """Write and audit several color scripts in one provider request.
 
     The result is keyed by ``batch_key`` so a provider cannot silently reorder
     colors. The operation succeeds only when every requested color has an
     audited script; callers can therefore persist the batch atomically.
+
+    ``index_offset`` e a posicao do primeiro item deste lote no pedido inteiro: quando
+    write_scripts_in_groups divide as cores em grupos, cada cor continua com o seu eixo
+    narrativo e o seu CTA, sem repetir os do outro grupo.
     """
     caller = CALLERS.get(settings.get('provider'))
     if not caller or not settings.get('api_key'):
@@ -984,7 +991,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
         key = str(campaign.get('batch_key') or index)
         if key in expected:
             return None, f'chave repetida no lote: {key}'
-        axis_name,axis_direction=_batch_axis(index,campaign)
+        axis_name,axis_direction=_batch_axis(index+index_offset,campaign)
         campaign={**campaign,'batch_axis':axis_name}
         expected[key] = campaign
         briefs.append(
@@ -1033,7 +1040,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
             approved = []
             for candidate_index,pack in enumerate(parsed[key]):
                 if _weak_cta(pack.get('cta')):
-                    pack={**pack,'cta':_strong_cta(campaign,key_index+candidate_index)}
+                    pack={**pack,'cta':_strong_cta(campaign,index_offset+key_index+candidate_index)}
                 # Em lote, estilo e comprimento minimo orientam o modelo, mas
                 # nao anulam todas as cores. A auditoria ainda bloqueia riscos
                 # concretos (fato inventado, urgencia falsa, camera falada).
@@ -1083,6 +1090,65 @@ def write_scripts(campaigns: list[dict], settings: dict,
         user = (base_user + '\n\nA tentativa anterior foi recusada pela auditoria:\n- '
                 + '\n- '.join(unique[:12]) + '\nReescreva todas as chaves corrigindo esses pontos.')
     return None, ultimo or 'os textos do lote não passaram na auditoria'
+
+
+# Cores por chamada ao provedor. Com 8 cores numa chamada so, a IA precisava escrever os roteiros de
+# todas de uma vez e estourava a janela de 45 s do lote (422 depois de 52 s no Vercel, cuja funcao morre
+# em 60 s). Em grupos de ate 4, cada chamada tem metade do trabalho e os grupos correm ao mesmo tempo.
+BATCH_CHUNK = 4
+
+
+def split_even(items: list, size: int = BATCH_CHUNK) -> list[list]:
+    """Divide em grupos equilibrados de no maximo `size` (8 -> 4+4, 5 -> 3+2, 9 -> 3+3+3)."""
+    if not items:
+        return []
+    groups = math.ceil(len(items) / max(1, size))
+    base, extra = divmod(len(items), groups)
+    out, start = [], 0
+    for index in range(groups):
+        count = base + (1 if index < extra else 0)
+        out.append(items[start:start + count])
+        start += count
+    return out
+
+
+def write_scripts_in_groups(campaigns: list[dict], settings: dict,
+                            attempts: int = 1,
+                            orcamento_s: float = BUDGET_SECONDS,
+                            group_size: int = BATCH_CHUNK) -> tuple[dict[str, dict] | None, str]:
+    """Escreve os roteiros de TODAS as cores em grupos de ate `group_size`, com os grupos ao mesmo tempo.
+
+    Ate `group_size` cores e exatamente o write_scripts de antes (uma chamada). Acima disso, cada grupo
+    e um write_scripts (com a sua auditoria e a sua diversidade interna) e o resultado so existe se TODOS
+    os grupos passarem: um grupo recusado recusa o lote inteiro, como sempre, e a mensagem diz qual.
+    """
+    if len(campaigns) <= group_size:
+        return write_scripts(campaigns, settings, attempts, orcamento_s)
+    groups = split_even(campaigns, group_size)
+    offsets, total = [], 0
+    for group in groups:
+        offsets.append(total)
+        total += len(group)
+    with ThreadPoolExecutor(max_workers=len(groups)) as pool:
+        futures = [pool.submit(write_scripts, group, settings, attempts, orcamento_s, offset)
+                   for group, offset in zip(groups, offsets)]
+        results = [future.result() for future in futures]
+    failures = []
+    for number, ((written, reason), group) in enumerate(zip(results, groups), 1):
+        if not written:
+            cores = ', '.join(str(item.get('color') or item.get('batch_key')) for item in group)
+            failures.append(f'{reason or "resposta inválida"} (grupo {number} de {len(groups)}: {cores})')
+    if failures:
+        return None, '; '.join(failures)
+    merged: dict[str, dict] = {}
+    for written, _reason in results:
+        merged.update(written)
+    # Cada grupo e diverso por dentro; aqui confere o conjunto (cores de grupos diferentes).
+    colors = {str(item.get('batch_key') or index): item.get('color') for index, item in enumerate(campaigns)}
+    issues = batch_diversity_issues([(colors.get(key) or key, pack) for key, pack in merged.items()])
+    if issues:
+        return None, 'os grupos repetiram roteiros entre cores: ' + '; '.join(issues[:6])
+    return merged, ''
 
 
 # --------------------------------------------------------------------------- visao (analise de produto)
