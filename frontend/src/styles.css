@@ -662,14 +662,18 @@ button,
     background 0.15s,
     border-color 0.15s;
 }
-button:hover:not(:disabled),
-.button:hover {
-  background: var(--surface-18);
-  border-color: var(--line-45);
+@media (hover: hover) {
+  button:hover:not(:disabled),
+  .button:hover {
+    background: var(--surface-18);
+    border-color: var(--line-45);
+  }
 }
-.primary:hover:not(:disabled) {
-  background: var(--surface-66);
-  border-color: var(--line-62);
+@media (hover: hover) {
+  .primary:hover:not(:disabled) {
+    background: var(--surface-66);
+    border-color: var(--line-62);
+  }
 }
 .button {
   border: 1px solid var(--border);
@@ -1261,10 +1265,15 @@ body:has(.landing) {
   text-decoration: none;
   transition: border-color .15s, transform .15s;
 }
-.landing-service:hover,
 .landing-service:focus-visible {
   border-color: var(--purple);
   transform: translateY(-1px);
+}
+@media (hover: hover) {
+  .landing-service:hover {
+    border-color: var(--purple);
+    transform: translateY(-1px);
+  }
 }
 .landing-service > span:last-child {
   display: grid;
@@ -1786,13 +1795,17 @@ body:has(.landing) {
   color: var(--ink-30);
   background: transparent;
 }
-.campaign-actions button:hover:not(:disabled) {
-  color: var(--purple);
-  background: var(--surface-35);
+@media (hover: hover) {
+  .campaign-actions button:hover:not(:disabled) {
+    color: var(--purple);
+    background: var(--surface-35);
+  }
 }
-.campaign-actions .danger-action:hover:not(:disabled) {
-  color: var(--ink-24);
-  background: var(--surface-26);
+@media (hover: hover) {
+  .campaign-actions .danger-action:hover:not(:disabled) {
+    color: var(--ink-24);
+    background: var(--surface-26);
+  }
 }
 .variant-list {
   margin-top: 20px;
@@ -2035,9 +2048,11 @@ body:has(.landing) {
 .campaign-title-row .btn-rename {
   opacity: 0.55;
 }
-.campaign-title-row .btn-rename:hover {
-  opacity: 1;
-  background: var(--surface-18);
+@media (hover: hover) {
+  .campaign-title-row .btn-rename:hover {
+    opacity: 1;
+    background: var(--surface-18);
+  }
 }
 .campaign-rename {
   display: flex;
@@ -2866,9 +2881,11 @@ button.linkish {
     box-shadow 0.15s,
     background 0.15s;
 }
-.generator-option:hover {
-  border-color: var(--line-53);
-  background: var(--surface-2);
+@media (hover: hover) {
+  .generator-option:hover {
+    border-color: var(--line-53);
+    background: var(--surface-2);
+  }
 }
 .generator-option.selected {
   border-color: var(--line-61);
@@ -3005,8 +3022,10 @@ button.linkish {
   font-weight: 700;
   text-decoration: none;
 }
-.analysis-title-row a:hover {
-  text-decoration: underline;
+@media (hover: hover) {
+  .analysis-title-row a:hover {
+    text-decoration: underline;
+  }
 }
 .analysis-when {
   font-size: 12px;
@@ -3239,9 +3258,11 @@ button.linkish {
   background: var(--surface-34);
   box-sizing: border-box;
 }
-.analysis-action:hover:not(:disabled) {
-  background: var(--surface-49);
-  border-color: var(--line-56);
+@media (hover: hover) {
+  .analysis-action:hover:not(:disabled) {
+    background: var(--surface-49);
+    border-color: var(--line-56);
+  }
 }
 
 .period-audit-box {
@@ -3608,10 +3629,12 @@ button.linkish {
   font-size: 13px;
   font-weight: 600;
 }
-.identity-icon-btn:hover:not(:disabled) {
-  background: var(--surface-18);
-  border-color: var(--line-45);
-  color: var(--ink-36);
+@media (hover: hover) {
+  .identity-icon-btn:hover:not(:disabled) {
+    background: var(--surface-18);
+    border-color: var(--line-45);
+    color: var(--ink-36);
+  }
 }
 .identity-icon-label {
   max-width: 110px;
@@ -3756,9 +3779,11 @@ button.linkish {
 .generator-open-btn.is-flow .brand-labs {
   box-shadow: 0 0 0 1px var(--shadow-2);
 }
-.generator-open-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 22px var(--shadow-14);
+@media (hover: hover) {
+  .generator-open-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px var(--shadow-14);
+  }
 }
 .generator-open-btn:disabled {
   opacity: 0.55;
@@ -4051,24 +4076,30 @@ button.linkish {
   color: var(--ink-1);
   border-color: var(--line-65);
 }
-.home-launch-btn.is-grok:hover:not(:disabled) {
-  background: var(--surface-70);
-  border-color: var(--line-64);
+@media (hover: hover) {
+  .home-launch-btn.is-grok:hover:not(:disabled) {
+    background: var(--surface-70);
+    border-color: var(--line-64);
+  }
 }
 .home-launch-btn.is-flow {
   background: var(--surface-1);
   border-color: var(--line-34);
 }
-.home-launch-btn.is-flow:hover:not(:disabled) {
-  background: var(--surface-25);
+@media (hover: hover) {
+  .home-launch-btn.is-flow:hover:not(:disabled) {
+    background: var(--surface-25);
+  }
 }
 .home-launch-btn.is-studio {
   background: var(--surface-33);
   border-color: var(--line-46);
   color: var(--ink-61);
 }
-.home-launch-btn.is-studio:hover:not(:disabled) {
-  background: var(--surface-54);
+@media (hover: hover) {
+  .home-launch-btn.is-studio:hover:not(:disabled) {
+    background: var(--surface-54);
+  }
 }
 .home-launch-btn .brand-mark {
   display: block;
@@ -4262,8 +4293,10 @@ button.linkish {
 .produce-dense .generator-open-btn.compact .generator-open-text strong {
   font-size: 12px;
 }
-.produce-dense .generator-open-btn.compact:hover:not(:disabled) {
-  transform: none;
+@media (hover: hover) {
+  .produce-dense .generator-open-btn.compact:hover:not(:disabled) {
+    transform: none;
+  }
 }
 
 .produce-dense .produce-toolbar {
@@ -4547,10 +4580,12 @@ button.linkish {
   border: 1px solid var(--line-33);
   color: var(--ink-70);
 }
-.is-tiktok-studio:hover:not(:disabled) {
-  background: var(--surface-1);
-  border-color: var(--line-59);
-  box-shadow: 0 2px 8px var(--shadow-15);
+@media (hover: hover) {
+  .is-tiktok-studio:hover:not(:disabled) {
+    background: var(--surface-1);
+    border-color: var(--line-59);
+    box-shadow: 0 2px 8px var(--shadow-15);
+  }
 }
 .is-tiktok {
   background: var(--surface-73);
@@ -4558,10 +4593,12 @@ button.linkish {
   color: var(--ink-1);
   font-weight: 650;
 }
-.is-tiktok:hover:not(:disabled) {
-  background: var(--surface-73);
-  border-color: var(--line-63);
-  box-shadow: 0 2px 8px var(--shadow-16);
+@media (hover: hover) {
+  .is-tiktok:hover:not(:disabled) {
+    background: var(--surface-73);
+    border-color: var(--line-63);
+    box-shadow: 0 2px 8px var(--shadow-16);
+  }
 }
 .tiktok-studio-wordmark {
   display: block;
@@ -5388,9 +5425,11 @@ button.linkish {
   text-align: left;
   cursor: pointer;
 }
-.objection-chip:hover {
-  border-color: var(--line-53);
-  background: var(--surface-2);
+@media (hover: hover) {
+  .objection-chip:hover {
+    border-color: var(--line-53);
+    background: var(--surface-2);
+  }
 }
 .objection-chip.selected {
   border-color: var(--line-61);

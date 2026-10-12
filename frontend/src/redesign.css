@@ -101,7 +101,9 @@ a.primary {
   border-color: var(--rd-primary);
   color: #FFFFFF;
 }
-.primary:hover:not(:disabled) { background: var(--rd-primary-hover); border-color: var(--rd-primary-hover); }
+@media (hover: hover) {
+  .primary:hover:not(:disabled) { background: var(--rd-primary-hover); border-color: var(--rd-primary-hover); }
+}
 .icon-button { min-width: 44px; min-height: 44px; }
 input, select, textarea { border-radius: 10px; }
 input:not([type=checkbox]):not([type=radio]):not([type=file]), select { min-height: 44px; }
@@ -136,7 +138,9 @@ button.rd-brand {
   min-height: 44px;
   box-shadow: none;
 }
-button.rd-brand:hover:not(:disabled) { background: transparent; }
+@media (hover: hover) {
+  button.rd-brand:hover:not(:disabled) { background: transparent; }
+}
 .rd-logo {
   width: 36px;
   height: 36px;
@@ -242,8 +246,10 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   align-items: center;
   min-height: 44px;
 }
-.rd-menu-list > button:hover:not(:disabled),
-.rd-menu-list > a:hover { background: var(--rd-sunken); }
+@media (hover: hover) {
+  .rd-menu-list > button:hover:not(:disabled),
+  .rd-menu-list > a:hover { background: var(--rd-sunken); }
+}
 .rd-menu-list > .is-danger { color: var(--rd-danger); }
 .rd-menu-list hr { border: 0; border-top: 1px solid var(--rd-line); margin: 6px 4px; }
 .rd-menu-info { padding: 10px 12px; font-size: 13px; color: var(--rd-ink-3); line-height: 1.5; }
@@ -305,7 +311,9 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   color: #17141F;
   font-size: 16px;
 }
-.rd-continue-cta:hover:not(:disabled) { background: #EEEAFE; }
+@media (hover: hover) {
+  .rd-continue-cta:hover:not(:disabled) { background: #EEEAFE; }
+}
 
 .rd-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; max-width: 360px; }
 .rd-progress span { height: 6px; border-radius: 3px; background: var(--rd-line); }
@@ -369,7 +377,9 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   background: var(--rd-primary-soft);
   color: var(--rd-primary-ink);
 }
-.rd-campaign-actions > button:first-child:hover:not(:disabled) { background: var(--rd-primary); color: #FFFFFF; }
+@media (hover: hover) {
+  .rd-campaign-actions > button:first-child:hover:not(:disabled) { background: var(--rd-primary); color: #FFFFFF; }
+}
 
 .rd-status {
   display: inline-flex;
@@ -423,7 +433,10 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   align-items: center;
   box-shadow: none;
 }
-.rd-tools > a:hover, .rd-tools > button:hover:not(:disabled) { background: var(--rd-sunken); }
+@media (hover: hover) {
+  .rd-tools > a:hover,
+  .rd-tools > button:hover:not(:disabled) { background: var(--rd-sunken); }
+}
 
 /* A biblioteca da modelo fica compacta na coluna lateral. */
 .rd-home-aside .model-library { margin: 0; padding: 20px; border-radius: var(--rd-radius); background: var(--rd-surface); border: 1px solid var(--rd-line); box-shadow: var(--rd-shadow); }
@@ -616,7 +629,9 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   gap: 10px;
   text-decoration: none;
 }
-.rd-cta:hover { background: var(--rd-primary-hover); color: #FFFFFF; }
+@media (hover: hover) {
+  .rd-cta:hover { background: var(--rd-primary-hover); color: #FFFFFF; }
+}
 .rd-prompt-actions .copy-button { min-height: 44px; padding: 0 16px; border-radius: 12px; }
 .rd-prompt-count { margin-left: auto; font-size: 13px; color: var(--rd-ink-3); }
 .rd-prompt-count.is-over { color: var(--rd-danger); font-weight: 700; }
@@ -663,7 +678,9 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
   gap: 6px;
   text-align: left;
 }
-.rd-story .story-sequence > button:hover:not(:disabled) { background: #2A2440; color: #FFFFFF; }
+@media (hover: hover) {
+  .rd-story .story-sequence > button:hover:not(:disabled) { background: #2A2440; color: #FFFFFF; }
+}
 .rd-story-eyebrow { font-size: 12px; letter-spacing: 0.08em; color: #FFB3A3; }
 .rd-story .story-sequence > button strong { font-family: var(--rd-display); font-size: 18px; }
 .rd-story .story-sequence > button small { font-size: 14px; font-weight: 500; color: var(--rd-hero-2); }

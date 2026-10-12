@@ -60,8 +60,11 @@ export function TextEditor({title,value,field,onSave,busy,onError,onDirty,readOn
 }
 export function AssetView({asset,title,compact=false}){
   if(!asset)return <div className="media-empty">{title}</div>;
+  // Sem largura e altura a imagem so ocupa espaco depois de carregar e o conteudo abaixo pula.
+  const w=Number(asset.metadata?.width),h=Number(asset.metadata?.height);
+  const size=w>0&&h>0?{width:w,height:h}:{};
   return <div className={'asset-view '+(compact?'compact':'')}>
-    {asset.kind==='video'?<video key={asset.id} controls playsInline preload="metadata" src={asset.url}/>:<a href={asset.url} target="_blank" rel="noreferrer" title="Abrir imagem em tamanho completo"><img src={asset.url} alt={title}/></a>}
+    {asset.kind==='video'?<video key={asset.id} controls playsInline preload="metadata" src={asset.url}/>:<a href={asset.url} target="_blank" rel="noreferrer" title="Abrir imagem em tamanho completo"><img src={asset.url} alt={title} {...size}/></a>}
     <div className="asset-meta"><span>{asset.metadata.width} × {asset.metadata.height}{asset.metadata.duration?` · ${asset.metadata.duration}s`:''}</span><a href={asset.url+'?download=1'} aria-label={'Baixar '+title}><Download size={16}/></a></div>
     <div className="asset-name">{asset.original_name}</div>
     {asset.approved_at&&<span className="approved-label"><Check size={13}/>Aprovado por você</span>}
@@ -1140,7 +1143,7 @@ function ProductPhotoPicker({saved,files,removed,onFiles,onRemoved}){
     setError('');onFiles([...files,...added]);
   }
   return <section className="product-photo-picker" aria-label="Fotos do produto"><div className="section-title"><h3>Fotos do produto</h3><span className="help">{active.length+files.length}/8</span></div><p>Mostre a frente, as costas e os detalhes da peça. A identidade continua vindo da modelo fixa.</p>
-    <div className="product-photo-grid">{active.map((photo,i)=><div className="product-photo" key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={`Foto salva do produto ${i+1}`}/></a><small>{photo.original_name}</small><button type="button" onClick={()=>onRemoved([...removed,photo.id])} aria-label={`Remover ${photo.original_name}`}><X size={13}/>Remover</button></div>)}
+    <div className="product-photo-grid">{active.map((photo,i)=><div className="product-photo" key={photo.id}><a href={photo.url} target="_blank" rel="noreferrer"><img src={photo.url} alt={`Foto salva do produto ${i+1}`} loading="lazy" decoding="async"/></a><small>{photo.original_name}</small><button type="button" onClick={()=>onRemoved([...removed,photo.id])} aria-label={`Remover ${photo.original_name}`}><X size={13}/>Remover</button></div>)}
       {files.map((file,i)=><div className="product-photo" key={i}>{previews[i]&&<img src={previews[i]} alt={`Nova foto do produto ${i+1}`}/>}<small>{file.name}</small><span className="pending-photo">A salvar</span><button type="button" onClick={()=>onFiles(files.filter((_,index)=>index!==i))} aria-label={`Retirar ${file.name}`}><X size={13}/>Retirar</button></div>)}</div>
     <input ref={input} type="file" multiple hidden accept="image/jpeg,image/png,image/webp" onChange={e=>{select(e.target.files);e.target.value=''}}/>
     <button type="button" className="upload-button" disabled={active.length+files.length>=8} onClick={()=>input.current.click()}><ImagePlus size={18}/>Adicionar fotos do produto</button>
@@ -1837,7 +1840,7 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
                   title="Ver em tela cheia"
                   onClick={e=>{e.stopPropagation();setSelectedNiche(item.niche);setLightbox({url:previews[activeModel+'|'+item.niche]||item.url,label:item.label,name:item.original_name||''});}}
                 >
-                  <img key={item.url||item.updated_at||item.niche} src={previews[activeModel+'|'+item.niche]||item.url} alt={item.label}/>
+                  <img key={item.url||item.updated_at||item.niche} src={previews[activeModel+'|'+item.niche]||item.url} alt={item.label} loading="lazy" decoding="async"/>
                 </button>
               ) : <span className="help">Sem foto ainda</span>}
             </div>

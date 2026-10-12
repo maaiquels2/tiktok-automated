@@ -267,9 +267,11 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.produce-chrome-actions .danger-action:hover:not(:disabled) {
-  color: #ff8a8a;
-  border-color: #ff8a8a;
+@media (hover: hover) {
+  .produce-chrome-actions .danger-action:hover:not(:disabled) {
+    color: #ff8a8a;
+    border-color: #ff8a8a;
+  }
 }
 
 /* Escolha do nicho com a foto padrão de cada moda (substitui o <select>). */
@@ -449,4 +451,19 @@ textarea,
 label,
 summary {
   touch-action: manipulation;
+}
+
+/* Imagem do AssetView com width/height no HTML: a altura vem da proporção, não do atributo. O modo compacto e o
+   comparativo (alturas fixas, mais específicos) continuam como estavam. */
+.asset-view img {
+  height: auto;
+}
+
+/* Títulos sem linha final com uma palavra só. */
+h1,
+h2,
+h3,
+h4,
+.rd-display {
+  text-wrap: balance;
 }
