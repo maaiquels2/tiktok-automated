@@ -400,10 +400,10 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             'A imagem anexada é o primeiro quadro: mesma caixa, mesmo ambiente e mesma luz do começo ao fim.',
             'Câmera: o celular está apoiado acima, apontado para baixo, quase parado, um único take sem cortes nem '
             'zoom; por isso as duas mãos ficam livres.',
-            'Mãos: exatamente duas, as mesmas da imagem; nunca uma terceira mão; nunca aparece rosto nem corpo.',
+            'Mãos: exatamente duas, as mesmas da imagem, no quadro o tempo todo; nunca uma terceira mão; nunca aparece rosto nem corpo.',
             f'Ação contínua, sem pausas: {formats.pov_opening(c, product)}; depois as mãos mostram os detalhes de '
-            'perto, um de cada vez; para mostrar o verso, apoiam a peça na caixa e viram como uma página, nunca '
-            'girando no ar; no final, apoiam a peça aberta sobre a caixa e o indicador aponta uma vez para baixo.'
+            'perto, um de cada vez, com movimentos lentos e contínuos; só a frente da peça aparece, nunca o verso, '
+            'e ela nunca pula de posição nem volta para a caixa; no final, uma mão segura a peça aberta e a outra aponta uma vez para baixo.'
             f'{POV_LOOP if "loop" in formats.techniques(c) else ""} {seamless}',
             f'Narração, do começo ao fim, num fôlego só: "{fala}"',
             SPEECH_POV,

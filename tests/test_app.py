@@ -1548,7 +1548,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('VÍDEO ABRINDO O PACOTE',caixa['video'])
         # Teste real: terceira mao, calca girando no ar e caixa demorando a abrir.
         self.assertIn('exatamente duas mãos',caixa['video'])
-        self.assertIn('NUNCA girar a peça no ar',caixa['video'])
+        self.assertIn('nunca mostrar o verso',caixa['video']); self.assertIn('não volta para a caixa',caixa['video'])
         self.assertIn('nos 2 primeiros segundos',caixa['video'])
         self.assertNotIn('girar,',caixa['video'])
         self.assertIn('embalagem aberta',caixa['image'])
@@ -1562,7 +1562,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('sons nítidos',build_compact_video_prompt({**base,'video_mode':'asmr'},som,'Preto'))
         guia_caixa=build_compact_video_prompt({**base,'video_mode':'unboxing'},caixa,'Preto')
         self.assertIn('Mãos: exatamente duas',guia_caixa)
-        self.assertIn('nunca girando no ar',guia_caixa)
+        self.assertIn('nunca o verso',guia_caixa)
 
     def test_retention_techniques_fit_the_grok_limit_and_keep_the_actions(self):
         import itertools

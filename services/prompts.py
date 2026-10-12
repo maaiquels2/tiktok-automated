@@ -2159,7 +2159,11 @@ def _build_unboxing_video_prompt(c, *, resolution, color, product, benefit, move
     uma terceira mao, girou a calca no ar (ela "pulava" para o verso) e
     demorou a abrir a caixa. Aqui o celular esta apoiado (duas maos livres),
     a peca sai da caixa logo no inicio e o verso aparece virando a peca
-    sobre a caixa, nunca girando no ar."""
+    sobre a caixa, nunca girando no ar.
+
+    Segundo teste real: qualquer pedido de mostrar o verso virou salto de um
+    quadro para o outro, e "apoiar sobre a caixa" fez a peca pular de volta
+    para dentro dela. Agora so a frente aparece e a peca fica nas maos."""
     model = _phrase(c.get('model_name')) or 'a pessoa'
     color_l = _phrase(color) or 'a cor escolhida'
     product_l = product or 'o produto'
@@ -2181,22 +2185,26 @@ def _build_unboxing_video_prompt(c, *, resolution, color, product, benefit, move
             "tremor natural), um único take contínuo, sem cortes nem zoom. Por isso as DUAS mãos ficam livres. "),
         (0, f"MÃOS: exatamente duas mãos, a esquerda e a direita de {model}, entrando pela parte de baixo do quadro, "
             "com o mesmo tom de pele, unhas e acessórios da imagem; nunca uma terceira mão, nunca braço ou dedo a "
-            "mais; nunca aparece rosto, pescoço ou reflexo. "),
+            "mais; as duas ficam no quadro o tempo todo e nenhuma mão nova entra; nunca aparece rosto, pescoço "
+            "ou reflexo. "),
         (0, f"CENÁRIO FIXO: {scene_lock}; fundo, caixa, papel de seda e luz só dessa imagem. "),
         (0, "A PEÇA: sempre fora do corpo, ninguém veste. Ela começa à vista na caixa aberta, como na imagem, e já "
             "sai da caixa nos 2 primeiros segundos (nada de caixa fechada nem de abrir devagar). As mãos seguram a "
-            "peça aberta, de frente para a lente. Para mostrar o verso, apoiam a peça sobre a caixa e viram de uma "
-            "vez, como quem vira uma página; NUNCA girar a peça no ar nem dar volta de 360 graus. "),
+            "peça aberta, de frente para a lente. Só a FRENTE da peça aparece, do começo ao fim: nunca mostrar o "
+            "verso, nunca virar nem girar a peça. Movimentos lentos e contínuos: a peça nunca muda de posição de um "
+            "quadro para o outro (nada de salto, corte ou peça que reaparece em outro lugar) e não volta para a "
+            "caixa. "),
         (0, ('PROVA VISUAL — com a peça nas mãos, entre 3s e 11s: ' + '; '.join(gestures) + '. ') if gestures else ''),
         (0, f"Também: {'; '.join(extra)}. " if extra else ''),
-        (0, "EVITAR: terceira mão, dedos deformados, peça girando no ar, peça mudando de forma ou de cor, vestir a "
-            "peça, rosto ou corpo, textos, ícones, carrinho, botões ou stickers na tela, marcas na caixa, cortes.\n"),
+        (0, "EVITAR: terceira mão, dedos deformados, peça girando ou virando de costas, peça pulando de posição ou "
+            "voltando para a caixa, peça mudando de forma ou de cor, vestir a peça, rosto ou corpo, textos, ícones, "
+            "carrinho, botões ou stickers na tela, marcas na caixa, cortes.\n"),
         (0, "SHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n"
             f"0–3s ABERTURA: {formats.pov_opening(c, product_l)}. Fala (PT-BR), tom espontâneo: \"{hook}\"\n"
             "3–11s DETALHES: as mãos mostram os detalhes de perto, um de cada vez, emendados, enquanto a fala "
             f"continua na mesma respiração. Fala (PT-BR): \"{development}\"\n"
-            "11–15s FECHAMENTO: as mãos apoiam a peça aberta, de frente, sobre a caixa, e o indicador aponta uma vez "
-            f"para baixo. {loop}Fala (PT-BR): \"{cta}\"\n"),
+            "11–15s FECHAMENTO: uma mão continua segurando a peça aberta, de frente, e a outra aponta uma vez para "
+            f"baixo; a peça não volta para a caixa. {loop}Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
         (0, " As três falas são UM discurso contínuo, sem pausa entre os trechos. Áudio: voz feminina em português "
             "do Brasil, espontânea, ritmo de conversa real, som do papel e do tecido ao fundo, sem música; fale só as "

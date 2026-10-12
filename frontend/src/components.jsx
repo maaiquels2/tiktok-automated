@@ -192,7 +192,7 @@ export const FORMAT_OPTIONS=[
   ['teste','Teste de prova','Agacha, pula ou gira para provar a peça'],
   ['troca_cor','Troca de cor','Termina com a mão na lente para emendar as cores'],
   ['tres_jeitos','3 jeitos de usar','A mesma peça em três looks (experimental)'],
-  ['unboxing','Abrindo o pacote','POV tirando a peça da embalagem'],
+  ['unboxing','Abrindo o pacote','POV tirando a peça da caixa (experimental)'],
   ['asmr','Close ASMR','Sem fala: closes e o som do tecido'],
 ];
 const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
