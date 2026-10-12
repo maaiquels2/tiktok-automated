@@ -315,10 +315,15 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None):
     for pattern in (r' Notas adicionais do operador \(não são falas\): [^.]*\. ',
                     r' Estilo visual: natural e realista\.',
                     r' Ângulo de venda \(contexto, não criar atributos\): [^.]*\.',
-                    r' Com material confirmado, preservar textura e brilho\.'):
+                    r' Com material confirmado, preservar textura e brilho\.',
+                    r' Sem promessas não demonstradas no vídeo\.',
+                    r'(?<=\. )Outras peças citadas na fala não entram no vídeo\. ',
+                    r' Visual: [^.]*\.'):  # repete o "Produto em cena" logo antes
         if len(text) <= GROK_LIMIT:
             break
         text = re.sub(pattern, ' ', text, count=1)
+    if len(text) > GROK_LIMIT:
+        text = re.sub(r' {2,}', ' ', text)  # cada corte deixa um espaco; so aqui, para nao mexer nos que ja cabem
     return text, opening, acoes
 
 

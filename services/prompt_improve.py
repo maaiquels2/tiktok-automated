@@ -25,7 +25,7 @@ import unicodedata
 from services import formats, persuasion
 from services.prompts import _with_article, bold_move, close_target, shows_unconfirmed_feature, video_style
 from services.prompts import (
-    _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
+    piece_lock_short, _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
 )
 
@@ -211,6 +211,9 @@ def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
         else:
             parts.append('ela nunca fica de costas para a câmera')
     parts.append(f'{product} continua {keeps} e totalmente {opaque}')
+    lock = piece_lock_short(c)
+    if lock:
+        parts.append(lock)
     parts.append('sem texto, ícone, carrinho, botão ou qualquer gráfico na tela (o carrinho só é falado)')
     return 'IMPORTANTE: ' + '; '.join(parts) + '.'
 
@@ -352,6 +355,7 @@ def compact_mesa(c: dict, model: str, piece: str, res: str, fala: str, keeps: st
         'nenhuma mão cobre a boca enquanto ela fala.',
         SPEECH,
         f'IMPORTANTE: {piece} continua {keeps}, sem mudar de forma, de cor nem de tamanho, e nunca sai do quadro; '
+        f'{(piece_lock_short(c) + "; ") if piece_lock_short(c) else ""}'
         f'evitar: {cena["avoid"]}; sem texto, ícone, carrinho, botão ou qualquer gráfico na tela (o carrinho só é falado).',
     ])
 

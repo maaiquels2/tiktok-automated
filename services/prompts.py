@@ -2121,6 +2121,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
             "11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento "
             f"inicial e sustenta o olhar calmo na lente até o fim. {fim}\n"),
         (0, _unconfirmed_line(c)),
+        (1, piece_lock_speech(c)),
         (0, "ENQUADRAMENTO: manter a mesma cena entre os beats; a câmera pode aproximar e afastar na mesma locação. "
             "Sem movimento artificial de IA: o ritmo é de quem se olha no espelho, não de coreografia ensaiada. "),
         (2, f"Estilo visual: {style}. "),
@@ -2214,6 +2215,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
         (0, f"12–15s FECHAMENTO: o produto em destaque nas mãos. Emendar sem pausa à fala anterior, num tom leve, "
             f"nunca de vendedor. Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
+        (1, piece_lock_speech(c)),
         (1, "ENQUADRAMENTO: pequenos reenquadramentos naturais são esperados; não são cortes nem troca de cena. "
             "Nada de propaganda ou atuação: o momento deve parecer real, levemente imperfeito e espontâneo. "),
         (0, "As três falas são UM discurso contínuo: mesma respiração, sem pausa entre os trechos, como quem fala "
@@ -2320,6 +2322,7 @@ def _build_mesa_video_prompt(c, *, resolution, color, product, benefit, movement
             f"Fala (PT-BR): \"{development}\"\n"
             f"11–15s FECHAMENTO: {cena['close']}. {loop}Fala (PT-BR): \"{cta}\"\n"),
         (0, unconfirmed),
+        (1, piece_lock_speech(c)),
         (2, f"Notas adicionais do operador (não são falas): {video_notes}. " if video_notes else ''),
         (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos; a fala ocupa os 15 s até o fim, "
             "sem silêncio. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, lábios "
@@ -2386,11 +2389,61 @@ def _build_unboxing_video_prompt(c, *, resolution, color, product, benefit, move
             "11–15s FECHAMENTO: uma mão continua segurando a peça aberta, de frente, e a outra aponta uma vez para "
             f"baixo; a peça não volta para a caixa. {loop}Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
+        (1, piece_lock_speech(c)),
         (0, " As três falas são UM discurso contínuo, sem pausa entre os trechos. Áudio: voz feminina em português "
             "do Brasil, espontânea, ritmo de conversa real, som do papel e do tecido ao fundo, sem música; fale só as "
             "falas entre aspas, palavra por palavra; nunca leia títulos, instruções, câmera, shot list ou notas. "),
         (0, "Sem promessas não demonstradas no vídeo."),
     ], _limite_video(c))
+
+
+# Teste real (biquini sem laco na calcinha): no meio do video o Grok inventou um laco. Tres coisas empurravam
+# nessa direcao e nenhuma trava dizia "a peca nao muda": o movimento "ajustar as amarracoes", o close "na
+# amarracao" e a fala sobre outras pecas ("saida de praia amarrada na cintura"), que o gerador costuma encenar.
+_TIE_RE = re.compile(r'amarr|\bla[çc]os?\b|\bn[óo]s?\b', re.I)
+
+
+def _tie_mentions(c, limit=2):
+    """Trechos do briefing (nas palavras do operador) que citam laco, no ou amarracao."""
+    source = ', '.join(_phrase(c.get(k)) for k in ('product', 'details'))
+    found = []
+    for chunk in re.split(r'\s*[;,.|\n]\s*', source):
+        chunk = _video_details(chunk).strip()
+        if chunk and len(chunk.split()) <= 8 and _TIE_RE.search(chunk) and chunk.casefold() not in found:
+            found.append(chunk.casefold())
+    return found[:limit]
+
+
+def piece_lock(c):
+    """Trava minima de fidelidade da peca, SEMPRE no prompt completo ('' para o que nao e roupa). Entra no bloco
+    de prioridade 0 (junto dos atributos nao confirmados): os blocos de prioridade 0 ja ocupam ~3.800 dos 3.940
+    caracteres do Grok, entao ela tem de ser curta. A versao completa, com os trechos do briefing, e
+    piece_lock_short (Guia do Grok)."""
+    if _product_family(c) not in ('moda', 'infantil'):
+        return ''
+    return 'Peça idêntica à imagem, sem laço, nó ou amarração a mais ou a menos. '
+
+
+def piece_lock_speech(c):
+    """Complemento da trava (bloco de prioridade 1: cai antes de qualquer fato, ação ou fala se faltar espaco):
+    a conversa sobre outras pecas nao vira cena, e no "3 jeitos" so os looks pedidos mudam."""
+    if _product_family(c) not in ('moda', 'infantil'):
+        return ''
+    if formats.video_format(c) == 'tres_jeitos':
+        return 'Só os looks pedidos mudam, por cima da peça. '
+    return 'Outras peças citadas na fala não entram no vídeo. '
+
+
+def piece_lock_short(c):
+    """A mesma trava, em uma frase, para o Guia do Grok ('' para o que nao e roupa)."""
+    if _product_family(c) not in ('moda', 'infantil'):
+        return ''
+    ties = _tie_mentions(c)
+    text = ('a peça é idêntica à da imagem do primeiro ao último quadro: nenhum laço, nó ou amarração aparece, '
+            'some ou muda de lugar' + (f' (só os do briefing: {"; ".join(ties)})' if ties else ''))
+    if formats.video_format(c) != 'tres_jeitos':
+        text += '; o que ela diz sobre outras peças é só conversa, nenhuma outra peça entra no vídeo'
+    return text
 
 
 def _unconfirmed_line(c):
@@ -2403,7 +2456,8 @@ def _unconfirmed_line(c):
               and not (name == 'composição' and _material_facts(c))]
     lista = ', '.join(banned[:-1]) + (' ou ' + banned[-1] if len(banned) > 1 else (banned[0] if banned else ''))
     return ((f"ATRIBUTOS NÃO CONFIRMADOS: não inventar {lista} — " if banned else "ATRIBUTOS: ")
-            + "nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura e brilho. ")
+            + "nada fora dos FATOS CONFIRMADOS. Com material confirmado, preservar textura e brilho. "
+            + piece_lock(c))
 
 
 def _visual_outfit(c, product):
@@ -2637,6 +2691,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             f"Fala (PT-BR): \"{development}\"\n"
             f"{t2}–15s CTA: apontando para baixo uma vez, concluindo o mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
+        (1, piece_lock_speech(c)),
         (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos, como quem conta uma descoberta "
             "para uma amiga. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, a fala ocupa "
             "os 15 s até o fim, sem silêncio, lábios sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; "
@@ -2664,6 +2719,11 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
                           re.sub(r'Benefício a provar visualmente, só se for demonstrável: [^\n]*', '', t))
                          for p, t in blocos]
         texto = _montar_video(sem_beneficio, limite)
+    if limite and len(texto) > limite:
+        # Ultimo recurso 3: a linha final repete o que "ATRIBUTOS NAO CONFIRMADOS" ja proibe; cai inteira
+        # em vez de o Grok cortar o fim do prompt no meio de uma frase.
+        texto = _montar_video([(p, '' if t == 'Sem promessas não demonstradas no vídeo.' else t)
+                               for p, t in sem_beneficio], limite)
     return texto
 
 

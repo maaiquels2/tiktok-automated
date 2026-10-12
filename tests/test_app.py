@@ -1789,6 +1789,69 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('balançar ou soltar o colar',video)
         self.assertNotIn('balança bem devagar',video)
 
+    # ---- Fidelidade da peca: o video nao pode inventar laco, no ou amarracao ----------------------------
+    PIECE_LOCK='Peça idêntica à imagem, sem laço, nó ou amarração a mais ou a menos.'
+    BIKINI=dict(model_name='Micaela',product='Biquíni cortininha bordado com conchas',
+                outfit='Biquíni cortininha bordado com conchas',color='Branco com conchas e pérolas',audience='',
+                benefit='',angle='',tone='',style='',generator='grok',niche='praia',objection='',offer='',
+                details='suplex com forro, top cortininha com amarração, calcinha com regulagem lateral, '
+                        'bordado à mão com conchas e pérolas',
+                movements='ajustar as amarrações do top; mostrar os bordados de perto; virar de leve para o lado')
+
+    def test_piece_lock_is_in_every_full_prompt_of_a_wearable_and_fits_grok(self):
+        # Teste real: biquini sem laco na calcinha ganhou um laco no meio do video. Nada no prompt dizia que a
+        # peca nao muda, e o movimento "ajustar as amarracoes" empurrava para isso.
+        from services import formats
+        modos=['','espelho','pov','movimento',*formats.FORMATS]
+        for modo in modos:
+            for produto in (self.BIKINI,{**self.BIKINI,'product':'Calça jeans','outfit':'calça jeans',
+                                         'details':'lavagem clara, cintura alta','movements':'','niche':'dia-a-dia'}):
+                video=generate({**produto,'video_mode':modo})['video']
+                self.assertEqual(video.count(self.PIECE_LOCK),1,(modo,produto['product']))
+                self.assertLessEqual(len(video),3940,(modo,produto['product']))
+
+    def test_piece_lock_is_not_added_to_products_that_are_not_worn(self):
+        from services.prompt_improve import build_compact_video_prompt
+        for nome,produto,modo in (('creme','Creme hidratante facial','mesa'),('brinco','Brinco de argola dourada','mesa'),
+                                  ('colar','Colar ponto de luz','mesa'),('creme','Creme hidratante facial','')):
+            c={**self.BIKINI,'product':produto,'outfit':nome,'details':'textura leve','movements':'',
+               'niche':'casual','video_mode':modo}
+            pack=generate(c)
+            self.assertNotIn('Peça idêntica',pack['video'],(nome,modo))
+            self.assertNotIn('idêntica à da imagem',build_compact_video_prompt(c,pack,'Branco'),(nome,modo))
+
+    def test_compact_guide_always_carries_the_lock_with_the_ties_the_briefing_confirms(self):
+        from services import formats
+        from services.prompt_improve import build_compact_video_prompt
+        for modo in ['','espelho','pov','movimento',*formats.FORMATS]:
+            c={**self.BIKINI,'video_mode':modo,'video_style':'closes,ousado,acao,loop'}
+            guia=build_compact_video_prompt(c,generate(c),c['color'])
+            self.assertIn('a peça é idêntica à da imagem do primeiro ao último quadro',guia,modo)
+            self.assertIn('nenhum laço, nó ou amarração aparece, some ou muda de lugar',guia,modo)
+            self.assertIn('só os do briefing: top cortininha com amarração',guia,modo)
+            if modo=='tres_jeitos':
+                self.assertNotIn('é só conversa',guia)
+            else:
+                self.assertIn('o que ela diz sobre outras peças é só conversa',guia,modo)
+
+    def test_guide_lock_does_not_invent_ties_when_the_briefing_has_none(self):
+        from services.prompt_improve import build_compact_video_prompt
+        c={**self.BIKINI,'product':'Calça jeans','outfit':'calça jeans','details':'lavagem clara, cintura alta',
+           'movements':'','niche':'dia-a-dia','video_mode':'espelho'}
+        guia=build_compact_video_prompt(c,generate(c),c['color'])
+        self.assertIn('nenhum laço, nó ou amarração aparece, some ou muda de lugar',guia)
+        self.assertNotIn('só os do briefing',guia)
+
+    def test_piece_lock_speech_note_drops_before_anything_that_matters(self):
+        # O complemento (fala sobre outras pecas) e o primeiro a cair se o prompt nao couber; a trava minima fica.
+        c={**self.BIKINI,'video_mode':'espelho','video_style':'closes,ousado,acao,loop'}
+        video=generate(c)['video']
+        self.assertIn(self.PIECE_LOCK,video)
+        self.assertLessEqual(len(video),3940)
+        leve={**self.BIKINI,'product':'Calça jeans','outfit':'calça jeans','details':'cintura alta','movements':'',
+              'niche':'dia-a-dia','video_mode':'espelho'}
+        self.assertIn('Outras peças citadas na fala não entram no vídeo.',generate(leve)['video'])
+
     # ---- Sequencia storytelling de 2 ou 3 clipes (services/story_arcs.py) -------------------------------
     ARC_PRODUCTS={
         'jeans':dict(product='Calça jeans',outfit='calça jeans',color='Azul claro',niche='dia-a-dia',
