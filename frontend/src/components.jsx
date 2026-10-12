@@ -181,7 +181,39 @@ export function StorySequence({campaignId,variantId=null,onError}){
   </section>;
 }
 
-const VIDEO_FORMATS=[['','Com fala'],['espelho','Espelho'],['movimento','Só movimento'],['pov','POV']];
+// Formatos de video (services/formats.py): os quatro de base e os que rodam
+// sobre eles. Abrindo o pacote usa a base POV; Close ASMR, a de so movimento.
+export const FORMAT_OPTIONS=[
+  ['','Com fala','Modelo de frente falando com a câmera'],
+  ['espelho','Celular no espelho','Ela grava o próprio look no espelho'],
+  ['pov','POV','Só mãos e produto, sem rosto'],
+  ['movimento','Só movimento','Sem fala: puxa, gira e ajusta a peça'],
+  ['comentario','Respondendo comentário','Responde a dúvida da cliente e prova na hora'],
+  ['teste','Teste de prova','Agacha, pula ou gira para provar a peça'],
+  ['troca_cor','Troca de cor','Termina com a mão na lente para emendar as cores'],
+  ['tres_jeitos','3 jeitos de usar','A mesma peça em três looks (experimental)'],
+  ['unboxing','Abrindo o pacote','POV tirando a peça da embalagem'],
+  ['asmr','Close ASMR','Sem fala: closes e o som do tecido'],
+];
+const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
+const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
+const TECHNIQUE_OPTIONS=[['acao','Começar em movimento'],['aproxima','Aproximação rápida'],['revela','Mão revelando'],['loop','Loop'],['estica','Esticar o tecido']];
+const STYLE_ORDER=['closes','ousado','acao','aproxima','revela','loop','estica'];
+const MAX_TECHNIQUES=2;
+// Camera e tecnicas de retencao. Mais de duas tecnicas no mesmo video de 15 s
+// viram lista de tarefas para o Grok: a terceira fica bloqueada.
+export function StyleChips({value,onChange,labelledBy}){
+  const set=new Set(String(value||'').split(',').filter(Boolean));
+  const tecnicas=TECHNIQUE_OPTIONS.filter(([id])=>set.has(id)).length;
+  const toggle=id=>{const next=new Set(set);next.has(id)?next.delete(id):next.add(id);onChange(STYLE_ORDER.filter(k=>next.has(k)).join(','))};
+  const chip=([id,label],limit)=>{const on=set.has(id);const blocked=limit&&!on&&tecnicas>=MAX_TECHNIQUES;
+    return <button type="button" key={id} className="rd-chip-tab" aria-pressed={on} aria-checked={on} role="checkbox" disabled={blocked}
+      title={blocked?`Escolha no máximo ${MAX_TECHNIQUES} técnicas`:undefined} onClick={()=>toggle(id)}>{label}</button>};
+  return <>
+    <div className="quick-niches" role="group" aria-labelledby={labelledBy}>{CAMERA_OPTIONS.map(o=>chip(o,false))}</div>
+    <div className="quick-niches" role="group" aria-label="Técnicas de retenção (até 2)">{TECHNIQUE_OPTIONS.map(o=>chip(o,true))}</div>
+  </>;
+}
 
 // Bancada da etapa Criar video: imagem aprovada ao lado, prompt no topo com a
 // acao principal (copiar e abrir o gerador), falas como linha do tempo, o
@@ -212,9 +244,9 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <div className="rd-card-head"><h3>Prompt de vídeo{color?` · ${color}`:''}</h3><PromptScore text={p.video}/></div>
         <div className="rd-segments">
           <div><span className="rd-segmented-label">Formato</span>
-            <div className="rd-segmented" role="radiogroup" aria-label="Formato do vídeo">
-              {VIDEO_FORMATS.map(([value,label])=><button key={value||'fala'} type="button" role="radio" aria-checked={mode===value} disabled={busy||immutable} onClick={()=>pickFormat(value)}>{label}</button>)}
-            </div>
+            <select className="rd-format-select" aria-label="Formato do vídeo" value={mode} disabled={busy||immutable} onChange={e=>pickFormat(e.target.value)}>
+              {VIDEO_FORMATS.map(([value,label])=><option key={value||'fala'} value={value}>{label}</option>)}
+            </select>
           </div>
           <div><span className="rd-segmented-label">Versão do prompt</span>
             <div className="rd-segmented" role="radiogroup" aria-label="Versão do prompt">
@@ -223,6 +255,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
             </div>
           </div>
         </div>
+        {campaign?.edit_tip&&<p className="help rd-format-tip"><strong>Na edição:</strong> {campaign.edit_tip}</p>}
         <pre className="rd-prompt-box">{p.video||'Gere os prompts em Definir look.'}</pre>
         <div className="rd-prompt-actions">
           {launch('rd-cta')}
@@ -1186,22 +1219,10 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <div className="option-field">
           <span className="option-field-title" id="video-mode-title">Formato do vídeo</span>
           <div className="generator-options pov-options" role="radiogroup" aria-labelledby="video-mode-title">
-            <label className={'generator-option '+(!draft.video_mode?'selected':'')}>
-              <input type="radio" name="video_mode" value="" checked={!draft.video_mode} onChange={()=>change('video_mode','')}/>
-              <span><strong>UGC com modelo</strong><small>Modelo aparece de frente, como hoje</small></span>
-            </label>
-            <label className={'generator-option '+(draft.video_mode==='espelho'?'selected':'')}>
-              <input type="radio" name="video_mode" value="espelho" checked={draft.video_mode==='espelho'} onChange={()=>change('video_mode','espelho')}/>
-              <span><strong>Celular no espelho</strong><small>Ela grava o próprio look no espelho, com o celular na mão</small></span>
-            </label>
-            <label className={'generator-option '+(draft.video_mode==='pov'?'selected':'')}>
-              <input type="radio" name="video_mode" value="pov" checked={draft.video_mode==='pov'} onChange={()=>change('video_mode','pov')}/>
-              <span><strong>POV do produto</strong><small>Câmera na mão, só produto e mãos, sem rosto</small></span>
-            </label>
-            <label className={'generator-option '+(draft.video_mode==='movimento'?'selected':'')}>
-              <input type="radio" name="video_mode" value="movimento" checked={draft.video_mode==='movimento'} onChange={()=>change('video_mode','movimento')}/>
-              <span><strong>Só movimento</strong><small>Sem fala: puxa, gira e ajusta a peça no corpo</small></span>
-            </label>
+            {FORMAT_OPTIONS.map(([id,label,hint])=><label key={id||'fala'} className={'generator-option '+((draft.video_mode||'')===id?'selected':'')}>
+              <input type="radio" name="video_mode" value={id} checked={(draft.video_mode||'')===id} onChange={()=>change('video_mode',id)}/>
+              <span><strong>{label}</strong><small>{hint}</small></span>
+            </label>)}
           </div>
           <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
           <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
@@ -1254,14 +1275,9 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </label>
           </div>
           <span className="option-field-title" id="video-style-title">Câmera e movimento</span>
-          <div className="quick-niches" role="group" aria-labelledby="video-style-title">
-            {[['closes','Closes no produto'],['ousado','Movimentos ousados']].map(([id,label])=>{
-              const on=String(draft.video_style||'').split(',').includes(id);
-              return <button type="button" key={id} className="rd-chip-tab" aria-pressed={on} aria-checked={on} role="checkbox"
-                onClick={()=>{const set=new Set(String(draft.video_style||'').split(',').filter(Boolean));on?set.delete(id):set.add(id);change('video_style',['closes','ousado'].filter(k=>set.has(k)).join(','))}}>{label}</button>;
-            })}
-          </div>
+          <StyleChips value={draft.video_style} onChange={v=>change('video_style',v)} labelledBy="video-style-title"/>
           <small className="help">Closes: no meio do vídeo a câmera mostra o material de perto por 1 a 2 s e volta ao rosto. Ousados: giro completo em vestido e saia, agachamento em legging, passos firmes em calça.</small>
+          <small className="help">Técnicas de retenção (até 2): começar já em movimento; aproximação rápida até a lente; mão cobrindo a lente e revelando a peça; loop (o fim emenda no começo); esticar o tecido perto da lente.</small>
           <small className="help">Essa escolha tem prioridade sobre os movimentos automáticos do nicho. “De frente” impede giros inesperados; costas só aparecem quando você autorizar.</small>
         </div>
         </details>
@@ -2475,8 +2491,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
   const [turn,setTurn]=useState(true);
-  const [closes,setCloses]=useState(false);
-  const [bold,setBold]=useState(false);
+  const [style,setStyle]=useState('');
   const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
@@ -2489,7 +2504,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     try{
       const {brief}=await quickBrief(products,description,niche,colorsPhoto);
       const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':'',
-        video_style:[closes&&'closes',bold&&'ousado'].filter(Boolean).join(',')};
+        video_style:style};
       if(!values.color){onError?.('A IA não achou as cores. Suba a foto das cores ou escreva as cores e tente de novo.');return}
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
       const message='Campanha automática criada: roteiro e prompts do Grok prontos. Cores: '+values.color+'.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
@@ -2525,13 +2540,14 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     </label>
     <span className="option-field-title" id="auto-format">Formato do vídeo</span>
     <div className="quick-niches" role="radiogroup" aria-labelledby="auto-format">
-      {[['','Com fala'],['espelho','Celular no espelho'],['pov','POV'],['movimento','Só movimento']].map(([id,label])=>
+      {FORMAT_OPTIONS.map(([id,label])=>
         <button type="button" key={id||'fala'} role="radio" aria-checked={format===id} className="rd-chip-tab"
           aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>)}
     </div>
     <label className="quick-confirm"><input type="checkbox" checked={turn} onChange={e=>setTurn(e.target.checked)}/> Girar um pouco de lado para mostrar a peça (sem mostrar as costas)</label>
-    <label className="quick-confirm"><input type="checkbox" checked={closes} onChange={e=>setCloses(e.target.checked)}/> Closes no material do produto (o rosto sai do quadro por 1 a 2 s)</label>
-    <label className="quick-confirm"><input type="checkbox" checked={bold} onChange={e=>setBold(e.target.checked)}/> Movimentos mais ousados (giro, passada, agachamento — conforme a peça)</label>
+    <span className="option-field-title" id="auto-style">Câmera e técnicas (opcional)</span>
+    <StyleChips value={style} onChange={setStyle} labelledBy="auto-style"/>
+    <small className="help">Até 2 técnicas por vídeo. Closes: o rosto sai do quadro por 1 a 2 s para mostrar o material.</small>
     <label>Cores (opcional)<input value={colors} onChange={e=>setColors(e.target.value)} placeholder="Ex.: laranja com floral branco; verde com floral branco" maxLength={300}/></label>
     <small className="help">Separe as cores com ponto e vírgula. Vazio: a IA lê da foto das cores ou do print. Escrito aqui, vale o que você escreveu.</small>
     <button type="button" className="primary full" disabled={busy||!niche||!products.length||!description} onClick={start}><Sparkles size={16}/> Criar campanha automática</button>

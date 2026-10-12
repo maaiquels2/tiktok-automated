@@ -3,7 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from services import persuasion, speech_bank
+from services import formats, persuasion, speech_bank
 
 
 def _phrase(value):
@@ -1161,6 +1161,8 @@ _VIDEO_MODE_ALIASES = {
     'fit': 'movimento', 'fit_check': 'movimento', 'fit check': 'movimento',
     'espelho': 'espelho', 'celular': 'espelho', 'selfie': 'espelho', 'selfie_espelho': 'espelho',
     'celular no espelho': 'espelho',
+    # Formatos que rodam sobre outra base (services/formats.py).
+    'unboxing': 'pov', 'asmr': 'movimento',
 }
 
 
@@ -1672,6 +1674,10 @@ def _script_variation(c, color, index=0):
                                              _used_keys(c, 'development'), hook=selected_hook)
     selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10,
                                    _used_keys(c, 'cta'), fuzzy=False)
+    # Formato escolhido (responder comentario, teste...): o gancho anuncia o
+    # formato; no 3 jeitos o desenvolvimento lista os looks.
+    selected_hook = formats.script_hook(c, forms, _objection_parts(c)[0]) or selected_hook
+    selected_development = formats.script_development(c, forms) or selected_development
 
     # Teto absoluto de 45 palavras faladas (~15s). Se estourar, encurta o
     # desenvolvimento pela ultima batida, nunca pela prova.
@@ -1947,6 +1953,11 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     # falando com a camera"). Neste formato ninguem fala: deixar a frase
     # passar seria mandar o gerador fazer as duas coisas ao mesmo tempo.
     camera = re.sub(r',?\s*falando com a c[âa]mera', '', dirn['camera'], flags=re.I).strip(' ;,')
+    if formats.asmr(c):
+        camera = f"{camera}; {formats.ASMR_CAMERA}"
+    abertura = formats.opening(c, '', 'movimento')
+    lead = formats.lead_moves(c)
+    fim = formats.ending(c)
 
     return _montar_video([
         (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. "
@@ -1979,20 +1990,21 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
         (0, turn_direction + "\n"),
         (0, "SHOT LIST 15s — um único take contínuo ou cortes invisíveis, sem nenhuma fala:\n"
-            "0–3s ABERTURA: plano médio frontal, a peça inteira visível no corpo; um ajuste curto e natural, como quem "
+            f"0–3s ABERTURA: {abertura + '; ' if abertura else ''}plano médio frontal, a peça inteira visível no corpo; um ajuste curto e natural, como quem "
             "acabou de se arrumar; expressão tranquila.\n"
-            "3–7s CAIMENTO: puxa a peça de leve com a ponta dos dedos e solta, deixando o tecido responder sozinho; "
+            f"3–7s CAIMENTO: {'; '.join(lead) + '; ' if lead else ''}puxa a peça de leve com a ponta dos dedos e solta, deixando o tecido responder sozinho; "
             f"a câmera aproxima do detalhe que vende ({focus}) e volta.\n"
             f"7–11s ORIENTAÇÃO: {rotation_shot}.\n"
             "11–15s AJUSTE FINAL: ajusta a peça como quem arruma (barra, cós, alça ou dobra), volta ao enquadramento "
-            "inicial e sustenta o olhar calmo na lente até o fim.\n"),
+            f"inicial e sustenta o olhar calmo na lente até o fim. {fim}\n"),
         (0, _unconfirmed_line(c)),
         (0, "ENQUADRAMENTO: manter a mesma cena entre os beats; a câmera pode aproximar e afastar na mesma locação. "
             "Sem movimento artificial de IA: o ritmo é de quem se olha no espelho, não de coreografia ensaiada. "),
         (2, f"Estilo visual: {style}. "),
-        (0, "ÁUDIO: nenhuma voz, nenhuma narração e nenhuma música — apenas som ambiente natural e discreto. "
-            "A trilha entra depois, na edição, com o áudio escolhido na hora de publicar. "
-            "Sem promessas não demonstradas no vídeo."),
+        (0, (formats.ASMR_AUDIO if formats.asmr(c) else
+             "ÁUDIO: nenhuma voz, nenhuma narração e nenhuma música — apenas som ambiente natural e discreto. "
+             "A trilha entra depois, na edição, com o áudio escolhido na hora de publicar. ")
+            + "Sem promessas não demonstradas no vídeo."),
     ], _limite_video(c))
 
 def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta, base_image=False):
@@ -2015,6 +2027,9 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     benefit_l = benefit_l or "somente fatos visíveis do produto"
     moves = (_movement_plan(_filter_actions(movements, _POV_SKIP_RE))
              or "manuseio natural que mostre o produto de perto")
+    pov_lead = formats.pov_lead_moves(c)
+    if pov_lead:
+        moves = '; '.join(pov_lead + [moves])
     video_notes = _video_details(details)
     extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
     focus, features = _focus_parts(c)
@@ -2058,12 +2073,14 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
         (0, proof_block),
         (0, "MÃOS: são o único ponto de identidade visível; manuseiam o produto com naturalidade (pegar, girar, testar, "
             "mostrar), com pressão coerente com o tipo de produto; sem gesto ensaiado, pausas e imperfeições bem-vindas. "),
-        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; não precisa usar todas): {moves}. "),
+        (0 if pov_lead else 1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e 11s; não precisa usar todas): {moves}. "),
         (0, "ENCERRAMENTO (12–15s): a câmera se aproxima com calma de um detalhe final do produto nas mãos, ainda com o "
-            "leve tremor de quem segura o celular, enquanto a fala de fechamento acontece."),
+            "leve tremor de quem segura o celular, enquanto a fala de fechamento acontece."
+            + (" No último quadro, o enquadramento volta ao do primeiro, para o vídeo recomeçar sem emenda."
+               if 'loop' in formats.techniques(c) else '')),
         (1, extras),
         (0, "\nSHOT LIST 15s — um único take contínuo ou cortes invisíveis:\n"
-            f"0–4s ABERTURA: a mão pega ou revela o produto pela primeira vez, com curiosidade genuína. "
+            f"0–4s ABERTURA: {formats.pov_opening(c, product_l)}. "
             f"Fala (PT-BR), tom espontâneo, como quem pensa em voz alta: \"{hook}\"\n"
             f"4–12s TESTE — uma fala só, contínua, emendada sem pausa na anterior (mesma respiração); não repetir nem "
             f"dividir em dois trechos. Fala (PT-BR): \"{development}\"\n"),
@@ -2281,13 +2298,42 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
                 "O rosto fica sempre inteiro no quadro enquanto ela fala. ",
                 f"No gancho e no fim o rosto fica inteiro no quadro; no meio, a câmera faz 1 ou 2 closes curtos "
                 f"(1 a 2 s cada) {alvo}, enquanto a voz dela continua, e volta ao rosto. ")
+            # Os closes ja aproximam a camera: o dolly-in vira redundancia e
+            # ocupa o espaco das acoes no limite do Grok.
+            camera = re.sub(r'dolly-in suave e contínuo até .*? no final\. ', '', camera)
+    # Formato e tecnicas de retencao (services/formats.py): entram dentro da
+    # abertura, das acoes e do encerramento, sem bloco novo (o prompt esta
+    # perto do limite do Grok).
+    lugar = 'espelho' if espelho else ''
+    abre = formats.opening(c, abre, lugar)
+    jeitos = formats.three_looks(c, f"{forms['art']} {forms['piece']}")
+    lead = formats.lead_moves(c, lugar)
+    if jeitos:
+        moves = jeitos
+    elif lead:
+        moves = '; '.join(lead + [moves])
+    if jeitos or lead or 'ousado' in estilo:
+        # Com acao especifica, a acao generica do padrao so ocupa espaco.
+        moves = '; '.join(m for m in moves.split('; ') if not m.startswith('movimentos sutis')) or moves
+    fecha += formats.ending(c, lugar)
+    cortes = formats.allows_cuts(c)
+    if cortes:
+        camera = camera.replace('sem cortes', 'sem cortes além das 2 trocas de look')
+        # O meio do 3 jeitos e das trocas de look: gesto de prova ali
+        # disputaria o mesmo tempo e estouraria o limite do Grok.
+        gestures = []
+    acoes = (f"AÇÕES (na ordem, a primeira é obrigatória, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar): {moves}. "
+             if jeitos or lead else
+             f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar): {moves}. ")
+    shot_head = ("\nSHOT LIST 15s — um take com 2 trocas de look pela mão na lente, sem pausas na fala:\n" if cortes
+                 else "\nSHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n")
     proof_block = (
         f'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre {t1}s e {t2 - 1}s, '
         'sem interromper a fala: ' + '; '.join(gestures) + '.\n'
     ) if gestures else ''
     words = len((hook + ' ' + development + ' ' + cta).split())
 
-    return _montar_video([
+    blocos = [
         (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. Clima: {clima}. "
             f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
             f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros, "
@@ -2295,7 +2341,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             f"Produto em cena: {product_l} na cor {color_l}. Visual: {outfit}.{gender_note} "),
         (4, f"Ângulo de venda (contexto, não criar atributos): {angle_context}. "),
         (0, f"FATOS CONFIRMADOS: {facts}. MATERIAL CONFIRMADO: {materials}. "
-            f"Benefício a provar visualmente, só se for demonstrável: {benefit_l}.\n"),
+            + (f"Benefício a provar visualmente, só se for demonstrável: {benefit_l}." if _phrase(benefit) else '')
+            + "\n"),
         (0, f"CENÁRIO FIXO (todos os frames e cores): {scene_lock}; fundo, objetos e luz só dessa foto, sem trocar "
             "a locação, escurecer ou desfocar; descrição genérica de nicho não autoriza substituir. "
             "ENQUADRAMENTO: manter a mesma cena entre os beats. "),
@@ -2305,16 +2352,17 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
             if not _limite_video(c) else ''),
         (0, "EVITAR: textos, ícones, carrinho, botões, setas ou stickers na tela (o carrinho só é falado, "
-            "nunca desenhado); marcas inventadas; cortes; câmera lenta.\n"),
+            f"nunca desenhado); marcas inventadas; {'cortes fora das trocas de look' if cortes else 'cortes'}; câmera lenta.\n"),
         (0, proof_block),
         (0, turn_direction + "\n"),
         (0, maos),
         (1, "CABELO: se solto, acompanha o movimento de forma natural e fluida, sem travar nem tremular. "),
-        (1, f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar): {moves}. "),
+        # As acoes nunca saem: sem elas o video ficou estatico no teste real.
+        (0, acoes),
         (0, f"ENCERRAMENTO ({t2}–15s): {fecha}"),
         (1, f"EXPRESSÃO: {cena['arc']}. "),
         (2, f"Notas adicionais do operador (não são falas): {video_notes}. " if video_notes else ''),
-        (0, "\nSHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n"
+        (0, shot_head +
             f"0–{t1}s HOOK: olhar {'na tela do celular' if espelho else 'na lente'}, produto visível no corpo; "
             f"a modelo {abre}. "
             f"Fala (PT-BR): \"{hook}\"\n"
@@ -2329,7 +2377,16 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         (2, f"Estilo visual: {style}. "),
         (4, f"Total das falas: {words} palavras; se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
         (0, "Sem promessas não demonstradas no vídeo."),
-    ], _limite_video(c))
+    ]
+    limite = _limite_video(c)
+    texto = _montar_video(blocos, limite)
+    if limite and len(texto) > limite and len(gestures) > 1:
+        # Formato com muitas tecnicas: um gesto de prova bem feito cabe; dois
+        # passariam do limite do Grok, que corta o fim do prompt sozinho.
+        curto = (f'PROVA VISUAL — o fato abaixo precisa do seu gesto, executado entre {t1}s e {t2 - 1}s, '
+                 f'sem interromper a fala: {gestures[0]}.\n')
+        texto = _montar_video([(p, curto if t == proof_block else t) for p, t in blocos], limite)
+    return texto
 
 
 def generate_variants(c, audit=None):
@@ -2368,6 +2425,8 @@ def _build_pov_image_prompt(c, *, product, color, piece_ref, photos, product_ref
     in_view = (f"{piece_ref} vestida no corpo, vista de cima pelos olhos de quem veste, "
                "com uma das mãos tocando a peça" if worn else
                f"{piece_ref} em uma das mãos, perto da lente, visto pelos olhos de quem segura")
+    if formats.video_format(c) == 'unboxing':
+        in_view = formats.UNBOXING_VIEW.format(piece=piece_ref)
     pov_rules = (
         "PONTO DE VISTA: primeira pessoa (POV), câmera do celular na altura dos olhos apontada para baixo. "
         "A outra mão segura o celular e fica fora do quadro. "
@@ -2616,6 +2675,7 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 1)
     if _line_key(screen_text) == _line_key(cover_text):
         screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 2)
+    screen_text = formats.screen_text(c, forms_txt, _objection_parts(c)[0]) or screen_text
     return dict(image=image, video=video, hook=hook, development=development, cta=cta,
                 caption=caption, cover_text=cover_text, screen_text=screen_text,
                 variation_index=variant_index)
@@ -2626,6 +2686,9 @@ def package_text(c):
     blocks = [f"FÁBRICA TIKTOK — CAMPANHA {c['id']:04d}", c['name'],
               f"Modelo: {c['model_name']}\nProduto: {c['product']}\nLook: {c['outfit']} · {c['color']}",
               f"Destino: {c['generator'].upper()} · 9:16 · 15 segundos\nEstado: {c['status']}"]
+    if formats.edit_tip(c):
+        fmt = formats.FORMATS.get(formats.video_format(c), {}).get('label', 'Técnicas de retenção')
+        blocks.append(f"FORMATO: {fmt}\n{formats.edit_tip(c)}")
     if c.get('product_assets'):
         blocks.append('FOTOS DO PRODUTO — anexar após a referência da modelo\n'+'\n'.join(
             f"{i}. {a['original_name']}" for i,a in enumerate(c['product_assets'],1)))

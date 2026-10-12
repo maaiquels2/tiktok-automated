@@ -1522,6 +1522,86 @@ class WorkflowTests(unittest.TestCase):
         ruim=self.client.post('/api/campaigns',json={**self.brief,'video_style':'voar'},headers=self.headers)
         self.assertEqual(ruim.status_code,400)
 
+    def test_video_formats_change_opening_actions_ending_and_script(self):
+        from services.prompt_improve import build_compact_video_prompt
+        from services.prompts import _video_mode
+        base=dict(model_name='Micaela',product='Legging cintura alta',outfit='legging',color='Preto',audience='',
+                  benefit='',angle='',tone='',style='',details='tecido grosso, cintura alta',movements='',
+                  generator='grok',niche='academia',objection='fica transparente no agachamento')
+        com=generate({**base,'video_mode':'comentario'})
+        self.assertTrue(com['hook'].startswith('Respondendo quem tem medo dessa legging'),com['hook'])
+        self.assertEqual(com['screen_text'],'Medo de ficar transparente?')
+        self.assertIn('como quem lê uma pergunta (a tela não aparece)',com['video'])
+        teste=generate({**base,'video_mode':'teste'})
+        self.assertIn('Fiz o teste do agachamento',teste['hook'])
+        self.assertIn('o teste do agachamento: agacha fundo',teste['video'].split('AÇÕES',1)[1])
+        cores=generate({**base,'video_mode':'troca_cor'})
+        self.assertIn('cobre o quadro inteiro (transição para a próxima cor)',cores['video'])
+        self.assertEqual(cores['screen_text'],'Qual cor é a sua?')
+        jeitos=generate({**base,'video_mode':'tres_jeitos'})
+        self.assertIn('Três jeitos de usar',jeitos['hook'])
+        self.assertIn('E por último',jeitos['development'])
+        self.assertIn('três looks em sequência',jeitos['video'])
+        self.assertIn('cortes fora das trocas de look',jeitos['video'])
+        caixa=generate({**base,'video_mode':'unboxing'})
+        self.assertEqual(_video_mode({'video_mode':'unboxing'}),'pov')
+        self.assertIn('VÍDEO POV',caixa['video'])
+        self.assertIn('embalagem aberta',caixa['image'])
+        self.assertIn('a mão tira legging cintura alta da embalagem aberta',caixa['video'])
+        self.assertNotIn('comprei',caixa['hook'].casefold())
+        som=generate({**base,'video_mode':'asmr'})
+        self.assertIn('ÁUDIO (é o conteúdo do vídeo)',som['video'])
+        self.assertNotIn('Fala (PT-BR)',som['video'])
+        # O Guia do Grok segue o mesmo formato.
+        self.assertIn('lê uma pergunta',build_compact_video_prompt({**base,'video_mode':'comentario'},com,'Preto'))
+        self.assertIn('sons nítidos',build_compact_video_prompt({**base,'video_mode':'asmr'},som,'Preto'))
+        self.assertIn('embalagem',build_compact_video_prompt({**base,'video_mode':'unboxing'},caixa,'Preto'))
+
+    def test_retention_techniques_fit_the_grok_limit_and_keep_the_actions(self):
+        import itertools
+        from services import formats
+        base=dict(model_name='Micaela',product='Vestido midi de cetim',outfit='vestido',color='Laranja com floral branco',
+                  audience='',benefit='',angle='mostrar o caimento',tone='',style='',details='cetim, fenda, alça ajustável',
+                  movements='',generator='grok',niche='casual',offer='20% até domingo',
+                  objection='fica transparente no agachamento')
+        tecnica=generate({**base,'video_style':'acao,loop'})['video']
+        self.assertIn('começa já em movimento',tecnica)
+        self.assertIn('loop sem emenda',tecnica)
+        self.assertIn('estica o tecido de leve',generate({**base,'video_style':'estica'})['video'])
+        self.assertIn('ao tirar, revela a peça',generate({**base,'video_style':'revela'})['video'])
+        modos=['','espelho','pov','movimento']+list(formats.FORMATS)
+        for modo in modos:
+            for par in itertools.combinations(formats.TECHNIQUES,2):
+                estilo=','.join(('closes','ousado')+par)
+                video=generate({**base,'video_mode':modo,'video_style':estilo})['video']
+                self.assertLessEqual(len(video),3940,(modo,estilo))
+                if modo in ('','espelho','comentario','teste','troca_cor','tres_jeitos'):
+                    self.assertIn('AÇÕES',video,(modo,estilo))
+
+    def test_video_formats_are_validated_and_saved(self):
+        ok=self.client.post('/api/campaigns',json={**self.brief,'video_mode':'comentario','video_style':'loop,acao'},
+                            headers=self.headers)
+        self.assertEqual(ok.status_code,201,ok.json)
+        self.assertEqual(ok.json['video_style'],'acao,loop')
+        self.assertIn('Responder com vídeo',self.client.get(f"/api/campaigns/{ok.json['id']}").json['edit_tip'])
+        tres=self.client.post('/api/campaigns',json={**self.brief,'video_style':'acao,loop,estica'},headers=self.headers)
+        self.assertEqual(tres.status_code,400)
+        self.assertEqual(self.client.post('/api/campaigns',json={**self.brief,'video_mode':'dancinha'},
+                                          headers=self.headers).status_code,400)
+        from services.copywriter import build_brief
+        self.assertIn('FORMATO: resposta a comentário',build_brief({**self.brief,'video_mode':'comentario'}))
+
+    def test_video_mode_switch_accepts_formats_on_the_same_base(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        teste=self.post('/video-mode',{'version':before['version'],'video_mode':'troca_cor'})
+        self.assertEqual(teste.status_code,200,teste.json)
+        self.assertIn('transição para a próxima cor',teste.json['variants'][0]['prompts']['video'])
+        self.assertEqual(self.post('/video-mode',{'version':teste.json['version'],'video_mode':'unboxing'}).status_code,409)
+
     def test_speech_bank_rejects_incomplete_script(self):
         response=self.client.post('/api/speech-bank',json={'hook':'Achei esse biquíni.','development':'','cta':''},headers=self.headers)
         self.assertEqual(response.status_code,400)

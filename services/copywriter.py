@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from services import persuasion, speech_bank
+from services import formats, persuasion, speech_bank
 from services.prompts import without_niche_defaults
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
@@ -408,6 +408,7 @@ def build_brief(c: dict) -> str:
         linhas.append("OFERTA REAL: não existe — PROIBIDO usar qualquer palavra de urgência.")
     linhas.extend(persuasion.brief_lines(_dominant_motor(c), c.get('offer') if offer else '',
                                          c.get('social_proof'), bool(pain)))
+    linhas.extend(formats.brief_lines(c, pain))
     if len(colors) > 1:
         linhas.append(f"O produto tem outras cores ({', '.join(colors)}), mas este vídeo é só da cor {c.get('color')}.")
     previous = c.get('previous_script') or {}

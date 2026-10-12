@@ -6,7 +6,7 @@ import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, colorList, swatchFor } from './ui';
-import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, AutoCreatePanel} from './components';
+import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, AutoCreatePanel, FORMAT_OPTIONS} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 
 
@@ -490,9 +490,9 @@ export default function App(){
   // imagens nem roteiro). POV muda a imagem-base: vai para Definir look.
   function changeVideoMode(mode,guia){
     // POV e Espelho mudam a imagem-base (primeira pessoa / selfie no espelho).
-    const novaBase=m=>m==='pov'||m==='espelho';
+    const novaBase=m=>m==='pov'||m==='espelho'||m==='unboxing';
     if(novaBase(mode)||novaBase(c.video_mode)){
-      const nome=m=>m==='pov'?'POV':'Espelho';
+      const nome=m=>m==='pov'?'POV':m==='unboxing'?'Abrindo o pacote':'Espelho';
       confirm(novaBase(mode)?`Trocar para ${nome(mode)}?`:`Sair do ${nome(c.video_mode)}?`,
         'Esse formato usa outra imagem-base (primeira pessoa ou selfie no espelho). Por isso a troca é feita em Definir look e refaz as imagens e os prompts desta campanha.',
         ()=>{choose('look');return true},'Ir para Definir look');
@@ -500,7 +500,7 @@ export default function App(){
     }
     const hasVideo=(c.assets||[]).some(a=>a.kind==='video')||(c.device_videos||[]).length>0;
     const action=()=>run(()=>post('/video-mode',{video_mode:mode,prompt_style:guia?'guia':''}),
-      mode==='movimento'?'Formato: só movimento. Os prompts de vídeo foram refeitos.':'Formato: com fala. Os prompts de vídeo foram refeitos.','video');
+      `Formato: ${(FORMAT_OPTIONS.find(([id])=>id===mode)||[,'com fala'])[1]}. Os prompts de vídeo foram refeitos.`+(['comentario','teste','tres_jeitos'].includes(mode)?' Para o gancho do formato, gere outra fala no roteiro.':''),'video');
     if(hasVideo)confirm('Trocar o formato do vídeo?','Os vídeos já anexados serão removidos porque o prompt muda. As imagens e o roteiro continuam.',action,'Trocar formato');
     else action();
   }

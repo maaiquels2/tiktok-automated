@@ -27,7 +27,7 @@ from services.media import inspect_media
 from services.prompts import (color_variants, generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import copywriter, speech_bank
+from services import copywriter, formats, speech_bank
 from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
@@ -965,6 +965,8 @@ def create_app(config=None):
             a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
             c['assets'].append(a)
         c['device_videos']=device_videos_of(cid)
+        # Dica de edicao do formato (juntar as cores, responder comentario...).
+        c['edit_tip']=formats.edit_tip(c)
         c['product_assets']=[]
         for row in db().execute('SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id',(cid,)):
             a=dict(row)
@@ -1048,11 +1050,17 @@ def create_app(config=None):
         if turn_values-allowed_turns:
             raise Invalid('Escolha somente os giros disponíveis: leve de lado, de lado ou de costas.')
         values['body_turns']=','.join(key for key in ('leve_lado','lado','costas') if key in turn_values)
-        # Estilo do video: closes no produto e/ou movimentos ousados.
+        # Estilo do video: closes, movimentos ousados e tecnicas de retencao.
         style_values={part.strip() for part in (values.get('video_style') or '').split(',') if part.strip()}
-        if style_values-{'closes','ousado'}:
-            raise Invalid('Estilo de vídeo inválido: use closes no produto e/ou movimentos ousados.')
-        values['video_style']=','.join(key for key in ('closes','ousado') if key in style_values)
+        if style_values-set(formats.STYLE_TOKENS):
+            raise Invalid('Estilo de vídeo inválido: escolha entre as opções de câmera e movimento.')
+        if len(style_values&set(formats.TECHNIQUES))>formats.MAX_TECHNIQUES:
+            raise Invalid(f'Escolha no máximo {formats.MAX_TECHNIQUES} técnicas de retenção por vídeo.')
+        values['video_style']=','.join(key for key in formats.STYLE_TOKENS if key in style_values)
+        from services.prompts import _VIDEO_MODE_ALIASES
+        mode=(values.get('video_mode') or '').strip()
+        if mode and mode.casefold() not in set(_VIDEO_MODE_ALIASES)|set(formats.FORMATS):
+            raise Invalid('Formato de vídeo inválido.')
         from services.model_library import NICHE_IDS
         niche = (values.get('niche') or '').strip()
         if niche and niche not in NICHE_IDS:
@@ -3008,11 +3016,14 @@ def create_app(config=None):
     def change_video_mode(cid):
         data=body()
         mode=str(data.get('video_mode') or '').strip()
-        if mode not in ('','movimento'):
-            raise Invalid('Aqui dá para alternar entre Com fala e Só movimento. O POV muda a imagem-base: troque em Definir look.',409)
+        # Formatos que usam a mesma imagem-base da modelo de frente.
+        mesma_base={'','movimento'}|{k for k,v in formats.FORMATS.items() if v['base'] in ('','movimento')}
+        if mode not in mesma_base:
+            raise Invalid('Aqui dá para alternar entre os formatos com a modelo de frente. POV, Espelho e Abrindo o pacote mudam a imagem-base: troque em Definir look.',409)
         c=start(cid,data)
         editable(c)
-        if (c.get('video_mode') or '')=='pov':
+        from services.prompts import _video_mode
+        if _video_mode(c)=='pov':
             raise Invalid('Esta campanha é POV: a imagem-base é em primeira pessoa. Para mudar o formato, use Definir look.',409)
         guia=data.get('prompt_style')=='guia'
         db().execute('UPDATE campaigns SET video_mode=? WHERE id=?',(mode,cid))

@@ -22,7 +22,7 @@ caracteres.
 import re
 import unicodedata
 
-from services import persuasion
+from services import formats, persuasion
 from services.prompts import _with_article, bold_move, close_target, shows_unconfirmed_feature, video_style
 from services.prompts import (
     _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
@@ -322,6 +322,18 @@ def one_breath(*lines: str) -> str:
     return text
 
 
+POV_LOOP = ' No último quadro, o enquadramento volta ao do primeiro, para o vídeo recomeçar sem emenda.'
+
+
+def pov_intro(c: dict, product: str) -> str:
+    # Abrindo o pacote e tecnicas vistas pelas maos, antes do manuseio normal.
+    parts = []
+    if formats.video_format(c) == 'unboxing' or formats.techniques(c):
+        parts.append(formats.pov_opening(c, product))
+    parts.extend(formats.pov_lead_moves(c))
+    return '; '.join(parts) + ', depois ' if parts else ''
+
+
 def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     model = _clean(c.get('model_name')) or 'a modelo'
     product = _clean(c.get('product')) or _clean(c.get('outfit')) or 'a peça'
@@ -352,6 +364,15 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     estilo = video_style(c)
     if 'ousado' in estilo and mode != 'pov':
         steps.insert(1 if steps else 0, bold_move(c, espelho=mode == 'espelho')[0])
+    # Formato e tecnicas de retencao (services/formats.py).
+    jeitos = formats.three_looks(c, 'a peça')
+    lead = formats.lead_moves(c, mode)
+    if jeitos:
+        steps = [jeitos]
+    elif lead and mode != 'pov':
+        steps = lead + steps
+    fim = formats.ending(c, mode)
+    cortes = ' além das 2 trocas de look' if formats.allows_cuts(c) else ''
     closes = ''
     if 'closes' in estilo:
         alvo = close_target(c)
@@ -361,6 +382,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
                   'e volta ao rosto; no gancho e no fim o rosto fica inteiro no quadro.')
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
+    abre_fmt = formats.opening(c, cena['hook'], mode if mode in ('espelho', 'movimento') else '')
     fala = one_breath(hook, development, cta)
     seamless = ('Cada gesto começa enquanto o anterior termina: nada de parar, posar ou recomeçar entre uma '
                 'ação e outra.')
@@ -376,27 +398,29 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         return '\n'.join([
             f'Vídeo vertical 9:16 em primeira pessoa (POV), 15 segundos, {res}. Clima: {vibe}.',
             'A imagem anexada é o primeiro quadro: mesmo ambiente e mesma luz do começo ao fim. '
-            f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
+            + (f'A câmera é o olhar de quem abre a embalagem com {piece}; aparecem só as mãos, nunca o rosto.'
+             if formats.video_format(c) == 'unboxing' else
+             f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.'),
             'Câmera: na mão, apontada para baixo, um único take contínuo com leve balanço natural, sem cortes.',
-            f'Ação contínua, sem pausas: as mãos mostram {touch}{_FLOW[0]}{hands[0].lower() + hands[1:]}, em ritmo natural; '
+            f'Ação contínua, sem pausas: {pov_intro(c, product)}as mãos mostram {touch}{_FLOW[0]}{hands[0].lower() + hands[1:]}, em ritmo natural; '
             'no final, tilt suave para baixo mostrando a peça inteira no corpo, e o indicador aponta uma vez para '
-            f'baixo. {seamless}',
+            f'baixo.{POV_LOOP if "loop" in formats.techniques(c) else ""} {seamless}',
             f'Narração, do começo ao fim, num fôlego só: "{fala}"',
             SPEECH_POV,
             closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: o rosto nunca aparece; ', 1),
         ])
 
     if mode == 'espelho':
-        abre = cena['hook'].replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
+        abre = abre_fmt.replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
         return '\n'.join([
             f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: fit check no espelho gravado com o celular e postado no TikTok.',
             first_frame, light,
             'Câmera: o vídeo é o que o celular dela grava no espelho de corpo inteiro; o quadro é o reflexo, com o '
             'celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural, um único take '
-            'contínuo, sem cortes nem zoom.' + closes,
+            f'contínuo, sem cortes{cortes} nem zoom.' + closes,
             f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, {"em ritmo natural de conversa, sem câmera lenta"}; '
             'no final, de frente para o espelho, a mão livre aponta uma vez para baixo com o indicador, sorrindo. '
-            f'{seamless}',
+            f'{fim}{seamless}',
             f'O que ela diz, olhando para a tela do celular no reflexo, num fôlego só: "{fala}"',
             f'Expressão: {cena["arc"]}.',
             'Mãos: uma segura o celular o tempo todo; a outra gesticula enquanto ela fala, toca a peça e volta para ela.',
@@ -408,22 +432,24 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         return '\n'.join([
             f'Vídeo vertical 9:16, 15 segundos, {res}, sem fala. Clima: {vibe}.',
             first_frame, light,
-            f'Câmera: fixa na altura do peito, {shot}, sem zoom, um único take contínuo, sem cortes.',
-            f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
-            f'no final, já de frente para a lente, ela {cena["cta"]}, com sorriso leve e confiante. {seamless}',
+            (f'Câmera: na mão, {formats.ASMR_CAMERA}, um único take contínuo.' if formats.asmr(c) else
+             f'Câmera: fixa na altura do peito, {shot}, sem zoom, um único take contínuo, sem cortes.'),
+            f'Ação contínua, sem pausas: ela {abre_fmt}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
+            f'no final, já de frente para a lente, ela {cena["cta"]}, com sorriso leve e confiante. {fim}{seamless}',
             f'Expressão: {cena["arc"]}.',
-            'Som: sem voz e sem fala; só som ambiente discreto.',
+            ('Som (é o conteúdo): sons nítidos e próximos do tecido, da amarração ou do zíper e dos passos; '
+             'sem voz e sem música.' if formats.asmr(c) else 'Som: sem voz e sem fala; só som ambiente discreto.'),
             close,
         ])
 
     return '\n'.join([
         f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: {vibe}.',
         first_frame, light,
-        f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes; dolly-in suave e '
+        f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes{cortes}; dolly-in suave e '
         f'contínuo até {push_target(c)} e volta suave ao plano inicial no final.'
         + (closes or ' O rosto fica sempre no quadro.'),
-        f'Ação contínua, sem pausas: ela {cena["hook"]}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
-        f'no final, já de frente para a lente, ela {cena["cta"]}, sorrindo. {seamless}',
+        f'Ação contínua, sem pausas: ela {abre_fmt}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
+        f'no final, já de frente para a lente, ela {cena["cta"]}, sorrindo. {fim}{seamless}',
         f'O que ela diz, do começo ao fim do vídeo, num fôlego só e enquanto se move: "{fala}"',
         f'Expressão: {cena["arc"]}.',
         HANDS,

@@ -855,3 +855,6 @@ button.rd-brand:hover:not(:disabled) { background: transparent; }
 .choice-card.is-auto svg { color: var(--rd-primary-ink); }
 .quick-niches .rd-chip-tab[aria-checked="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; opacity: 1; }
 .quick-niches .rd-chip-tab[aria-pressed="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; }
+.rd-format-select { width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 10px; }
+.rd-format-tip { margin: 0 0 10px; }
+.quick-niches .rd-chip-tab:disabled { opacity: .45; cursor: not-allowed; }
