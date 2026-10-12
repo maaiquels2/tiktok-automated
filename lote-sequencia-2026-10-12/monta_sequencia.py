@@ -1,8 +1,10 @@
 """Monta o pacote de teste de SEQUENCIA (storytelling) para o CapCut: calça jeans no espelho.
 
-Sem API e sem custo. Dois arcos de 3 clipes de 15 s cada, que se encaixam um no outro:
+Sem API e sem custo. Dois arcos, cada um em versão de 3 clipes (~45 s) e de 2 clipes (~30 s) de 15 s,
+que se encaixam um no outro:
   A "motivos"     3 motivos para a calça estar no guarda-roupa
   B "questionada" 'calça jeans não te valoriza porque X, Y ou Z' e a resposta
+Os arcos de 2 clipes (sufixo -2clipes) têm falas próprias: não são os de 3 sem o clipe do meio.
 
 Base: o prompt do espelho que saiu perfeito no controle K2 (mesma modelo, mesmo espelho,
 mesmas regras de mão). Entre os clipes só mudam as falas, a coreografia e o começo/fim:
@@ -143,6 +145,81 @@ ARCOS = {
                 abertura='retoma a pose do último quadro e baixa a mão sorrindo, como quem dá a resposta',
                 meio='passa a mão pela cintura e pela perna enquanto fala dos looks, gesticulando como quem '
                      'conversa com uma amiga',
+                fim=None,
+                ultimo_quadro='',
+                tela='A pergunta é qual calça',
+                amarra='',
+            ),
+        ],
+    ),
+    # --- Versões de 2 clipes (cerca de 30 s): uma só emenda. Falas próprias: não dá para só tirar o clipe do
+    # meio, porque ele carrega as perguntas abertas e o clipe 3 carrega o CTA.
+    'A-motivos-2clipes': dict(
+        titulo='3 motivos para a calça jeans estar no guarda-roupa (2 clipes)',
+        capa='3 motivos pra essa calça estar no seu guarda-roupa',
+        clipes=[
+            dict(
+                papel='Gancho + motivos 1 e 2 (cintura alta e lavagem clara)',
+                falas=('Três motivos pra essa calça jeans estar no teu guarda-roupa, olha só.',
+                       'O primeiro é a cintura alta, olha onde ela termina, bem aqui. O segundo é a lavagem '
+                       'clara, repara nesse azul leve, eu já vejo ela com jaqueta preta.',
+                       'E o terceiro motivo? Esse eu guardei pra você ver logo em seguida.'),
+                abertura='dá um passo até o espelho com sorriso confiante e passa a mão no cós da calça',
+                meio='passa a mão na cintura mostrando onde a calça termina, abre a mão sobre a perna mostrando '
+                     'o azul leve e volta a mão para a cintura',
+                fim='termina de frente para o espelho, com a mão livre pousada na cintura, no meio do gesto, sem '
+                    'apontar e sem pose de fechamento; a fala segue até o último segundo',
+                ultimo_quadro='de frente, celular no peito, mão livre pousada na cintura, falando, sem pose final',
+                tela='3 motivos pra ter essa calça',
+                amarra='pergunta aberta ("E o terceiro motivo?") + gesto parado na cintura',
+            ),
+            dict(
+                papel='Motivo 3 (perna reta e bolsos) + projeção de uso + fechamento (CTA)',
+                falas=('É a modelagem reta, ela desce reta da cintura até o tornozelo.',
+                       'E tem os bolsos na frente, olha, dois bolsos, bem no lugar. Eu já me imagino com ela no '
+                       'trabalho, no café com as amigas, no fim de semana com tênis branco.',
+                       'Corre pro carrinho laranja e garante a tua.'),
+                abertura='retoma a pose do último quadro e desce a mão pela lateral da perna até o tornozelo, '
+                         'marcando a modelagem reta',
+                meio='apoia a mão em um dos bolsos da frente e gesticula como quem conversa com uma amiga, '
+                     'passando a mão pela cintura e pela perna enquanto fala dos looks',
+                fim=None,
+                ultimo_quadro='',
+                tela='Qual é o seu motivo?',
+                amarra='',
+            ),
+        ],
+    ),
+    'B-questionada-2clipes': dict(
+        titulo='"Calça jeans não te valoriza?" e a resposta (2 clipes)',
+        capa='Calça jeans não te valoriza?',
+        clipes=[
+            dict(
+                papel='A pergunta + o primeiro motivo desmontado (cintura alta)',
+                falas=('Sabe o que dizem por aí de calça jeans? Que ela não te valoriza.',
+                       'Porque é baixa demais, porque a cor pesa, porque a perna é larga. Pode ser que você pense '
+                       'assim também. Mas eu vou desmontar um por um, olha comigo.',
+                       'Primeiro, baixa demais? Olha a cintura alta. E os outros dois, já te mostro.'),
+                abertura='dá um passo até o espelho com sorriso confiante e cruza o olhar com a tela, como quem '
+                         'faz uma pergunta',
+                meio='ergue a mão livre enumerando com os dedos os motivos (baixa demais, cor que pesa, perna '
+                     'larga) e, em seguida, passa a mão sobre a cintura alta mostrando onde ela termina',
+                fim='termina de frente para o espelho, com a mão livre pousada na cintura alta, no meio do gesto, '
+                    'sem apontar e sem pose de fechamento; a fala segue até o último segundo',
+                ultimo_quadro='de frente, celular no peito, mão livre pousada na cintura alta, falando, sem pose '
+                              'final',
+                tela='Calça jeans não te valoriza?',
+                amarra='"E os outros dois, já te mostro" + mão pousada na cintura',
+            ),
+            dict(
+                papel='Desmonta os outros dois motivos + resposta + fechamento (CTA)',
+                falas=('Segundo, a cor que pesa? É lavagem clara, um azul leve, olha só.',
+                       'Terceiro, perna larga? Ela desce reta da cintura ao tornozelo, e tem bolsos na frente. '
+                       'Então a pergunta nunca foi se calça jeans valoriza ou não, foi qual calça.',
+                       'Cintura alta, lavagem clara, perna reta. Corre pro carrinho laranja e garante a tua.'),
+                abertura='retoma a pose do último quadro e toca a calça mostrando a lavagem clara',
+                meio='desce a mão pela perna até o tornozelo marcando a perna reta, apoia a mão em um dos bolsos '
+                     'da frente e gesticula como quem dá a resposta',
                 fim=None,
                 ultimo_quadro='',
                 tela='A pergunta é qual calça',

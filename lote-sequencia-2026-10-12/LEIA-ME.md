@@ -1,62 +1,77 @@
 # Teste de sequência para o CapCut: calça jeans no espelho
 
-Objetivo: descobrir se **3 vídeos de 15 s se encaixam num só** (cerca de 45 s) e qual arco e qual
-técnica de emenda funcionam no Grok. Base: o espelho que saiu perfeito no controle K2.
+Objetivo: descobrir se **2 ou 3 vídeos de 15 s se encaixam num só** (cerca de 30 ou 45 s) e qual técnica
+de emenda funciona no Grok. Base: o espelho que saiu perfeito no controle K2.
 
-Nada aqui custa API: os prompts saíram do gerador do app (`monta_sequencia.py`) e as falas passaram na
+Nada aqui custa API: os prompts saem do gerador do app (`monta_sequencia.py`) e as falas passam na
 auditoria de honestidade. O custo é só o tempo e as gerações do Grok.
 
-## Os 2 arcos (3 clipes cada)
+## O que o primeiro teste mostrou
 
-| | Clipe 1 | Clipe 2 | Clipe 3 |
-|---|---|---|---|
-| **A · Motivos** | "3 motivos pra ter essa calça" + motivo 1 (cintura alta) | motivos 2 e 3 (lavagem clara, perna reta, bolsos) | projeção de uso + CTA |
-| **B · Questionada** | "Calça jeans não te valoriza?" e os 3 motivos de quem duvida | desmonta cada motivo com um fato da peça | a resposta ("a pergunta é qual calça") + CTA |
+- **A identidade segurou:** modelo, roupa, espelho e luz iguais nos 14 vídeos, todos em 480p.
+- **A emenda não foi testada.** Os clipes 2 e 3 começaram todos na **imagem-base** (a do K2), e não no
+  último quadro do clipe anterior. O `confere_emenda.py` mede isso: imagem-base x início do clipe = 5,2
+  (praticamente iguais) contra 15 a 35 para fim do clipe anterior x início. No corte, a pose e o
+  enquadramento reiniciam. Funciona como corte seco, mas não é a emenda invisível que se quer avaliar.
 
-Leis da sequência (já aplicadas nos prompts): só o clipe 3 pede a compra e aponta para o carrinho; os clipes
-1 e 2 terminam **no meio do gesto**, com uma pergunta aberta; o clipe 2 e o 3 **não** recomeçam com hook
-nem reapresentam a peça; o bloco de modelo e de cenário é copiado palavra por palavra.
+## Os 4 arcos
 
-## Antes de gerar (3 conferências)
+| Arco | Clipes | Resumo |
+|---|---|---|
+| **A-motivos** | 3 (~45 s) | gancho + motivo 1 / motivos 2 e 3 / projeção + CTA |
+| **B-questionada** | 3 (~45 s) | a pergunta / desmonta os motivos / resposta + CTA |
+| **A-motivos-2clipes** | 2 (~30 s) | gancho + motivos 1 e 2 / motivo 3 + projeção + CTA |
+| **B-questionada-2clipes** | 2 (~30 s) | a pergunta + 1º motivo desmontado / os outros 2 + resposta + CTA |
 
-1. **Os fatos da calça.** O script usa só o que a foto mostra: cintura alta, lavagem clara, modelagem reta e
-   dois bolsos na frente. Se algum não for verdade na peça real, avise ou edite `FATOS` e as falas em
-   `monta_sequencia.py` e rode de novo.
-2. **A mesma resolução em todos os clipes.** No lote anterior só C1, C2 e um vídeo do C3 saíram em 720×1280;
-   os outros vieram em 400×736. Numa sequência, resoluções diferentes aparecem como salto na emenda. Gere
-   tudo na mesma qualidade do Grok e confira o tamanho de cada arquivo antes de montar.
-3. **A imagem do clipe 1** é a que você já aprovou no K2:
-   `lote-grok-2026-10-12\clipes\K2-calca-jeans-espelho\calca_jeans.jpg`.
+**2 ou 3 clipes?** Pela skill de sequência: 2 clipes quando há uma objeção principal ou o produto é simples
+de explicar; 3 quando existem pelo menos duas provas distintas de verdade. Nunca escolha 3 pelo tamanho: um
+terceiro clipe sem fato novo vira enchimento e derruba a retenção. A calça jeans tem 4 fatos e comporta os dois.
+Os arcos de 2 clipes **não são os de 3 sem o clipe do meio**: o clipe do meio carrega as perguntas abertas e o
+último carrega o CTA, por isso têm falas próprias.
 
-## Ordem recomendada (cerca de 7 gerações no arco A e 3 no B)
+Leis (já aplicadas nos prompts): só o último clipe pede a compra e aponta para o carrinho; os anteriores
+terminam **no meio do gesto**, com uma pergunta aberta; os seguintes **não** recomeçam com hook nem
+reapresentam a peça; o bloco de modelo e de cenário é copiado palavra por palavra.
 
-**Arco A, o que decide a técnica:**
-1. **Clipe 1:** anexe a imagem do K2 e use `sequencias\A-motivos\clipe-1\1-prompt-completo.txt`.
-   (Se quiser as duas versões, gere também com `2-guia-grok.txt` e fique com a melhor.)
-2. **Clipe 2, técnica "imagem":** rode `ultimo_quadro.py` no vídeo do clipe 1, escolha o melhor dos 3 quadros
-   (a, b ou c), anexe e use `clipe-2\1-prompt-completo.txt`.
+## Próximo teste: a emenda de verdade (comece pelos arcos de 2 clipes, só há 1 emenda)
+
+1. **Clipe 1:** anexe a imagem do K2 (`lote-grok-2026-10-12\clipes\K2-calca-jeans-espelho\calca_jeans.jpg`)
+   e use `sequencias\A-motivos-2clipes\clipe-1\1-prompt-completo.txt`.
+2. **Clipe 2, técnica "imagem":** rode
+   `.venv\Scripts\python.exe lote-sequencia-2026-10-12\ultimo_quadro.py CAMINHO\video-do-clipe-1.mp4`,
+   escolha o melhor dos 3 quadros (a, b ou c) e anexe **esse quadro, não a imagem do K2**, com
+   `clipe-2\1-prompt-completo.txt`.
 3. **Clipe 2, técnica "Extend Video":** no vídeo do clipe 1, use Extend Video com `clipe-2\3-extend-video.txt`.
-4. **Compare as duas** com a `AVALIACAO.md`. A vencedora segue para o clipe 3.
-5. **Clipe 3** pela técnica vencedora (`1-prompt-completo.txt` ou `3-extend-video.txt`).
-6. **Monte no CapCut** (checklist abaixo) e avalie o vídeo final.
+4. **Confira:**
+   `.venv\Scripts\python.exe lote-sequencia-2026-10-12\confere_emenda.py clipe1.mp4 clipe2.mp4 imagem_do_k2.jpg`
+   Ele deve dizer **OK** (início do clipe 2 parecido com o fim do 1). Se disser ATENÇÃO, o clipe 2 partiu da
+   imagem-base. Abra também a imagem `...-emenda.png` que ele gera e confira com os olhos.
+5. **Monte no CapCut** (checklist abaixo) e preencha a `AVALIACAO.md`.
+6. Depois, se a emenda funcionar, repita com os arcos de 3 clipes e com o B.
 
-**Arco B:** repita os clipes 1, 2 e 3 só com a técnica vencedora.
-
-## Montagem no CapCut (por arco)
+## Montagem no CapCut
 
 - [ ] Todos os clipes na **mesma resolução e fps** antes de soltar na timeline
 - [ ] Apare 2 a 4 quadros do início e do fim de cada clipe (é onde o Grok deforma)
 - [ ] **Corte seco** entre os clipes, sem transição chamativa (se usou Extend Video, importe só o vídeo final)
 - [ ] Normalize o volume da voz entre os clipes (Áudio > Normalizar volume)
-- [ ] Mesmo ajuste de cor e luz nos três
+- [ ] Mesmo ajuste de cor e luz em todos
 - [ ] Legenda automática **uma vez**, sobre a timeline já unida, e revise palavra por palavra
-- [ ] Texto na tela de cada clipe (está em `4-falas.txt`; **não vai dentro do vídeo gerado**) e a capa de `ROTEIRO.md`
-- [ ] Carrinho ou seta **só no trecho do CTA, no clipe 3**
+- [ ] Texto na tela de cada clipe (em `4-falas.txt`; **não vai dentro do vídeo gerado**) e a capa de `ROTEIRO.md`
+- [ ] Carrinho ou seta **só no trecho do CTA, no último clipe**
 - [ ] Exporte em 1080×1920, 30 fps ou mais, H.264
 
-## Sobre as falas (para você revisar antes de publicar)
+## Sobre a qualidade (480p)
 
-- "Sabe o que dizem por aí..." (arco B) é recurso retórico: não cita pessoa real nem comentário real. Se um dia
-  houver um comentário de verdade, vale trocar.
+Gerar em 480p é bom para testar rápido. Para publicar, 480p exportado em 1080×1920 fica mais macio. Se o
+resultado parecer borrado, regere só os takes escolhidos em 720p ou passe-os por um upscale; não precisa
+refazer tudo. O importante é que **todos os clipes de uma mesma sequência tenham a mesma resolução**.
+
+## Sobre as falas (para revisar antes de publicar)
+
+- Os motivos citados são só os fatos que a foto da calça mostra: cintura alta, lavagem clara, modelagem reta e
+  dois bolsos na frente. Se algum não for verdade na peça real, edite `FATOS` e as falas em
+  `monta_sequencia.py` e rode de novo.
+- "Sabe o que dizem por aí..." (arco B) é recurso retórico: não cita pessoa real nem comentário real.
 - "Eu já me imagino com ela..." é imaginação em primeira pessoa, não promessa de resultado.
-- Os motivos citados são só os quatro fatos acima. Não há afirmação de conforto, caimento ou resultado.
+- Não há afirmação de conforto, caimento nem resultado.
