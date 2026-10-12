@@ -61,6 +61,8 @@ _PRODUCT_FEATURES = (
     ('cetim', ('cetim',)),
     ('viscose', ('viscose',)),
     ('canelado', ('canelado', 'canelada', 'ribana')),
+    # Bordado e o que vende na peca decorada; vem antes da amarracao para o close e o gesto irem nele.
+    ('bordados', ('bordado', 'bordados', 'bordada', 'bordadas')),
     ('amarração', ('amarração', 'amarracao', 'de amarrar', 'lacinho')),
     ('fenda', ('fenda',)),
     ('crochê', ('crochê', 'croche')),
@@ -240,6 +242,12 @@ def _apparel_free(c, candidates):
     return keep or candidates
 
 
+# Teste real (biquini com amarracao no pescoco): "ajusta o laco da amarracao e solta" e o close "na amarracao"
+# fizeram o Grok inventar um laco no peito, onde a peca tem uma concha. Amarracao continua como FATO, mas nunca
+# vira gesto automatico, close ou detalhe principal; o close e o gesto vao para o que vende (bordados, argolas...).
+_NO_SPOTLIGHT = ('amarração',)
+
+
 def _focus_parts(c):
     """Turn the angle and explicit product attributes into readable focus text."""
     features = _product_features(c, limit=2)
@@ -260,11 +268,12 @@ def _focus_parts(c):
     }:
         return cleaned, features
     if features:
-        if len(features) == 1:
-            return features[0], features
-        if len(features) == 2:
-            return f'{features[0]} e {features[1]}', features
-        return f'{features[0]}, {features[1]} e {features[2]}', features
+        shown = [f for f in features if f not in _NO_SPOTLIGHT] or features
+        if len(shown) == 1:
+            return shown[0], features
+        if len(shown) == 2:
+            return f'{shown[0]} e {shown[1]}', features
+        return f'{shown[0]}, {shown[1]} e {shown[2]}', features
     return _fallback_detail(c), []
 
 
@@ -343,7 +352,7 @@ def _with_article(value):
         'botões': 'os', 'argolas': 'as', 'franzido': 'o', 'poliamida': 'a', 'courino': 'o', 'algodão': 'o',
         'lã': 'a', 'elastano': 'o', 'poliéster': 'o',
         'bojo': 'o', 'renda': 'a', 'cetim': 'o', 'viscose': 'a', 'canelado': 'o',
-        'amarração': 'a', 'fenda': 'a', 'crochê': 'o', 'tule': 'o',
+        'bordados': 'os', 'amarração': 'a', 'fenda': 'a', 'crochê': 'o', 'tule': 'o',
         'decote nas costas': 'o', 'alça regulável': 'a',
         'textura leve': 'a', 'textura cremosa': 'a', 'toque seco': 'o', 'pote de vidro': 'o',
         'conta-gotas': 'o', 'vitamina c': 'a', 'acabamento matte': 'o', 'perfume suave': 'o',
@@ -609,7 +618,7 @@ _PROOF_GESTURES = {
     'renda': 'passa o dedo devagar pela renda',
     'cetim': 'passa a mão no tecido e deixa ele cair, mostrando o brilho do cetim',
     'canelado': 'passa a mão no tecido canelado, de cima para baixo',
-    'amarração': 'ajusta o laço da amarração e solta',
+    'bordados': 'aproxima os bordados da lente, sem puxar nem mexer nas correntes',
     'fenda': 'dá um passo à frente, deixando a fenda aparecer',
     'crochê': 'abre levemente a peça com as mãos, mostrando o crochê',
     'tule': 'levanta um pouco o tule com a ponta dos dedos e solta',
@@ -623,6 +632,8 @@ def _proof_gestures(features, limit=3, turns=()):
     turns = set(turns or ())
     plan = []
     for label in features or []:
+        if label in _NO_SPOTLIGHT:
+            continue
         gesture = _PROOF_GESTURES.get(label)
         # Prova visual também respeita a orientação escolhida. Antes, o fato
         # "sem transparência" reintroduzia uma virada de costas mesmo quando a
@@ -660,6 +671,8 @@ _POV_PROOF_GESTURES = {
 def _pov_proof_gestures(features, limit=3):
     plan = []
     for label in features or []:
+        if label in _NO_SPOTLIGHT:
+            continue
         gesture = _POV_PROOF_GESTURES.get(label) or _PROOF_GESTURES.get(label)
         if gesture and not _POV_SKIP_RE.search(gesture):
             item = f'{label} → {gesture}'
@@ -807,9 +820,21 @@ _FASTENING_MOVE_RE = re.compile(
     r'(?:laterais|lateral|tiras?|cord[ãa]o|cord[õo]es|argolas?|la[çc]os?)\b', re.I)
 
 
+_TIE_PLACE_RE = re.compile(r'pesco[çc]o|nuca|costas|cintura|lateral|laterais|frente|centro|busto|al[çc]as?|halter|c[óo]s', re.I)
+
+
+def tie_located(c: dict) -> bool:
+    """O briefing diz ONDE fica a amarracao/laco ("halter com amarracao no pescoco")?"""
+    return any(_TIE_PLACE_RE.search(t) for t in _tie_mentions(c))
+
+
 def fastening_move(action: str, c: dict) -> bool:
     low = _phrase(action).casefold()
-    if _product_family(c) not in ('moda', 'infantil') or not _FASTENING_MOVE_RE.search(low):
+    if _product_family(c) not in ('moda', 'infantil'):
+        return False
+    if re.search(r'amarra[çc]', low) and not tie_located(c):
+        return True
+    if not _FASTENING_MOVE_RE.search(low):
         return False
     ties = ' '.join(_tie_mentions(c))
     places = re.findall(r'lateral\w*|calcinha|tira|cord\w+|argola|la[çc]o', low)
@@ -2467,8 +2492,15 @@ def piece_lock_short(c):
     if _product_family(c) not in ('moda', 'infantil'):
         return ''
     ties = _tie_mentions(c)
+    if ties and tie_located(c):
+        where = f' (só os do briefing: {"; ".join(ties)})'
+    elif ties:
+        where = (' (amarração só nas tiras que já aparecem na imagem, nunca um laço novo no peito, na cintura '
+                 'ou nas laterais)')
+    else:
+        where = ''
     text = ('a peça é idêntica à da imagem do primeiro ao último quadro: nenhum laço, nó ou amarração aparece, '
-            'some ou muda de lugar' + (f' (só os do briefing: {"; ".join(ties)})' if ties else ''))
+            'some ou muda de lugar' + where)
     if formats.video_format(c) != 'tres_jeitos':
         text += '; o que ela diz sobre outras peças é só conversa, nenhuma outra peça entra no vídeo'
     return text
@@ -2554,7 +2586,7 @@ def bold_move(c, espelho=False):
 
 def close_target(c):
     """O que a camera mostra de perto nos closes: material ou fato confirmado."""
-    feats = _product_features(c, limit=3)
+    feats = [f for f in _product_features(c, limit=4) if f not in _NO_SPOTLIGHT][:3]
     materials = [f for f in feats if f in _MATERIAL_LABELS]
     alvo = materials[0] if materials else (feats[0] if feats else '')
     # "no cetim", "nos botões": ja com a contracao de "em".

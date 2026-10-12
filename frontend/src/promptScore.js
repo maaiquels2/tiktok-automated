@@ -75,6 +75,14 @@ export function scorePrompt(text) {
   if (/regulagem lateral|regula(?:r|gem) (?:d[ao] |na )?(?:lateral|calcinha)|ajust\w+ (?:a |as |o |os )?(?:\w+ )?(?:lateral|laterais|calcinha|tiras?|cord[ãa]o)|desamarr\w*|tocando a barra d[oa] (?:biqu|maiô)/.test(outsideSpeech))
     hit(3, 'O prompt cita regulagem ou ajuste da lateral da peça (ex.: "regulagem lateral", "ajustar a calcinha"): o gerador costuma amarrar um laço que a peça não tem. Descreva só o que se vê (ex.: "argolas douradas nas laterais, sem laço").');
 
+  // Teste real (biquíni com pérolas e conchas): o pulo do "Teste de prova" desmontou as correntes e a troca de look do
+  // "3 jeitos" fez o gerador trocar os bordados por outro enfeite. Peça com bordado, pérola ou pendente não aguenta.
+  const decorated = /bordad|pérola|perola|conchas|miçanga|paetê|paete|strass|franja|pendente/.test(low);
+  if (decorated && /pulinho|teste do pulo|agachamento|agacha\b/.test(outsideSpeech))
+    hit(3, 'Teste de prova (pulo ou agachamento) com peça de bordado, pérolas ou pendentes: o movimento desmonta os detalhes e o gerador troca a peça. Prefira Com fala ou Celular no espelho.');
+  if (decorated && threeLooks)
+    hit(3, '3 jeitos de usar com peça de bordado, pérolas ou pendentes: a troca de look faz o gerador trocar os detalhes da peça. Prefira Com fala ou Celular no espelho.');
+
   const forbidIdx = low.search(/não inventar|nao inventar/);
   if (forbidIdx >= 0) {
     const forbidEnd = low.indexOf('.', forbidIdx);

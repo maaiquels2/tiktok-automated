@@ -1828,7 +1828,8 @@ class WorkflowTests(unittest.TestCase):
             guia=build_compact_video_prompt(c,generate(c),c['color'])
             self.assertIn('a peça é idêntica à da imagem do primeiro ao último quadro',guia,modo)
             self.assertIn('nenhum laço, nó ou amarração aparece, some ou muda de lugar',guia,modo)
-            self.assertIn('só os do briefing: top cortininha com amarração',guia,modo)
+            self.assertIn('amarração só nas tiras que já aparecem na imagem',guia,modo)
+            self.assertIn('nunca um laço novo no peito, na cintura ou nas laterais',guia,modo)
             if modo=='tres_jeitos':
                 self.assertNotIn('é só conversa',guia)
             else:
@@ -1864,15 +1865,63 @@ class WorkflowTests(unittest.TestCase):
             c={**self.BIKINI,'movements':self.RINGS_MOVES,'video_mode':modo}
             video=generate(c)['video']
             self.assertNotIn('regulagem lateral da calcinha',video,modo)
-            self.assertIn('amarrações do top',video,modo)   # o top tem amarracao: o gesto continua
+            # "amarracao" sem lugar no briefing: nenhum gesto nem close nela (o Grok inventava laco no peito)
+            self.assertNotIn('amarrações do top',video,modo)
+            self.assertNotIn('laço da amarração',video,modo)
+            self.assertNotIn('na amarração',video,modo)
             guia=build_compact_video_prompt(c,generate(c),c['color'])
             self.assertNotIn('regulagem',guia.split('O que ela diz',1)[0],modo)
         for acao in ('mostrar a regulagem lateral da calcinha','ajustar a lateral da calcinha','soltar o laço',
                      'desamarrar a tira'):
             self.assertTrue(fastening_move(acao,{**self.BIKINI,'details':'suplex com forro'}),acao)
-        for acao in ('ajustar as amarrações do top','ajustar a peça no corpo','puxar o cós de leve',
-                     'mostrar os bordados de perto','virar de leve para o lado'):
+        for acao in ('ajustar a peça no corpo','puxar o cós de leve','mostrar os bordados de perto',
+                     'virar de leve para o lado'):
             self.assertFalse(fastening_move(acao,self.BIKINI),acao)
+        # amarracao sem lugar sai; com lugar no briefing (pescoco, halter...) o movimento fica
+        self.assertTrue(fastening_move('ajustar as amarrações do top',self.BIKINI))
+        located={**self.BIKINI,'details':'suplex com forro, top halter com amarração no pescoço'}
+        self.assertFalse(fastening_move('ajustar as amarrações do top',located))
+
+    def test_ties_never_become_a_close_up_or_a_gesture_and_the_embroidery_takes_their_place(self):
+        # Teste real (biquini bordado, amarracao no pescoco): "closes na amarracao" e "ajusta o laco da amarracao e
+        # solta" fizeram o Grok inventar um laco no peito, onde a peca tem uma concha.
+        from services.prompt_improve import build_compact_video_prompt
+        from services.prompts import close_target
+        c={**self.BIKINI,'movements':'mostrar os bordados de perto; virar de leve para o lado'}
+        self.assertEqual(close_target(c),'nos bordados')
+        for modo in ('','comentario','espelho','pov','movimento'):
+            cm={**c,'video_mode':modo}
+            video=generate(cm)['video']
+            self.assertNotIn('na amarração',video,modo)
+            self.assertNotIn('laço da amarração',video,modo)
+            self.assertNotIn('DETALHE PRINCIPAL: amarração',video,modo)
+            guia=build_compact_video_prompt(cm,generate(cm),c['color'])
+            self.assertNotIn('laço da amarração',guia,modo)
+            self.assertNotIn('na amarração',guia,modo)
+        # A amarracao segue como FATO confirmado (nao e apagada do briefing).
+        self.assertIn('amarração',generate({**c,'video_mode':''})['video'].split('FATOS CONFIRMADOS:',1)[1][:60])
+
+    def test_plain_tie_bikini_does_not_spotlight_the_tie_either(self):
+        # Biquini liso de amarracao (sem bordado): a amarracao e o primeiro fato, mas nao vira close nem destaque.
+        from services.prompt_improve import build_compact_video_prompt, mirror_approach
+        from services.prompts import close_target
+        c={**self.BIKINI,'product':'Biquíni cortininha liso','outfit':'Biquíni cortininha liso','color':'Preto',
+           'details':'suplex com forro, top cortininha com amarração','movements':'','video_mode':''}
+        self.assertNotIn('amarra',close_target(c))
+        self.assertNotIn('amarra',mirror_approach(c))
+        video=generate(c)['video']
+        self.assertNotIn('DETALHE PRINCIPAL: amarração',video)
+        self.assertNotIn('na amarração',video)
+        guia=build_compact_video_prompt(c,generate(c),c['color'])
+        self.assertNotIn('na amarração',guia)
+        self.assertNotIn('laço da amarração',guia)
+
+    def test_guide_lock_names_the_place_when_the_briefing_gives_it(self):
+        from services.prompt_improve import build_compact_video_prompt
+        c={**self.BIKINI,'details':'suplex com forro, top halter com amarração no pescoço','video_mode':''}
+        guia=build_compact_video_prompt(c,generate(c),c['color'])
+        self.assertIn('só os do briefing: top halter com amarração no pescoço',guia)
+        self.assertNotIn('nunca um laço novo no peito',guia)
 
     def test_fastening_move_stays_when_the_briefing_confirms_the_tie_there(self):
         from services.prompts import fastening_move

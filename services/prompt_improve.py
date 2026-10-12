@@ -24,7 +24,7 @@ import unicodedata
 
 from services import formats, persuasion
 from services.prompts import (
-    _with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
+    _NO_SPOTLIGHT, _with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
 from services.prompts import (
     piece_lock_short, _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
@@ -259,7 +259,7 @@ def movement_steps(c: dict, spoken: str = '',
 
 def mirror_approach(c: dict) -> str:
     """Passo de aproximacao do espelho para mostrar o detalhe que vende."""
-    feats = _product_features(c, limit=1)
+    feats = [f for f in _product_features(c, limit=4) if f not in _NO_SPOTLIGHT][:1]
     alvo = _with_article(feats[0]) if feats else 'os detalhes da peça'
     return f'dá um passo em direção ao espelho para mostrar {alvo} de perto e volta'
 
