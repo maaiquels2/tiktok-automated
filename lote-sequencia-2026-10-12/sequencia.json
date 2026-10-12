@@ -1,0 +1,50 @@
+[
+ {
+  "arco": "A-motivos",
+  "clipe": 1,
+  "palavras": 54,
+  "chars_completo": 3763,
+  "chars_guia": 2372,
+  "auditoria": []
+ },
+ {
+  "arco": "A-motivos",
+  "clipe": 2,
+  "palavras": 56,
+  "chars_completo": 3934,
+  "chars_guia": 2705,
+  "auditoria": []
+ },
+ {
+  "arco": "A-motivos",
+  "clipe": 3,
+  "palavras": 52,
+  "chars_completo": 3923,
+  "chars_guia": 2524,
+  "auditoria": []
+ },
+ {
+  "arco": "B-questionada",
+  "clipe": 1,
+  "palavras": 55,
+  "chars_completo": 3781,
+  "chars_guia": 2365,
+  "auditoria": []
+ },
+ {
+  "arco": "B-questionada",
+  "clipe": 2,
+  "palavras": 53,
+  "chars_completo": 3890,
+  "chars_guia": 2712,
+  "auditoria": []
+ },
+ {
+  "arco": "B-questionada",
+  "clipe": 3,
+  "palavras": 54,
+  "chars_completo": 3851,
+  "chars_guia": 2563,
+  "auditoria": []
+ }
+]
