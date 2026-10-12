@@ -1,0 +1,5 @@
+# Só para ferramentas/conferir_produto (ambiente separado; NÃO é o requirements.txt do app).
+# O torch vem do índice da PyTorch: pip install torch --index-url https://download.pytorch.org/whl/cpu
+numpy
+pillow
+transformers

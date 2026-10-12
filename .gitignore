@@ -21,3 +21,6 @@ dist/
 _patch/
 *.vbs.bak
 
+
+# Ambiente local da ferramenta de conferência (torch é pesado)
+ferramentas/**/.venv-conferir/
