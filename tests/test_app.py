@@ -242,7 +242,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertLessEqual(len(prompts['cover_text'].split()), 6)
         self.assertLessEqual(len(prompts['screen_text'].split()), 8)
         self.assertNotEqual(prompts['cover_text'], prompts['screen_text'])
-        self.assertIn('textos na tela', prompts['video'])
+        self.assertIn('textos, ícones, carrinho, botões, setas ou stickers na tela', prompts['video'])
         package = self.client.get(f'/api/campaigns/{self.cid}/package.txt').data.decode('utf-8-sig')
         self.assertIn('TEXTO DA CAPA', package)
         self.assertIn('TEXTO NA TELA · 0–3s', package)
@@ -1228,11 +1228,16 @@ class WorkflowTests(unittest.TestCase):
                   benefit='',angle='',tone='',style='',details='',movements='',generator='grok',niche='academia')
         dor=generate({**base,'motor':'necessidade','objection':'fica transparente'})
         self.assertIn('sorriso de alívio',dor['video'])
-        self.assertIn('aponta UMA vez para a parte de baixo da tela',dor['video'])
+        self.assertIn('aponta UMA vez para baixo com o indicador',dor['video'])
+        # O Grok desenhava um carrinho no fim: o gesto nao cita carrinho nem tela.
+        self.assertNotIn('(o carrinho)',dor['video'])
+        self.assertIn('ícones, carrinho, botões',dor['video'])
         pressa=build_compact_video_prompt({**base,'motor':'escassez','offer':'20% até domingo'},
                                           {'hook':'a','development':'b','cta':'c'},'Preto')
         self.assertIn('como quem traz novidade',pressa)
-        self.assertIn('(o carrinho)',pressa)
+        self.assertIn('aponta uma vez para baixo com o indicador',pressa)
+        self.assertNotIn('(o carrinho)',pressa)
+        self.assertIn('ícone, carrinho, botão',pressa)
 
     def test_timeline_gives_a_long_middle_more_time(self):
         from services import persuasion

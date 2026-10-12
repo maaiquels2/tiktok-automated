@@ -351,9 +351,10 @@ def script_motor(motor: str, hook: str) -> str:
 def scene_direction(motor: str, touch: str) -> dict:
     """Expressao no gancho, arco emocional e gesto da chamada.
 
-    O gesto da chamada aponta para a parte de baixo da tela, onde o TikTok
-    Shop mostra o carrinho laranja: e a acao que a fala pede, feita no
-    corpo. Uma mao continua na peca; a outra aponta uma vez e volta.
+    O gesto da chamada aponta para baixo, onde o TikTok Shop mostra o
+    carrinho laranja de verdade. O prompt nao cita "tela" nem "carrinho" no
+    gesto: com essas palavras o Grok desenhava um icone de carrinho no video.
+    Uma mao continua na peca; a outra aponta uma vez e volta.
     """
     # Curto de proposito: o Grok tem limite de caracteres e o prompt corta
     # primeiro o que e menos essencial.
@@ -368,7 +369,7 @@ def scene_direction(motor: str, touch: str) -> dict:
         'escassez': 'animação → certeza → pressa gentil',
         'desejo': 'encanto → orgulho → convite sorridente',
     }
-    cta = 'aponta uma vez para baixo da tela (o carrinho), com a outra mão na peça'
+    cta = 'aponta uma vez para baixo com o indicador, com a outra mão na peça'
     if motor == 'escassez':
         cta += ', num gesto rápido'
     return {'hook': hooks.get(motor, hooks['desejo']), 'arc': arcs.get(motor, arcs['desejo']), 'cta': cta}

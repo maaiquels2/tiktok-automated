@@ -211,7 +211,7 @@ def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
         else:
             parts.append('ela nunca fica de costas para a câmera')
     parts.append(f'{product} continua {keeps} e totalmente {opaque}')
-    parts.append('sem texto na tela')
+    parts.append('sem texto, ícone, carrinho, botão ou qualquer gráfico na tela (o carrinho só é falado)')
     return 'IMPORTANTE: ' + '; '.join(parts) + '.'
 
 
@@ -379,8 +379,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             f'A câmera é o olhar de quem veste {piece}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, um único take contínuo com leve balanço natural, sem cortes.',
             f'Ação contínua, sem pausas: as mãos mostram {touch}{_FLOW[0]}{hands[0].lower() + hands[1:]}, em ritmo natural; '
-            'no final, tilt suave para baixo mostrando a peça inteira no corpo, e o indicador aponta uma vez para a '
-            f'parte de baixo da tela. {seamless}',
+            'no final, tilt suave para baixo mostrando a peça inteira no corpo, e o indicador aponta uma vez para '
+            f'baixo. {seamless}',
             f'Narração, do começo ao fim, num fôlego só: "{fala}"',
             SPEECH_POV,
             closing_rules(c, product, keeps, face=False).replace('IMPORTANTE: ', 'IMPORTANTE: o rosto nunca aparece; ', 1),
@@ -395,7 +395,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             'celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural, um único take '
             'contínuo, sem cortes nem zoom.' + closes,
             f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, {"em ritmo natural de conversa, sem câmera lenta"}; '
-            'no final, de frente para o espelho, a mão livre aponta uma vez para baixo da tela (o carrinho), sorrindo. '
+            'no final, de frente para o espelho, a mão livre aponta uma vez para baixo com o indicador, sorrindo. '
             f'{seamless}',
             f'O que ela diz, olhando para a tela do celular no reflexo, num fôlego só: "{fala}"',
             f'Expressão: {cena["arc"]}.',

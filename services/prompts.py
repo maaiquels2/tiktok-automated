@@ -1965,7 +1965,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
         (0, f"DETALHE PRINCIPAL: {focus}. "),
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
         (3, f"EVITAR: {dirn['avoid']}; "),
-        (0, "EVITAR TAMBÉM: qualquer fala, narração ou voz; legenda automática; textos na tela; marcas inventadas; "
+        (0, "EVITAR TAMBÉM: qualquer fala, narração ou voz; legenda automática; textos, ícones ou carrinho na tela; marcas inventadas; "
             "cortes que quebrem a continuidade; pose parada de catálogo.\n"),
         (0, proof_block),
         (0, "MOVIMENTO (é o conteúdo inteiro do vídeo, com calma e naturalidade, na ordem do SHOT LIST): a modelo puxa "
@@ -2053,8 +2053,8 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
             "dramático, sem estabilização artificial. "),
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
         (3, f"EVITAR: {dirn['avoid']}; "),
-        (0, "EVITAR TAMBÉM: pose de apresentador; comportamento de influenciador; sensação de anúncio; textos na "
-            "tela; marcas inventadas; deformação do produto.\n"),
+        (0, "EVITAR TAMBÉM: pose de apresentador; comportamento de influenciador; sensação de anúncio; textos, "
+            "ícones, carrinho ou botões na tela (o carrinho só é falado); marcas inventadas; deformação do produto.\n"),
         (0, proof_block),
         (0, "MÃOS: são o único ponto de identidade visível; manuseiam o produto com naturalidade (pegar, girar, testar, "
             "mostrar), com pressão coerente com o tipo de produto; sem gesto ensaiado, pausas e imperfeições bem-vindas. "),
@@ -2247,8 +2247,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         maos = ("MÃOS: uma segura o celular o tempo todo; a outra gesticula enquanto ela fala — toca a peça, ajusta, "
                 "aponta o detalhe — e volta para a peça; nada de braço duro. Sem movimento artificial de IA. ")
         abre = cena['hook'].replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
-        fecha = ("já de frente para o espelho, com o celular na mão; a mão livre aponta UMA vez para a parte de baixo "
-                 "da tela (o carrinho) e volta para a peça, sorrindo, sem parar de falar e sem pose final. ")
+        fecha = ("já de frente para o espelho, com o celular na mão; a mão livre aponta UMA vez para baixo com o "
+                 "indicador e volta para a peça, sorrindo, sem parar de falar e sem pose final. ")
     else:
         clima = mood(c)
         camera = (f"na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes; "
@@ -2259,7 +2259,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
                 "Sem movimento artificial de IA. ")
         abre = cena['hook']
         fecha = (f"já de frente para a lente, com uma das mãos tocando {anchor} {forms['de']} {forms['piece']}, como "
-                 "quem ajusta a peça; a outra aponta UMA vez para a parte de baixo da tela (o carrinho) e volta, "
+                 "quem ajusta a peça; a outra aponta UMA vez para baixo com o indicador e volta, "
                  "sorrindo, sem parar de falar e sem pose final. ")
     if 'ousado' in estilo:
         ousado, giro = bold_move(c, espelho=espelho)
@@ -2304,7 +2304,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         # So no Flow (sem limite apertado): no Grok o espaco vai para o essencial.
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
             if not _limite_video(c) else ''),
-        (0, "EVITAR: textos na tela; marcas inventadas; cortes; câmera lenta.\n"),
+        (0, "EVITAR: textos, ícones, carrinho, botões, setas ou stickers na tela (o carrinho só é falado, "
+            "nunca desenhado); marcas inventadas; cortes; câmera lenta.\n"),
         (0, proof_block),
         (0, turn_direction + "\n"),
         (0, maos),
@@ -2319,7 +2320,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             f"Fala (PT-BR): \"{hook}\"\n"
             f"{t1}–{t2}s DESENVOLVIMENTO — mesma respiração, enquanto faz a prova e as ações. "
             f"Fala (PT-BR): \"{development}\"\n"
-            f"{t2}–15s CTA: com o gesto do carrinho, concluindo o mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"),
+            f"{t2}–15s CTA: apontando para baixo uma vez, concluindo o mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
         (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos, como quem conta uma descoberta "
             "para uma amiga. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, ritmo natural "
