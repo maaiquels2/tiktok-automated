@@ -2272,6 +2272,64 @@ def _unbox_gesture(feature):
     return f'{feature} → aproxima esse detalhe da lente e mostra de perto'
 
 
+def _build_mesa_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development,
+                             cta, base_image=False):
+    """Na mesa, de perto: a modelo sentada mostra o produto com as maos e o
+    traz para perto da lente (creme sendo passado, brinco ou colar aproximado,
+    peca desdobrada). Cada tipo de produto tem a sua cena (formats.MESA_SCENES).
+
+    Travas herdadas dos testes reais com o Grok (abrindo o pacote): exatamente
+    duas maos, uma acao por vez, o produto nunca troca de forma nem sai do
+    quadro, e nada que exija as duas maos atras do pescoco ou prender na orelha."""
+    model = _phrase(c.get('model_name')) or 'a pessoa'
+    color_l = _phrase(color) or 'a cor escolhida'
+    product_l = product or 'o produto'
+    _focus, features = _focus_parts(c)
+    facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
+    cena = formats.mesa_scene(c)
+    confirmed = ' '.join([*_product_features(c, limit=50), _phrase(c.get('benefit'))])
+    unconfirmed = formats.mesa_unconfirmed(c, confirmed) or _unconfirmed_line(c)
+    scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
+                  else 'o mesmo ambiente mostrado na foto de referência da modelo')
+    loop = ('No último quadro, o produto e as mãos voltam à posição do primeiro, para o vídeo recomeçar sem '
+            'emenda. ' if 'loop' in formats.techniques(c) else '')
+    proofs = [f'ao falar {_with_article(f)}, mostra esse detalhe bem perto da lente' for f in features[:2]]
+    video_notes = _video_details(details)
+    return _montar_video([
+        (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. Clima: achadinho mostrado de "
+            "pertinho, gravado no celular, sentada à mesa. "
+            f"ANEXE a IMAGEM APROVADA da cor {color_l} como primeiro quadro e referência contínua. "
+            f"A modelo é {model}: preserve 100% o mesmo rosto, cabelo, pele e corpo em TODOS os quadros, sem "
+            f"troca de identidade ou redesenho. Produto em cena: {product_l} na cor {color_l}. "
+            f"FATOS CONFIRMADOS: {facts}.\n"),
+        (0, f"CENÁRIO FIXO: {scene_lock}; mesa, objetos e luz só dessa imagem, sem trocar a locação. "
+            f"CÂMERA: apoiada na mesa, parada, {cena['frame']}, um único take contínuo, sem cortes nem zoom; só "
+            "uma aproximação lenta e suave no final. O rosto fica sempre inteiro no quadro. "),
+        (0, f"MÃOS: exatamente duas mãos, as de {model}, com o mesmo tom de pele e unhas da imagem; nunca uma "
+            "terceira mão nem dedo a mais; uma mão de cada vez faz a ação e a outra descansa na mesa; nenhuma "
+            "mão cobre a boca enquanto ela fala. "),
+        (0, f"PRIMEIRO QUADRO: {cena['start']}. "),
+        (0, "O PRODUTO: nunca troca de forma, de cor nem de tamanho, nunca sai do quadro e, depois de pego, não "
+            "volta para onde estava. Movimentos lentos e contínuos. "),
+        (0, ('PROVA VISUAL — entre 4s e 11s: ' + '; '.join(proofs) + '. ') if proofs else ''),
+        (0, f"EVITAR: terceira mão, dedos deformados, {cena['avoid']}, produto mudando de forma ou de cor, "
+            "textos, ícones, carrinho, botões ou stickers na tela, marcas inventadas, cortes.\n"),
+        (0, "SHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n"
+            f"0–4s ABERTURA: {cena['open']}; olhar na lente. Fala (PT-BR), tom espontâneo: \"{hook}\"\n"
+            f"4–11s DETALHES: {cena['middle']}, enquanto a fala continua na mesma respiração. "
+            f"Fala (PT-BR): \"{development}\"\n"
+            f"11–15s FECHAMENTO: {cena['close']}. {loop}Fala (PT-BR): \"{cta}\"\n"),
+        (0, unconfirmed),
+        (2, f"Notas adicionais do operador (não são falas): {video_notes}. " if video_notes else ''),
+        (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos; a fala ocupa os 15 s até o fim, "
+            "sem silêncio. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, lábios "
+            "sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; nunca leia "
+            "títulos, instruções, câmera, shot list ou notas. Som ambiente baixo, sem música. "),
+        (2, "Estilo visual: natural e realista, luz suave de mesa. "),
+        (0, "Sem promessas não demonstradas no vídeo."),
+    ], _limite_video(c))
+
+
 def _build_unboxing_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development,
                                  cta, base_image=False):
     """Abrindo o pacote: a peca FORA do corpo, vista de cima.
@@ -2629,6 +2687,65 @@ def generate_variants(c, audit=None):
     return saida
 
 
+def _build_mesa_image_prompt(c, *, product, color, piece_ref, photos, product_reference,
+                            facts, materials, notes, base_image=False):
+    """Primeiro quadro do formato "Na mesa, de perto": a modelo sentada a uma
+    mesa com o produto na cena inicial do tipo dele. Identidade, cabelo e luz
+    vem da foto de referencia; pose e enquadramento nao. Nas outras cores vira
+    edicao localizada da imagem aprovada."""
+    model = c['model_name']
+    cena = formats.mesa_scene(c)
+    # A referencia generica do gerador fala em corte, caimento e costuras: aqui
+    # vale a do produto, que pode ser um creme ou um brinco.
+    reference = (
+        "REFERÊNCIA DO PRODUTO: reproduza fielmente a forma, o acabamento e os detalhes visíveis nas fotos do "
+        "produto. Pessoas presentes nessas fotos NÃO são referências de identidade: não copie rosto, cabelo, "
+        f"corpo ou tom de pele. A cor final solicitada é {color}; ela prevalece sobre fotos com outras cores. "
+        "Não reproduza fundos, textos sobrepostos nem marcas d'água. "
+    ) if photos else (
+        "Não há foto de catálogo anexada: use somente os detalhes informados, sem inventar acabamentos. "
+    )
+    if base_image:
+        attachments = "ORDEM DOS ANEXOS: anexe primeiro a imagem aprovada desta campanha (modelo na mesa)"
+        if photos:
+            attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+        attachments += '. O primeiro anexo é a única base de pose, mesa, cenário e enquadramento. '
+        return (
+            attachments
+            + "EDIÇÃO LOCALIZADA: trate a imagem aprovada como a fotografia-base final. "
+            + f"Produto: {product}. Cor: {color}. "
+            + "Altere somente o produto; mantenha idênticos rosto, cabelo, corpo, pose, mãos, mesa, fundo e luz. "
+            + reference
+            + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+            + f"FATOS DO PRODUTO A PRESERVAR: {facts}. "
+            + "Sem textos nem marcas inventadas. "
+            + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
+            + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
+        )
+    attachments = f"ORDEM DOS ANEXOS: anexe primeiro a foto de referência da modelo (fotografia-base de {model})"
+    if photos:
+        attachments += f" e depois {len(photos)} {'foto' if len(photos) == 1 else 'fotos'} do produto"
+    attachments += ('. O primeiro anexo é a base de identidade, cabelo, tom de pele e luz — mas NÃO de pose nem de '
+                    'enquadramento: esta imagem vira a modelo sentada a uma mesa. ')
+    return (
+        attachments
+        + "PRIMEIRO QUADRO DE UM VÍDEO NA MESA: fotografia vertical 9:16 de celular, câmera apoiada na altura do "
+        + f"rosto, {cena['frame']}. "
+        + f"Produto: {product}. Cor: {color}. "
+        + f"CENA: {cena['start']}. O rosto fica inteiro e visível, olhando para a lente; as duas mãos naturais, "
+        + "a que não segura o produto descansa na mesa. "
+        + f"IDENTIDADE: preserve 100% o rosto, cabelo, tom de pele, corpo, idade aparente e proporções de {model}. "
+        + reference
+        + f"VARIAÇÃO ÚNICA: gere somente esta cor ({color}); não misture cores nem crie outras versões na mesma imagem. "
+        + f"FATOS DO PRODUTO A PRESERVAR: {facts}. "
+        + "CENÁRIO: uma mesa simples e crível, com a luz e o ambiente da foto de referência ao fundo; sem estúdio. "
+        + "REALISMO: foto comum de celular, sem filtro; sem pose de catálogo. Mantenha o produto fiel à "
+        + "referência; sem textos, marcas inventadas ou deformações. "
+        + (f"DETALHES ESTÁTICOS DO PRODUTO: {notes}. " if notes else '')
+        + "Apenas uma imagem estática; não descreva vídeo, falas nem duração."
+    )
+
+
 def _build_pov_image_prompt(c, *, product, color, piece_ref, photos, product_reference,
                             facts, materials, notes, base_image=False):
     """Imagem-base do video POV: o primeiro quadro ja em primeira pessoa.
@@ -2857,6 +2974,11 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
             c, product=product, color=color, piece_ref=piece_ref, photos=photos,
             product_reference=product_reference, facts=facts, materials=materials,
             notes=notes, base_image=base_image)
+    elif formats.mesa(c):
+        image = _build_mesa_image_prompt(
+            c, product=product, color=color, piece_ref=piece_ref, photos=photos,
+            product_reference=product_reference, facts=facts, materials=materials,
+            notes=notes, base_image=base_image)
     elif _video_mode(c) == 'espelho':
         image = _build_mirror_image_prompt(
             c, product=product, color=color, piece_ref=piece_ref, photos=photos,
@@ -2870,6 +2992,8 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     }.get(_video_mode(c), _build_video_prompt)
     if formats.video_format(c) == 'unboxing':
         build_video = _build_unboxing_video_prompt
+    elif formats.mesa(c):
+        build_video = _build_mesa_video_prompt
     video = build_video(
         c,
         resolution=resolution,

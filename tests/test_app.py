@@ -1635,6 +1635,78 @@ class WorkflowTests(unittest.TestCase):
         for product in ('Brinco de argola','Anéis dourados','Óculos de sol','Gargantilha de pérolas'):
             self.assertEqual(_product_family({'product':product,'outfit':''}),'acessorio',product)
 
+    def test_table_format_is_the_default_only_for_beauty_and_accessories(self):
+        from services import formats
+        creme={'product':'Creme facial','outfit':'creme','video_mode':''}
+        brinco={'product':'Brinco','outfit':'brinco','video_mode':''}
+        legging={'product':'Legging','outfit':'legging','video_mode':''}
+        self.assertEqual(formats.video_format(creme),'mesa')
+        self.assertEqual(formats.video_format(brinco),'mesa')
+        self.assertEqual(formats.video_format(legging),'')
+        # Familias que nao sao beleza nem acessorio seguem como antes.
+        self.assertEqual(formats.video_format({'product':'Panela','outfit':'','video_mode':''}),'')
+        # A base escolhida pelo operador continua valendo.
+        self.assertEqual(formats.video_format({**creme,'video_mode':'espelho'}),'')
+        # Teste de prova e 3 jeitos sao falas de roupa: fora dela viram "Na mesa".
+        for fmt in formats.APPAREL_ONLY:
+            self.assertEqual(formats.video_format({**brinco,'video_mode':fmt}),'mesa')
+            self.assertEqual(formats.video_format({**legging,'video_mode':fmt}),fmt)
+        self.assertEqual(formats.video_format({**legging,'video_mode':'mesa'}),'mesa')
+
+    def test_table_scene_follows_the_product_name(self):
+        from services import formats
+        for product,kind in (('Pulseira de corrente','pulso'),('Brinco de argola','brinco'),
+                             ('Colar com pingente de argola','colar'),('Batom matte','labios'),
+                             ('Esmalte cremoso','unhas'),('Protetor solar facial FPS 50','pele'),
+                             ('Perfume floral','perfume'),('Óculos de sol','oculos'),
+                             ('Bolsa de ombro','bolsa'),('Legging cintura alta','roupa')):
+            self.assertEqual(formats.mesa_kind({'product':product,'outfit':''}),kind,product)
+
+    def test_table_video_locks_two_hands_and_keeps_to_the_confirmed_facts(self):
+        from services.prompt_improve import build_compact_video_prompt
+        base=dict(model_name='Micaela',product='Creme hidratante facial',outfit='creme hidratante',color='Branco',
+                  audience='',benefit='',angle='',tone='',style='',details='',movements='',generator='grok',
+                  niche='casual',objection='',offer='')
+        sem=generate(base)
+        video=sem['video']
+        self.assertLessEqual(len(video),3940)
+        for travada in ('exatamente duas mãos','nenhuma mão cobre a boca','sentada a uma mesa','nunca uma terceira mão'):
+            self.assertIn(travada,video)
+        for roupa in ('caimento','provador','fit check','barra','tecido','vestir'):
+            self.assertNotIn(roupa,video.casefold(),roupa)
+        # Sem fato confirmado, hidratacao, resultado e cheiro ficam proibidos.
+        self.assertIn('não inventar hidratação, resultado na pele, cheiro',video)
+        # Com o fato confirmado ele sai da lista e a fala pode usa-lo.
+        com=generate({**base,'details':'textura leve, perfume suave'})
+        proibidos=com['video'].split('ATRIBUTOS NÃO CONFIRMADOS')[1].split('—')[0]
+        self.assertNotIn('cheiro',proibidos)
+        self.assertIn('hidratação',proibidos)
+        self.assertIn('textura leve',com['video'])
+        # O guia do Grok e a imagem-base seguem a mesma cena.
+        guia=build_compact_video_prompt(base,sem,'Branco')
+        self.assertIn('sentada à mesa',guia)
+        self.assertIn('Mãos: exatamente duas',guia)
+        self.assertNotIn('caimento',guia.casefold())
+        self.assertIn('sentada a uma mesa',sem['image'])
+        self.assertNotIn('caimento',sem['image'].casefold())
+        # Brinco: segura junto a orelha, nunca prende; colar: nunca fecha o fecho.
+        brinco=generate({**base,'product':'Brinco de argola','outfit':'brinco'})['video']
+        self.assertIn('sem prender',brinco)
+        self.assertIn('prender o brinco na orelha',brinco)
+
+    def test_table_format_is_validated_saved_and_briefed(self):
+        from services.copywriter import build_brief
+        ok=self.client.post('/api/campaigns',json={**self.brief,'video_mode':'mesa'},headers=self.headers)
+        self.assertEqual(ok.status_code,201,ok.json)
+        self.assertEqual(ok.json['video_mode'],'mesa')
+        self.assertIn('Formato experimental',self.client.get(f"/api/campaigns/{ok.json['id']}").json['edit_tip'])
+        self.assertIn('FORMATO: na mesa, de perto',build_brief({**self.brief,'video_mode':'mesa'}))
+        # Creme sem escolha de formato ja cai na mesa e mostra a mesma dica.
+        creme=self.client.post('/api/campaigns',json={**self.brief,'product':'Creme facial','outfit':'creme'},
+                               headers=self.headers)
+        self.assertEqual(creme.status_code,201,creme.json)
+        self.assertIn('Formato experimental',self.client.get(f"/api/campaigns/{creme.json['id']}").json['edit_tip'])
+
     def test_clothing_objection_proofs_do_not_leak_into_other_families(self):
         # O preset de durabilidade manda "olhar a costura": num creme ou num
         # brinco isso era dito em voz alta. O filtro de familia derruba a frase.

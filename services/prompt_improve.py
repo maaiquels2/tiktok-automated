@@ -334,6 +334,28 @@ def pov_intro(c: dict, product: str) -> str:
     return '; '.join(parts) + ', depois ' if parts else ''
 
 
+def compact_mesa(c: dict, model: str, piece: str, res: str, fala: str, keeps: str) -> str:
+    """Guia do Grok do formato "Na mesa, de perto" (cena em formats.MESA_SCENES)."""
+    cena = formats.mesa_scene(c)
+    loop = POV_LOOP if 'loop' in formats.techniques(c) else ''
+    return '\n'.join([
+        f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: achadinho mostrado de pertinho, gravado no celular, '
+        'sentada à mesa.',
+        f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}); preserve 100% o mesmo rosto, cabelo, '
+        f'pele e luz em todos os quadros. Primeiro quadro: {cena["start"]}.',
+        f'Câmera: apoiada na mesa, parada, {cena["frame"]}, um único take contínuo, sem cortes nem zoom; só uma '
+        'aproximação lenta e suave no final. O rosto fica sempre inteiro no quadro.',
+        f'Ação contínua, sem pausas: ela {cena["open"]}{_FLOW[0]}{cena["middle"]}{_FLOW[1]}{cena["close"]}.{loop} '
+        'Cada gesto começa enquanto o anterior termina: nada de parar, posar ou recomeçar entre uma ação e outra.',
+        f'O que ela diz, do começo ao fim, num fôlego só: "{fala}"',
+        'Mãos: exatamente duas; uma de cada vez faz a ação e a outra descansa na mesa; nunca uma terceira mão; '
+        'nenhuma mão cobre a boca enquanto ela fala.',
+        SPEECH,
+        f'IMPORTANTE: {piece} continua {keeps}, sem mudar de forma, de cor nem de tamanho, e nunca sai do quadro; '
+        f'evitar: {cena["avoid"]}; sem texto, ícone, carrinho, botão ou qualquer gráfico na tela (o carrinho só é falado).',
+    ])
+
+
 def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     model = _clean(c.get('model_name')) or 'a modelo'
     product = _clean(c.get('product')) or _clean(c.get('outfit')) or 'a peça'
@@ -384,6 +406,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
     abre_fmt = formats.opening(c, cena['hook'], mode if mode in ('espelho', 'movimento') else '')
     fala = one_breath(hook, development, cta)
+    if formats.mesa(c):
+        return compact_mesa(c, model, piece, res, fala, keeps)
     seamless = ('Cada gesto começa enquanto o anterior termina: nada de parar, posar ou recomeçar entre uma '
                 'ação e outra.')
 

@@ -23,7 +23,15 @@ FORMATS = {
     'tres_jeitos': {'label': '3 jeitos de usar', 'base': ''},
     'unboxing': {'label': 'Abrindo o pacote', 'base': 'pov'},
     'asmr': {'label': 'Close ASMR', 'base': 'movimento'},
+    'mesa': {'label': 'Na mesa, de perto', 'base': ''},
 }
+
+# "Na mesa" e o formato padrao das familias sem corpo a vestir (beleza e
+# acessorios): fit check, provador e barra da peca nao fazem sentido num creme
+# nem num brinco. Teste de prova e 3 jeitos sao falas de roupa; nessas
+# familias viram "Na mesa".
+MESA_FAMILIES = ('beleza', 'acessorio')
+APPAREL_ONLY = ('teste', 'tres_jeitos')
 
 TECHNIQUES = ('acao', 'aproxima', 'revela', 'loop', 'estica')
 # Mais de duas tecnicas no mesmo video de 15 s viram lista de tarefas para o
@@ -32,9 +40,19 @@ MAX_TECHNIQUES = 2
 STYLE_TOKENS = ('closes', 'ousado') + TECHNIQUES
 
 
+def _sem_corpo(c):
+    # Import tardio: prompts importa este modulo no topo.
+    from services.prompts import _product_family
+    return _product_family(c) in MESA_FAMILIES
+
+
 def video_format(c):
     value = str(c.get('video_mode') or '').strip().casefold()
-    return value if value in FORMATS else ''
+    if value in FORMATS:
+        return 'mesa' if value in APPAREL_ONLY and _sem_corpo(c) else value
+    # Sem escolha do operador, beleza e acessorios vao para a mesa. Base
+    # explicita (espelho, pov, movimento) continua valendo como antes.
+    return 'mesa' if not value and _sem_corpo(c) else ''
 
 
 def techniques(c):
@@ -196,6 +214,161 @@ UNBOXING_VIEW = ('uma embalagem aberta (saco ou caixa lisa, sem marca nem texto)
                  'dentro e uma das mãos puxando a peça para fora')
 
 
+# --------------------------------------------------------------- na mesa
+# Tipo de produto -> palavras. Vale a palavra que aparece PRIMEIRO no nome
+# ("pulseira de corrente" e pulseira, nao colar).
+_MESA_KINDS = (
+    ('pele', ('creme', 'hidratante', 'sérum', 'serum', 'protetor solar', 'protetor facial', 'loção', 'locao',
+              'esfoliante', 'skincare', 'máscara facial', 'mascara facial', 'gel facial', 'tônico', 'tonico')),
+    ('labios', ('batom', 'gloss', 'tint labial', 'lip tint')),
+    ('unhas', ('esmalte',)),
+    ('perfume', ('perfume', 'colônia', 'colonia', 'body splash')),
+    ('brinco', ('brinco', 'brincos')),
+    ('colar', ('colar', 'gargantilha')),
+    ('pulso', ('pulseira', 'bracelete', 'anel', 'aliança', 'alianca', 'relógio', 'relogio')),
+    ('oculos', ('óculos', 'oculos')),
+    ('bolsa', ('bolsa', 'mochila', 'necessaire', 'carteira')),
+)
+
+# Cena de cada tipo: o que aparece no primeiro quadro e as tres batidas de 15 s.
+# Licoes dos testes reais com o Grok, que valem aqui: exatamente duas maos,
+# uma acao por vez, o produto nunca troca de forma nem sai do quadro, e nada
+# que exija as duas maos atras do pescoco (fecho) ou prender na orelha.
+MESA_SCENES = {
+    'pele': dict(
+        start='sentada a uma mesa, rosto limpo e voltado para a lente, o pote (ou frasco) aberto à frente, sobre a mesa',
+        open='pega um pouco do produto com a ponta de um dedo e mostra a textura em cima do dedo, bem perto da lente',
+        middle='passa o produto na bochecha com toques curtos e leves e depois na testa, sempre com uma mão só, '
+               'enquanto a outra descansa na mesa',
+        close='pega o pote ou frasco com uma mão e o traz até bem perto da lente, de frente, e sustenta por um '
+              'instante, sorrindo',
+        avoid='mão cobrindo a boca, esfregar com força, produto escorrendo, letras legíveis inventadas no rótulo, '
+              'pele mudando de cor ou de textura',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'labios': dict(
+        start='sentada a uma mesa, lábios sem batom, o batom fechado numa das mãos',
+        open='abre o batom e mostra o bastão bem perto da lente',
+        middle='risca a cor no dorso da outra mão e vira a mão devagar para a lente mostrar o tom',
+        close='aproxima o batom aberto da lente, ao lado do rosto, e sorri',
+        avoid='passar o batom nos lábios, mão cobrindo a boca, bastão mudando de forma ou de cor',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'unhas': dict(
+        start='sentada a uma mesa, uma mão apoiada na mesa com as unhas já pintadas, o frasco aberto ao lado',
+        open='levanta a mão com as unhas pintadas até perto da lente e a vira devagar para mostrar a cor',
+        middle='pega o frasco com a outra mão e o mostra ao lado dos dedos para comparar o tom',
+        close='aproxima as unhas da lente e abre os dedos devagar, sorrindo',
+        avoid='pintar as unhas durante o vídeo, dedos a mais ou deformados, cor mudando',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'perfume': dict(
+        start='sentada a uma mesa, o frasco fechado sobre a mesa à frente',
+        open='pega o frasco com as duas mãos e o mostra de frente, bem perto da lente',
+        middle='tira a tampa e borrifa uma vez no pulso, longe do rosto, e mostra o frasco ao lado',
+        close='aproxima o frasco da lente, ao lado do rosto, e sorri',
+        avoid='borrifar perto do rosto, névoa exagerada, letras legíveis inventadas no frasco',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'brinco': dict(
+        start='sentada a uma mesa, uma caixinha aberta à frente com o par de brincos dentro, cabelo preso atrás '
+              'das orelhas',
+        open='pega um brinco da caixinha com a ponta de dois dedos e o traz até bem perto da lente, girando '
+             'devagar para o brilho aparecer',
+        middle='segura o brinco junto à orelha, sem prender, e vira o rosto de leve para um lado e para o outro',
+        close='estende o brinco de novo para a lente, bem perto, e sustenta por um instante, sorrindo',
+        avoid='prender o brinco na orelha, brinco mudando de forma ou de tamanho, orelha deformada',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'colar': dict(
+        start='sentada a uma mesa, o colar estendido sobre a mesa à frente',
+        open='pega o colar pela corrente com as duas mãos e o levanta devagar, bem perto da lente',
+        middle='segura o colar junto ao pescoço, sem fechar o fecho, e vira o rosto de leve',
+        close='afasta o colar até a lente e o balança bem devagar, sorrindo',
+        avoid='fechar o fecho atrás do pescoço, corrente embaraçando ou mudando de forma',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'pulso': dict(
+        start='sentada a uma mesa, a peça já no pulso ou no dedo, a mão apoiada na mesa',
+        open='levanta a mão com a peça até perto da lente e a vira devagar',
+        middle='toca a peça com a ponta do dedo da outra mão e gira o pulso para mostrar de todos os lados',
+        close='aproxima a mão da lente, com a peça em destaque, e sorri',
+        avoid='tirar ou colocar a peça durante o vídeo, dedos a mais ou deformados, peça mudando de forma',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'oculos': dict(
+        start='sentada a uma mesa, os óculos fechados sobre a mesa à frente',
+        open='pega os óculos pelas hastes e os mostra de frente, bem perto da lente',
+        middle='abre as hastes, coloca os óculos no rosto com as duas mãos e solta devagar, olhando para a lente',
+        close='inclina o rosto de leve para um lado, mostrando a armação de perfil, e sorri',
+        avoid='reflexo nas lentes que esconda os olhos, armação mudando de forma, mão cobrindo o rosto',
+        frame='plano médio fechado (cabeça, ombros e a mesa)'),
+    'bolsa': dict(
+        start='sentada a uma mesa, a bolsa fechada sobre a mesa à frente',
+        open='puxa a bolsa para perto da lente, segurando pela alça, e a vira de frente',
+        middle='abre o fecho com uma mão, mostra o interior para a lente e fecha de novo',
+        close='segura a bolsa pela alça, junto ao corpo, de frente, e sorri',
+        avoid='objetos inventados dentro da bolsa, bolsa mudando de forma ou de cor, alça que muda',
+        frame='plano médio (da cabeça até a mesa)'),
+    'roupa': dict(
+        start='sentada a uma mesa, a peça dobrada sobre a mesa à frente',
+        open='pega a peça dobrada e a levanta devagar, segurando pelas laterais, de frente para a lente',
+        middle='desdobra a peça aos poucos, passa a mão no tecido e traz a costura (ou o detalhe) bem perto da lente',
+        close='sustenta a peça aberta, de frente, junto ao corpo, sem vestir, e sorri',
+        avoid='vestir a peça, girar ou mostrar o verso, peça mudando de forma ou de cor, a peça saindo do quadro',
+        frame='plano médio (da cabeça até a mesa)'),
+}
+
+_BELEZA_KINDS = ('pele', 'labios', 'unhas', 'perfume')
+_ACESSORIO_KINDS = ('brinco', 'colar', 'pulso', 'oculos', 'bolsa')
+
+# Atributos que cada grupo NAO pode inventar (sai da lista o que o briefing
+# confirma). Sao as promessas que mais aparecem em video de creme e de joia.
+_MESA_UNCONFIRMED = {
+    'beleza': (
+        ('hidratação', ('hidrat',)),
+        ('resultado na pele', ('resultado', 'viço', 'vico', 'mancha', 'ruga')),
+        ('cheiro', ('cheiro', 'perfum', 'aroma', 'fragr')),
+        ('proteção solar', ('fps', 'protetor', 'proteção', 'protecao')),
+        ('duração e fixação', ('dura', 'horas', 'fixação', 'fixacao')),
+    ),
+    'acessorio': (
+        ('material', ('ouro', 'prata', 'aço', 'aco', 'zircônia', 'zirconia', 'pérola', 'perola', 'couro',
+                      'acetato', 'metal', 'cristal')),
+        ('banho ou garantia', ('banhad', 'garantia', 'hipoalerg')),
+        ('resistência', ('resist', 'água', 'agua', 'não escurece', 'nao escurece')),
+        ('medidas', ('mm', 'cm', 'tamanho')),
+    ),
+}
+
+
+def mesa_kind(c):
+    """Tipo de produto para a cena "Na mesa" ('roupa' quando nada casa)."""
+    text = _text(c)
+    best = None
+    for kind, words in _MESA_KINDS:
+        for word in words:
+            hit = re.search(r'(?<!\w)' + re.escape(word) + r'(?!\w)', text)
+            if hit and (best is None or hit.start() < best[0]):
+                best = (hit.start(), kind)
+    return best[1] if best else 'roupa'
+
+
+def mesa_scene(c):
+    return MESA_SCENES[mesa_kind(c)]
+
+
+def mesa_unconfirmed(c, confirmed_text=''):
+    """Frase "ATRIBUTOS NAO CONFIRMADOS" do grupo do produto, sem o que o
+    briefing confirma. '' para roupa (ai vale a lista de roupa do prompt)."""
+    kind = mesa_kind(c)
+    group = 'beleza' if kind in _BELEZA_KINDS else 'acessorio' if kind in _ACESSORIO_KINDS else ''
+    if not group:
+        return ''
+    low = str(confirmed_text or '').casefold()
+    banned = [name for name, keys in _MESA_UNCONFIRMED[group] if not any(k in low for k in keys)]
+    lista = ', '.join(banned[:-1]) + (' ou ' + banned[-1] if len(banned) > 1 else (banned[0] if banned else ''))
+    return ((f'ATRIBUTOS NÃO CONFIRMADOS: não inventar {lista} — ' if banned else 'ATRIBUTOS: ')
+            + 'nada fora dos FATOS CONFIRMADOS. ')
+
+
+def mesa(c):
+    return video_format(c) == 'mesa'
+
+
 # --------------------------------------------------------------- roteiro
 def script_hook(c, forms, pain=''):
     """Gancho do formato, ou '' para manter o gancho normal."""
@@ -282,6 +455,11 @@ def brief_lines(c, pain=''):
                 'comprou, que chegou pelo correio nem há quanto tempo tem a peça.']
     if fmt == 'asmr':
         return ['FORMATO: close ASMR, sem fala no vídeo (as falas servem só para a legenda).']
+    if fmt == 'mesa':
+        return ['FORMATO: na mesa, de perto. A pessoa está sentada à mesa e mostra o produto com as mãos, bem '
+                'perto da câmera. Fale só do que a câmera mostra (textura, brilho, cor, acabamento). Não fale em '
+                'vestir, caimento, corpo, provador nem em resultado na pele; não diga que comprou, nem há quanto '
+                'tempo usa.']
     return []
 
 
@@ -295,6 +473,8 @@ EDIT_TIPS = {
                    'os trechos bons.',
     'unboxing': 'A imagem-base mostra as mãos tirando a peça da embalagem: aprove-a antes de gerar o vídeo.',
     'asmr': 'Publique com o som original, sem música por cima: o som do tecido é o conteúdo.',
+    'mesa': 'Formato experimental: mãos perto do rosto e objeto pequeno são o que o Grok mais erra. Gere duas '
+            'vezes e fique com a melhor; se o produto mudar de forma no meio, corte antes disso.',
 }
 
 

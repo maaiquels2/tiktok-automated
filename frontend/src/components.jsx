@@ -194,6 +194,7 @@ export const FORMAT_OPTIONS=[
   ['tres_jeitos','3 jeitos de usar','A mesma peça em três looks (experimental)'],
   ['unboxing','Abrindo o pacote','POV tirando a peça da caixa (experimental)'],
   ['asmr','Close ASMR','Sem fala: closes e o som do tecido'],
+  ['mesa','Na mesa, de perto','Sentada à mesa, mostra o produto e traz perto da lente (experimental)'],
 ];
 const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
 const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
