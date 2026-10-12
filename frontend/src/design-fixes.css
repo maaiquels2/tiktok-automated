@@ -406,3 +406,36 @@
 .prompt-score-panel small {
   color: var(--muted);
 }
+
+/* Aviso de nova versão (versionCheck.jsx): canto inferior direito, para não cobrir o menu do topo nem os avisos de
+   erro, que ficam no centro de baixo. No celular ocupa a largura toda, acima do rodapé. */
+.update-toast {
+  z-index: 40;
+  left: auto;
+  right: 16px;
+  bottom: 16px;
+  transform: none;
+  max-width: min(440px, calc(100vw - 32px));
+  flex-wrap: wrap;
+}
+.update-toast > span {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.update-toast-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.update-toast button {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .update-toast {
+    left: 16px;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+  }
+}
