@@ -192,6 +192,9 @@ const ARC_OPTIONS=[
   ['questionada','Questionada','“Sabe o que dizem por aí? Que ela não te valoriza”, e a resposta'],
 ];
 const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];
+// Espelho (validado no Grok) e os formatos com a modelo de frente falando (services/story_arcs.py). POV e so
+// movimento nao tem fala de frente; Na mesa nao e roupa.
+const ARC_FORMATS=['espelho','','comentario','teste','troca_cor','tres_jeitos'];
 const wordCount=text=>(text||'').trim().split(/\s+/).filter(Boolean).length;
 export function StoryArcs({campaignId,variantId=null}){
   const [open,setOpen]=useState(false);
@@ -374,7 +377,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
           </ol>
         </section>
         {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>
-          {(campaign.video_mode||'')==='espelho'&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
+          {ARC_FORMATS.includes(campaign.video_mode||'')&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
       </div>
 
       <section className="rd-drop" ref={dropRef} aria-label={`Vídeo de ${name}`}>

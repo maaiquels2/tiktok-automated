@@ -56,6 +56,34 @@ OPEN_END = ('termina de frente para o espelho, com a mão livre pousada na peça
 FINAL_END = ('no final, de frente para o espelho, a mão livre aponta uma vez para baixo com o indicador, sorrindo')
 GENERIC_MOVE = 'gesticula como quem conversa com uma amiga, passando a mão pela peça enquanto fala dos looks'
 
+# Formato de frente (a modelo fala para a lente, sem celular na mao dela): as mesmas regras do espelho, sem
+# espelho e sem "mao livre". Ainda nao validado no Grok fora do espelho; a tela avisa.
+CONTINUITY_FRENTE = ('CONTINUIDADE: clipe {n} de {total} da MESMA gravação: mesma modelo, mesmo cenário, mesma roupa '
+                     'e mesma luz; o clipe abre na pose da imagem anexada, já falando, sem saudação e sem reapresentar '
+                     'a peça. ')
+OPEN_END_FRENTE = ('termina de frente para a lente, com uma das mãos pousada na peça, no meio do gesto, sem apontar e '
+                   'sem pose de fechamento; a fala segue até o último segundo')
+FINAL_END_FRENTE = 'no final, de frente para a lente, uma das mãos aponta uma vez para baixo com o indicador, sorrindo'
+
+
+def _wording(espelho):
+    """Os textos que mudam entre o espelho (validado) e o formato de frente."""
+    if espelho:
+        return dict(continuity=CONTINUITY, open_end=OPEN_END, final_end=FINAL_END, olhar='olhar na tela do celular',
+                    abre='dá um passo até o espelho com sorriso confiante', mao='com a mão livre',
+                    extend=('mesmo espelho e mesma luz; segue o último quadro sem pausa, o celular sempre na mão dela, '
+                            'na altura do peito, sem cobrir o rosto'))
+    return dict(continuity=CONTINUITY_FRENTE, open_end=OPEN_END_FRENTE, final_end=FINAL_END_FRENTE,
+                olhar='olhar na lente', abre='dá um passo até a câmera com sorriso confiante', mao='com uma das mãos',
+                extend=('mesmo cenário e mesma luz; segue o último quadro sem pausa, câmera na mão, estável, de frente '
+                        'para ela, com o rosto inteiro no quadro'))
+
+
+def _soft_sub(pattern, new, text, flags=0):
+    """Troca uma ocorrencia se existir. Para blocos que o gerador pode omitir no limite do Grok (expressao, prova
+    visual): faltar o bloco nao e erro, so nao ha o que trocar."""
+    return re.sub(pattern, new if callable(new) else (lambda _m: new), text, count=1, flags=flags)
+
 
 class ArcError(Exception):
     """Pedido que o app nao consegue atender (a mensagem e para o operador)."""
@@ -115,6 +143,7 @@ def arc_facts(c, limit=MAX_FACTS):
     """Os motivos: o que o briefing confirma, na ordem em que o operador escreveu (campo Detalhes), mais os
     atributos reconhecidos nos outros campos. Cada fato leva o gesto que o demonstra no espelho."""
     turns = _body_turns(c)
+    mao = _wording(_video_mode(c) == 'espelho')['mao']
     facts, seen_text, seen_label = [], set(), set()
 
     def add(text, label):
@@ -127,7 +156,7 @@ def arc_facts(c, limit=MAX_FACTS):
             gesture = plan[0].split(' → ', 1)[1] if plan else ''
         facts.append(dict(
             text=text, label=label,
-            gesture=gesture or f'mostra com a mão livre, bem à vista, o detalhe "{text}" e volta a mão para a peça'))
+            gesture=gesture or f'mostra {mao}, bem à vista, o detalhe "{text}" e volta a mão para a peça'))
         seen_text.add(key)
         if label:
             seen_label.add(label)
@@ -259,10 +288,10 @@ def _sub1(pattern, new, text, flags=0):
     return result
 
 
-def _opening_of(text):
+def _opening_of(text, w):
     """O que o app manda ela fazer no gancho (ex.: 'dá um passo até o espelho com sorriso confiante...')."""
     m = re.search(r'0–\d+s HOOK: [^;]*; a modelo (.*?)\. Fala \(PT-BR\):', text)
-    return m.group(1) if m else 'dá um passo até o espelho com sorriso confiante'
+    return m.group(1) if m else w['abre']
 
 
 def _moves(clip_facts):
@@ -271,11 +300,12 @@ def _moves(clip_facts):
     return ' e, em seguida, '.join(f['gesture'] for f in clip_facts)
 
 
-def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None):
+def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, w=None):
+    w = w or _wording(True)
     final = n == total
     pack = generate(source, script=dict(hook=lines[0], development=lines[1], cta=lines[2]), base_image=base_image)
     text = pack['video']
-    opening = opening or _opening_of(text)
+    opening = opening or _opening_of(text, w)
     if n == 1:
         # o clipe 1 abre como o app ja abre o gancho do espelho e segue pelos gestos dos fatos
         abertura, meio = opening, _moves(clip_facts)
@@ -288,18 +318,21 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None):
             abertura, meio = base, GENERIC_MOVE
     acoes = f'{abertura}; {meio}' if meio else abertura
     # a PROVA VISUAL fixa do app e trocada pela coreografia do clipe (os gestos dos fatos)
-    text = _sub1(r'PROVA VISUAL — [^\n]*\n', '', text)
+    # (o bloco pode faltar: sem fato com gesto o gerador nao escreve PROVA VISUAL)
+    text = _soft_sub(r'PROVA VISUAL — [^\n]*\n', '', text)
     start = re.search(r'ENCERRAMENTO \((\d+)–15s\)', text).group(1)
+    # "AÇÕES (...)" aceita qualquer rotulo: com tecnicas (esticar, ousado) o gerador escreve "na ordem, a
+    # primeira e obrigatoria" em vez de "escolha 2 a 3", e a sequencia caia com erro.
     if final:
-        text = _sub1(r'AÇÕES \(escolha 2 a 3[^)]*\): .*?ENCERRAMENTO \(\d+–15s\):',
+        text = _sub1(r'AÇÕES \([^)]*\): .*?ENCERRAMENTO \(\d+–15s\):',
                      f'AÇÕES (na ordem, emendadas, sem parar nem posar): {acoes}. ENCERRAMENTO ({start}–15s):',
                      text, re.S)
     else:
-        text = _sub1(r'AÇÕES \(escolha 2 a 3[^)]*\): .*? EXPRESSÃO:',
+        text = _sub1(r'AÇÕES \([^)]*\): .*?ENCERRAMENTO \(\d+–15s\): .*? (?=EXPRESSÃO:|\n)',
                      f'AÇÕES (na ordem, emendadas, sem parar nem posar): {acoes}. ENCERRAMENTO ({start}–15s): '
-                     f'{OPEN_END}. EXPRESSÃO:', text, re.S)
-        text = _sub1(r'EXPRESSÃO: encanto → orgulho → convite sorridente\.',
-                     'EXPRESSÃO: encanto → curiosidade (sem convite de compra).', text)
+                     f'{w["open_end"]}. ', text, re.S)
+        # A expressao muda com a tatica (desejo, necessidade, escassez): qualquer uma vira curiosidade aqui.
+        text = _soft_sub(r'EXPRESSÃO: [^.\n]*\.', 'EXPRESSÃO: encanto → curiosidade (sem convite de compra).', text)
         text = _sub1(r'(\d+)–15s CTA: [^\n]*?Fala \(PT-BR\):',
                      lambda m: f'{m.group(1)}–15s FIM DO TRECHO (a venda NÃO fecha aqui): sem apontar para baixo e '
                                'sem pose de fechamento; segue o gesto e a fala'
@@ -307,10 +340,10 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None):
     if n > 1:
         text = _sub1(r'0–(\d+)s HOOK: [^\n]*?Fala \(PT-BR\):',
                      lambda m: f'0–{m.group(1)}s CONTINUAÇÃO (não é um hook novo: não recomeçar, não reapresentar '
-                               'a peça): olhar na tela do celular, já falando, na pose da imagem anexada, sem '
+                               f'a peça): {w["olhar"]}, já falando, na pose da imagem anexada, sem '
                                'recomeçar. Fala (PT-BR):', text)
         text = _sub1(r'(ANEXE a IMAGEM APROVADA da cor [^.]*\.)',
-                     lambda m: m.group(1) + ' ' + CONTINUITY.format(n=n, total=total), text)
+                     lambda m: m.group(1) + ' ' + w['continuity'].format(n=n, total=total), text)
     # O Grok corta em 4000 caracteres sem avisar: cortes de baixa prioridade, um de cada vez, so se passar.
     for pattern in (r' Notas adicionais do operador \(não são falas\): [^.]*\. ',
                     r' Estilo visual: natural e realista\.',
@@ -327,11 +360,12 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None):
     return text, opening, acoes
 
 
-def _guide(source, n, total, lines, acoes):
+def _guide(source, n, total, lines, acoes, w=None):
+    w = w or _wording(True)
     final = n == total
     pack = dict(hook=lines[0], development=lines[1], cta=lines[2])
     text = build_compact_video_prompt(source, pack, source.get('color') or '')
-    fim = FINAL_END if final else OPEN_END + (f'; {LAST_WORD}' if n > 1 else '')
+    fim = w['final_end'] if final else w['open_end'] + (f'; {LAST_WORD}' if n > 1 else '')
     text = _sub1(r'(?m)^Ação contínua, sem pausas:.*$',
                  f'Ação contínua, sem pausas: ela {acoes}; {fim}. Cada gesto começa enquanto o anterior termina: '
                  'nada de parar, posar ou recomeçar entre uma ação e outra.', text)
@@ -339,16 +373,16 @@ def _guide(source, n, total, lines, acoes):
         text = _sub1(r'(?m)^Expressão: .*$', 'Expressão: encanto → curiosidade (sem convite de compra).', text)
     if n > 1:
         text = _sub1(r'(?m)^A imagem anexada é o primeiro quadro: ',
-                     CONTINUITY.format(n=n, total=total) + 'A imagem anexada é o primeiro quadro: ', text)
+                     w['continuity'].format(n=n, total=total) + 'A imagem anexada é o primeiro quadro: ', text)
     return text
 
 
-def _extend(n, total, lines, acoes):
+def _extend(n, total, lines, acoes, w=None):
+    w = w or _wording(True)
     final = n == total
-    fim = FINAL_END if final else OPEN_END
+    fim = w['final_end'] if final else w['open_end']
     return (
-        'Continuação do mesmo take, já em movimento: mesma pessoa, mesma roupa, mesmo espelho e mesma luz; segue o '
-        'último quadro sem pausa, o celular sempre na mão dela, na altura do peito, sem cobrir o rosto.\n'
+        f'Continuação do mesmo take, já em movimento: mesma pessoa, mesma roupa, {w["extend"]}.\n'
         f'Ela {acoes}. Ela emenda a fala no mesmo tom, como quem conta uma descoberta para uma amiga: '
         f'"{" ".join(lines)}"\n{_cap(fim)}.' + ('' if final else ' Termina em movimento, sem parar no último quadro.')
         + '\nFala: espontânea, voz feminina em português do Brasil, lábios sincronizados, só o que está entre '
@@ -379,9 +413,14 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
         raise ArcError('Escolha o arco Motivos ou Questionada.', 400)
     if clips not in CLIP_COUNTS:
         raise ArcError('Escolha 2 ou 3 clipes.', 400)
-    if _video_mode(c) != 'espelho':
-        raise ArcError('A sequência storytelling está validada para o formato "Celular no espelho". Troque o '
-                       'formato do vídeo e tente de novo.')
+    # Espelho (validado no Grok) e os formatos com a modelo de frente falando para a lente (Com fala, Teste de
+    # prova, Respondendo comentario, Troca de cor, 3 jeitos). POV e so movimento nao tem fala de frente.
+    espelho = _video_mode(c) == 'espelho'
+    if not espelho and _video_mode(c) != '':
+        raise ArcError('A sequência storytelling funciona nos formatos "Celular no espelho" e com a modelo de frente '
+                       'falando (Com fala, Teste de prova, Respondendo comentário, Troca de cor). Troque o formato '
+                       'do vídeo e tente de novo.')
+    w = _wording(espelho)
     if _product_family(c) not in ('moda', 'infantil'):
         raise ArcError('A sequência storytelling está disponível para roupas. Para creme, brinco e colar use o '
                        'formato "Na mesa, de perto".')
@@ -394,13 +433,15 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
     drafted = lines is None
     clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts)] if drafted
                   else _normalize_lines(lines, clips))
-    source = {**c, 'color': color, 'video_mode': 'espelho'}
+    # De frente, a sequencia traz falas proprias: o formato da campanha (teste, comentario...) nao entra nos
+    # clipes, so a base de camera de frente.
+    source = {**c, 'color': color, 'video_mode': 'espelho' if espelho else ''}
     roles = _ROLES[(arc, clips)]
     screens = _SCREEN[arc] if clips == 3 else (_SCREEN[arc][0], _SCREEN[arc][2])
     result, opening = [], None
     for i, (trio, role, screen) in enumerate(zip(clip_lines, roles, screens), 1):
         facts_here = _clip_facts(arc, clips, i - 1, facts)
-        full, opening, acoes = _full_prompt(source, i, clips, trio, facts_here, base_image, opening)
+        full, opening, acoes = _full_prompt(source, i, clips, trio, facts_here, base_image, opening, w)
         words = sum(_count_words(part) for part in trio)
         problems = list(honesty_audit(dict(hook=trio[0], development=trio[1], cta=trio[2]), source,
                                       require_caption=False, strict_style=False))
@@ -415,8 +456,8 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
         result.append(dict(
             index=i, role=role, final=i == clips, seconds=SECONDS_PER_CLIP, lines=list(trio), words=words,
             spoken=' '.join(trio), screen_text=screen, problems=problems,
-            prompt=full, guide=_guide(source, i, clips, trio, acoes),
-            extend=_extend(i, clips, trio, acoes) if i > 1 else '',
+            prompt=full, guide=_guide(source, i, clips, trio, acoes, w),
+            extend=_extend(i, clips, trio, acoes, w) if i > 1 else '',
             start='imagem aprovada' if i == 1 else 'a mesma imagem aprovada do clipe 1'))
     capcut = [
         'Todos os clipes na mesma resolução e fps antes de soltar na timeline.',
@@ -437,6 +478,10 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
         'Se preferir uma emenda invisível, use o prompt de Extend Video do clipe 2 no vídeo do clipe 1.',
     ]
     notes = ['As falas são um rascunho: leia, ajuste ao seu jeito de falar e confira se cada motivo é verdade.']
+    if not espelho:
+        notes.append('Com a modelo de frente, esta sequência ainda não foi testada no Grok (a validada é a do '
+                     'espelho): gere o clipe 1 primeiro e confira antes de seguir. O formato da campanha (teste, '
+                     'comentário...) não entra nos clipes: a sequência traz falas próprias.')
     if arc == 'questionada':
         notes.append('"Sabe o que dizem por aí..." é recurso retórico: não cita pessoa nem comentário real. Se '
                      'houver um comentário de verdade, vale trocar pela pergunta dele.')
