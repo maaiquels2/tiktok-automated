@@ -43,7 +43,7 @@ AI_LIMIT, AI_WINDOW = 20, 60
 AI_ENDPOINTS = {'analyze_product_photo', 'analyze_product_photo_confirm', 'quick_brief', 'save_writer_settings',
                 'test_writer', 'generate_prompts', 'generate_prompt_variants', 'refresh_single_script',
                 'refresh_variant_script', 'refresh_all_variant_scripts'}
-FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style','sequence_clips','sequence_arc']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
 # continua proibindo letra no quadro). Ficam fora de PROMPTS de proposito:
@@ -59,7 +59,8 @@ EXTRA_PROMPTS = ['cover_text','screen_text']
 # da nuvem, que nao era migrado, respondia 'column does not exist'.
 CAMPAIGN_COLUMNS = {k: "TEXT NOT NULL DEFAULT ''" for k in
                     ['audience','benefit','angle','tone','style','details','movements','body_turns',
-                     'migration_note','niche','objection','offer','motor','video_mode','social_proof','video_style']}
+                     'migration_note','niche','objection','offer','motor','video_mode','social_proof','video_style',
+                     'sequence_clips','sequence_arc']}
 CAMPAIGN_COLUMNS.update(version='INTEGER NOT NULL DEFAULT 1',
                         layout="TEXT NOT NULL DEFAULT '{}'",
                         checklist="TEXT NOT NULL DEFAULT '{}'",
@@ -1156,6 +1157,21 @@ def create_app(config=None):
         if len(style_values&set(formats.TECHNIQUES))>formats.MAX_TECHNIQUES:
             raise Invalid(f'Escolha no máximo {formats.MAX_TECHNIQUES} técnicas de retenção por vídeo.')
         values['video_style']=','.join(key for key in formats.STYLE_TOKENS if key in style_values)
+        # Tipo de video escolhido na criacao: clipe unico ou sequencia de 2/3 clipes (services/story_arcs.py).
+        # Com sequencia, as mesmas exigencias da etapa de video (formato, roupa, 3 fatos) aparecem aqui.
+        seq_clips=(values.get('sequence_clips') or '').strip()
+        seq_arc=(values.get('sequence_arc') or '').strip()
+        if seq_clips not in ('','2','3'):
+            raise Invalid('Tipo de vídeo inválido: clipe único, sequência de 2 ou de 3 clipes.')
+        if seq_clips:
+            seq_arc=seq_arc or 'motivos'
+            if seq_arc not in ('motivos','questionada'):
+                raise Invalid('Escolha o arco da sequência: Motivos ou Questionada.')
+            from services.story_arcs import sequence_problem
+            problema=sequence_problem(values)
+            if problema:
+                raise Invalid(problema)
+        values['sequence_clips'],values['sequence_arc']=seq_clips,(seq_arc if seq_clips else '')
         from services.prompts import _VIDEO_MODE_ALIASES
         mode=(values.get('video_mode') or '').strip()
         if mode and mode.casefold() not in set(_VIDEO_MODE_ALIASES)|set(formats.FORMATS):

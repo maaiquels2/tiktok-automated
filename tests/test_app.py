@@ -2056,7 +2056,9 @@ class WorkflowTests(unittest.TestCase):
             return ctx.exception
         self.assertEqual(erro(c,arc='dancinha').status,400)
         self.assertEqual(erro(c,clips=4).status,400)
-        self.assertIn('Celular no espelho',str(erro({**c,'video_mode':''})))
+        # Formato sem a modelo de frente falando (POV, so movimento) continua recusado.
+        self.assertIn('Celular no espelho',str(erro({**c,'video_mode':'pov'})))
+        self.assertIn('Celular no espelho',str(erro({**c,'video_mode':'movimento'})))
         self.assertIn('Na mesa',str(erro({**c,'product':'Creme facial','outfit':'creme'})))
         poucos=erro({**c,'details':'cintura alta, lavagem clara'})
         self.assertEqual(poucos.status,409)
@@ -2116,6 +2118,93 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,variant=99999)).status_code,404)
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,variant='abc')).status_code,400)
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,lines=[['a','b','c']])).status_code,400)
+
+    def test_story_arc_works_with_the_model_facing_the_camera(self):
+        # Pedido real: campanha em "Teste de prova" nao mostrava a sequencia de 2 ou 3 clipes. De frente, os
+        # clipes nao falam de espelho nem de celular na mao, e o formato da campanha nao entra nos clipes.
+        from services.story_arcs import build_story_arc
+        for modo in ('','teste','comentario','troca_cor'):
+            for arc in ('motivos','questionada'):
+                for clips in (2,3):
+                    c=self.arc_campaign(video_mode=modo)
+                    r=build_story_arc(c,c['color'],arc,clips)
+                    self.assertTrue(any('não foi testada no Grok' in n for n in r['notes']))
+                    for clip in r['clips']:
+                        for texto in (clip['prompt'],clip['guide'],clip['extend']):
+                            self.assertNotRegex(texto,r'(?i)espelho|celular sempre na mão|mão livre|tela do celular')
+                        self.assertLessEqual(len(clip['prompt']),3940,(modo,arc,clips,clip['index']))
+                        self.assertEqual(clip['problems'],[],(modo,arc,clips,clip['index']))
+                        self.assertNotIn('o teste do',clip['prompt'])
+                    self.assertIn('CONTINUIDADE: clipe 2',r['clips'][1]['prompt'])
+                    self.assertIn('mesmo cenário',r['clips'][1]['prompt'])
+                    self.assertIn('olhar na lente',r['clips'][1]['prompt'])
+                    self.assertIn('de frente para a lente',r['clips'][-1]['guide'])
+
+    def test_story_arc_endpoint_accepts_front_formats_and_refuses_the_table(self):
+        # Campanha real do pedido: Casaco Puffer em "Teste de prova". Sem Detalhes explica o que falta; com 3
+        # fatos monta. "Na mesa" cai na mesma base de camera, mas nao tem modelo: continua recusado.
+        puffer=dict(product='Casaco Puffer',outfit='Casaco Puffer',color='preto',niche='casual',details='',
+                    video_mode='teste')
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer},headers=self.headers).json['id']
+        vazio=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(vazio.status_code,409)
+        self.assertIn('Detalhes',vazio.json['error'])
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer,
+                                                         'details':'capuz, zíper frontal, bolsos laterais'},
+                                  headers=self.headers).json['id']
+        ok=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(ok.status_code,200,ok.json)
+        self.assertEqual(ok.json['clips_count'],2)
+        self.assertEqual(ok.json['facts'],['capuz','zíper frontal','bolsos laterais'])
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**self.ARC_PRODUCTS['jeans'],'video_mode':'mesa'},
+                                  headers=self.headers).json['id']
+        mesa=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(mesa.status_code,409)
+
+    def test_story_arc_ignores_the_niche_default_text_in_details(self):
+        # Teste real: "Destacar textura e modelagem" (texto padrao da moda casual) virava motivo da sequencia.
+        import json as _json
+        from services.story_arcs import arc_facts
+        src=(Path(__file__).resolve().parents[1]/'frontend'/'src'/'nicheDefaults.js').read_text(encoding='utf-8')
+        padroes=_json.loads(src[src.index('{'):src.rindex('}')+1])
+        for nicho,valores in padroes.items():
+            c=self.arc_campaign(niche=nicho,details=valores.get('details',''))
+            self.assertEqual(arc_facts(c),[],nicho)
+        misto=self.arc_campaign(niche='casual',details=padroes['casual']['details']+' capuz, zíper frontal, bolsos laterais')
+        self.assertEqual([f['text'] for f in arc_facts(misto)],['capuz','zíper frontal','bolsos laterais'])
+
+    def test_sequence_is_chosen_at_creation_and_checked_there(self):
+        # Pedido real: escolher a sequencia no inicio (o painel no fim da etapa de video passava despercebido).
+        base={**self.brief,**self.ARC_PRODUCTS['jeans'],'video_mode':'espelho'}
+        def criar(**extra):
+            return self.client.post('/api/campaigns',json={**base,**extra},headers=self.headers)
+        unico=criar()
+        self.assertEqual(unico.status_code,201,unico.json)
+        self.assertEqual((unico.json['sequence_clips'],unico.json['sequence_arc']),('',''))
+        ok=criar(sequence_clips='3')
+        self.assertEqual(ok.status_code,201,ok.json)
+        self.assertEqual((ok.json['sequence_clips'],ok.json['sequence_arc']),('3','motivos'))
+        self.assertEqual(criar(sequence_clips='2',sequence_arc='questionada').json['sequence_arc'],'questionada')
+        sem_fatos=criar(sequence_clips='2',details='Destacar textura e modelagem.')
+        self.assertEqual(sem_fatos.status_code,400)
+        self.assertIn('Detalhes',sem_fatos.json['error'])
+        pov=criar(sequence_clips='2',video_mode='pov')
+        self.assertEqual(pov.status_code,400)
+        self.assertIn('Celular no espelho',pov.json['error'])
+        self.assertEqual(criar(sequence_clips='4').status_code,400)
+        self.assertEqual(criar(sequence_clips='2',sequence_arc='dancinha').status_code,400)
+
+    def test_story_arc_survives_objection_and_techniques(self):
+        # Com objecao (expressao de "necessidade") ou tecnicas (rotulo de AÇÕES diferente) a sequencia caia com
+        # erro 500 porque procurava um texto fixo do prompt.
+        from services.story_arcs import build_story_arc
+        for modo in ('espelho',''):
+            for estilo in ('','estica','closes,ousado,estica','acao,loop'):
+                c=self.arc_campaign(video_mode=modo,objection='aperta na cintura',video_style=estilo)
+                r=build_story_arc(c,c['color'],'motivos',3)
+                self.assertEqual(len(r['clips']),3)
+                # No limite do Grok o gerador pode tirar o bloco EXPRESSÃO; se ele existir, e de curiosidade.
+                self.assertNotRegex(r['clips'][0]['prompt'],r'EXPRESSÃO: (?!encanto → curiosidade)')
 
     def test_story_arc_endpoint_explains_when_the_campaign_does_not_fit(self):
         mesa=self.client.post('/api/campaigns',json={**self.brief,**self.ARC_PRODUCTS['jeans'],'video_mode':'pov'},
