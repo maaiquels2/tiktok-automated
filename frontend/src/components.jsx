@@ -96,7 +96,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:'',video_style:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:'',video_style:'',sequence_clips:'',sequence_arc:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -196,10 +196,41 @@ const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];
 // movimento nao tem fala de frente; Na mesa nao e roupa.
 const ARC_FORMATS=['espelho','','comentario','teste','troca_cor','tres_jeitos'];
 const wordCount=text=>(text||'').trim().split(/\s+/).filter(Boolean).length;
-export function StoryArcs({campaignId,variantId=null}){
-  const [open,setOpen]=useState(false);
-  const [arc,setArc]=useState('motivos');
-  const [clips,setClips]=useState(3);
+// Tipo de video escolhido na CRIACAO: a sequencia envolve prompts novos e 3 fatos da peca, entao a escolha
+// fica no inicio (pedido real: o painel no fim da etapa de video passava despercebido).
+export const SEQUENCE_FORMATS=ARC_FORMATS;
+const SEQUENCE_TYPES=[['','Clipe único','Um vídeo de 15 s'],['2','Sequência de 2 clipes','Cerca de 30 s, falas novas em cada clipe'],
+  ['3','Sequência de 3 clipes','Cerca de 45 s, falas novas em cada clipe']];
+export const factCount=text=>String(text||'').split(/[,;\n]+/).map(s=>s.trim()).filter(s=>s&&s.split(/\s+/).length<=5).length;
+export function SequenceChoice({clips,arc,format,onClips,onArc,idPrefix='seq'}){
+  const foraDoFormato=clips&&!SEQUENCE_FORMATS.includes(format||'');
+  return <div className="option-field sequence-choice">
+    <span className="option-field-title" id={`${idPrefix}-type`}>Tipo de vídeo</span>
+    <div className="generator-options" role="radiogroup" aria-labelledby={`${idPrefix}-type`}>
+      {SEQUENCE_TYPES.map(([id,label,hint])=><label key={id||'unico'} className={'generator-option '+((clips||'')===id?'selected':'')}>
+        <input type="radio" name={`${idPrefix}-type`} value={id} checked={(clips||'')===id} onChange={()=>onClips(id)}/>
+        <span><strong>{label}</strong><small>{hint}</small></span>
+      </label>)}
+    </div>
+    {clips&&<>
+      <span className="option-field-title" id={`${idPrefix}-arc`}>Arco da sequência</span>
+      <div className="generator-options" role="radiogroup" aria-labelledby={`${idPrefix}-arc`}>
+        {ARC_OPTIONS.map(([id,label,hint])=><label key={id} className={'generator-option '+((arc||'motivos')===id?'selected':'')}>
+          <input type="radio" name={`${idPrefix}-arc`} value={id} checked={(arc||'motivos')===id} onChange={()=>onArc(id)}/>
+          <span><strong>{label}</strong><small>{hint}</small></span>
+        </label>)}
+      </div>
+      <small className="help">Todos os clipes partem da mesma imagem aprovada: a etapa de imagem não muda. Os prompts de cada clipe ficam prontos na etapa de vídeo.</small>
+      {foraDoFormato&&<small className="help story-arc-problem">⚠ A sequência funciona em Celular no espelho e nos formatos com a modelo de frente falando (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Troque o formato do vídeo.</small>}
+    </>}
+  </div>;
+}
+
+export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=0,autoBuild=false}){
+  // Escolhida na criacao da campanha: ja abre com o arco e os clipes marcados e monta sozinha.
+  const [open,setOpen]=useState(autoBuild);
+  const [arc,setArc]=useState(initialArc||'motivos');
+  const [clips,setClips]=useState(Number(initialClips)||3);
   const [data,setData]=useState(null);
   const [drafts,setDrafts]=useState([]);
   const [loading,setLoading]=useState(false);
@@ -213,6 +244,7 @@ export function StoryArcs({campaignId,variantId=null}){
     finally{setLoading(false)}
   }
   const choose=(setter,value)=>{setter(value);setData(null);setMessage('')};
+  useEffect(()=>{if(autoBuild)build()},[]);
   return <section className="story-sequence story-arcs">
     <button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={open}>
       <span className="rd-story-eyebrow">STORYTELLING EM VÁRIOS CLIPES</span>
@@ -332,6 +364,9 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
       {image?<AssetView asset={image} title={`Imagem aprovada · ${name}`} compact/>:<div className="notice">Falta a imagem aprovada de {name}.</div>}
     </aside>
     <div className="rd-wb-main">
+      {campaign?.id&&campaign.sequence_clips&&ARC_FORMATS.includes(campaign.video_mode||'')&&<div className="rd-story rd-story-top">
+        <StoryArcs key={`arcs-top-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}
+          initialArc={campaign.sequence_arc} initialClips={campaign.sequence_clips} autoBuild/></div>}
       <section className="rd-card" aria-label="Prompt de vídeo">
         <div className="rd-card-head"><h3>Prompt de vídeo{color?` · ${color}`:''}</h3><PromptScore text={p.video}/></div>
         <div className="rd-segments">
@@ -377,7 +412,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
           </ol>
         </section>
         {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>
-          {ARC_FORMATS.includes(campaign.video_mode||'')&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
+          {ARC_FORMATS.includes(campaign.video_mode||'')&&!campaign.sequence_clips&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
       </div>
 
       <section className="rd-drop" ref={dropRef} aria-label={`Vídeo de ${name}`}>
@@ -1320,6 +1355,16 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
           <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
         </div>
+        <SequenceChoice clips={draft.sequence_clips} arc={draft.sequence_arc} format={draft.video_mode} idPrefix="brief-seq"
+          onArc={id=>change('sequence_arc',id)}
+          onClips={id=>{change('sequence_clips',id);if(id&&!draft.sequence_arc)change('sequence_arc','motivos');
+            // O Detalhes nasce com a direcao de cena da moda: na sequencia ele vira os "motivos", entao comeca vazio.
+            if(id&&String(draft.details||'').trim()===String((NICHE_DEFAULTS[draft.niche]||{}).details||'').trim())change('details','')}}/>
+        {draft.sequence_clips&&<label className="sequence-facts">Fatos da peça (os motivos da sequência)
+          <textarea autoComplete="off" rows={2} value={draft.details||''} onChange={e=>change('details',e.target.value)}
+            placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={5000}/>
+          <small className="help">Pelo menos 3 fatos verdadeiros da peça, separados por vírgula ({factCount(draft.details)} escritos). É o mesmo campo Detalhes.</small>
+        </label>}
         {/* Motor, formato e orientacao ocupavam boa parte do formulario, cada um
             com um paragrafo de ajuda. Ficam recolhidos, com a escolha atual no
             titulo; abrem sozinhos se ja tiver algo diferente do padrao. */}
@@ -2585,6 +2630,9 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [format,setFormat]=useState('');
   const [turn,setTurn]=useState(true);
   const [style,setStyle]=useState('');
+  const [seqClips,setSeqClips]=useState('');
+  const [seqArc,setSeqArc]=useState('motivos');
+  const [facts,setFacts]=useState('');
   const [reading,setReading]=useState(false);
   const [urls,setUrls]=useState([]);
   useEffect(()=>{
@@ -2597,7 +2645,12 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     try{
       const {brief}=await quickBrief(products,description,niche,colorsPhoto);
       const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':'',
-        video_style:style};
+        video_style:style,sequence_clips:seqClips,sequence_arc:seqClips?seqArc:''};
+      if(seqClips){
+        // Os fatos escritos aqui vem primeiro; os que a IA leu da foto e do print completam.
+        const lidos=String(brief.details||'').trim();
+        values.details=[facts.trim(),lidos].filter(Boolean).join(', ');
+      }
       if(!values.color){onError?.('A IA não achou as cores. Suba a foto das cores ou escreva as cores e tente de novo.');return}
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
       const message='Campanha automática criada: roteiro e prompts do Grok prontos. Cores: '+values.color+'.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
@@ -2637,6 +2690,9 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
         <button type="button" key={id||'fala'} role="radio" aria-checked={format===id} className="rd-chip-tab"
           aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>)}
     </div>
+    <SequenceChoice clips={seqClips} arc={seqArc} format={format} onClips={setSeqClips} onArc={setSeqArc} idPrefix="auto-seq"/>
+    {seqClips&&<label>Fatos da peça (opcional, completam o que a IA lê)<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={300}/></label>}
+    {seqClips&&<small className="help">A sequência precisa de 3 fatos da peça. Se a IA não achar 3 na foto e no print, a campanha não é criada e o aviso diz o que faltou: escreva aqui e tente de novo.</small>}
     <label className="quick-confirm"><input type="checkbox" checked={turn} onChange={e=>setTurn(e.target.checked)}/> Girar um pouco de lado para mostrar a peça (sem mostrar as costas)</label>
     <span className="option-field-title" id="auto-style">Câmera e técnicas (opcional)</span>
     <StyleChips value={style} onChange={setStyle} labelledBy="auto-style"/>

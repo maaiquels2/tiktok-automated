@@ -2161,6 +2161,39 @@ class WorkflowTests(unittest.TestCase):
         mesa=self.post('/story-arc',dict(arc='motivos',clips=2))
         self.assertEqual(mesa.status_code,409)
 
+    def test_story_arc_ignores_the_niche_default_text_in_details(self):
+        # Teste real: "Destacar textura e modelagem" (texto padrao da moda casual) virava motivo da sequencia.
+        import json as _json
+        from services.story_arcs import arc_facts
+        src=(Path(__file__).resolve().parents[1]/'frontend'/'src'/'nicheDefaults.js').read_text(encoding='utf-8')
+        padroes=_json.loads(src[src.index('{'):src.rindex('}')+1])
+        for nicho,valores in padroes.items():
+            c=self.arc_campaign(niche=nicho,details=valores.get('details',''))
+            self.assertEqual(arc_facts(c),[],nicho)
+        misto=self.arc_campaign(niche='casual',details=padroes['casual']['details']+' capuz, zíper frontal, bolsos laterais')
+        self.assertEqual([f['text'] for f in arc_facts(misto)],['capuz','zíper frontal','bolsos laterais'])
+
+    def test_sequence_is_chosen_at_creation_and_checked_there(self):
+        # Pedido real: escolher a sequencia no inicio (o painel no fim da etapa de video passava despercebido).
+        base={**self.brief,**self.ARC_PRODUCTS['jeans'],'video_mode':'espelho'}
+        def criar(**extra):
+            return self.client.post('/api/campaigns',json={**base,**extra},headers=self.headers)
+        unico=criar()
+        self.assertEqual(unico.status_code,201,unico.json)
+        self.assertEqual((unico.json['sequence_clips'],unico.json['sequence_arc']),('',''))
+        ok=criar(sequence_clips='3')
+        self.assertEqual(ok.status_code,201,ok.json)
+        self.assertEqual((ok.json['sequence_clips'],ok.json['sequence_arc']),('3','motivos'))
+        self.assertEqual(criar(sequence_clips='2',sequence_arc='questionada').json['sequence_arc'],'questionada')
+        sem_fatos=criar(sequence_clips='2',details='Destacar textura e modelagem.')
+        self.assertEqual(sem_fatos.status_code,400)
+        self.assertIn('Detalhes',sem_fatos.json['error'])
+        pov=criar(sequence_clips='2',video_mode='pov')
+        self.assertEqual(pov.status_code,400)
+        self.assertIn('Celular no espelho',pov.json['error'])
+        self.assertEqual(criar(sequence_clips='4').status_code,400)
+        self.assertEqual(criar(sequence_clips='2',sequence_arc='dancinha').status_code,400)
+
     def test_story_arc_survives_objection_and_techniques(self):
         # Com objecao (expressao de "necessidade") ou tecnicas (rotulo de AÇÕES diferente) a sequencia caia com
         # erro 500 porque procurava um texto fixo do prompt.

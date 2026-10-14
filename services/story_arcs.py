@@ -33,6 +33,7 @@ from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
     _PRODUCT_FEATURES, _SPOKEN_OCCASION, _body_turns, _count_words, _cta_pool, _pick_in_budget, _piece_forms,
     _product_family, _product_features, _proof_gestures, _video_details, _video_mode, generate,
+    without_niche_defaults,
 )
 
 ARCS = {
@@ -165,12 +166,15 @@ def arc_facts(c, limit=MAX_FACTS):
         if label:
             seen_label.add(label)
 
-    details = _video_details(c.get('details') or '')
+    # O campo Detalhes nasce com o texto padrao da moda (direcao de cena: "Destacar textura e modelagem").
+    # Teste real: ele virava "motivo" da sequencia. So conta o que a pessoa escreveu.
+    details = _video_details(without_niche_defaults(c.get('details') or ''))
     for chunk in re.split(r'\s*[,;]\s*|(?<=[.!?])\s+|\n+', details):
         chunk = chunk.strip(' .;')
         if not chunk or len(chunk.split()) > 5:
             continue
-        if re.match(r'^(mostr|demonstr|aproxim|gir|ajust|fa[çc]a|use)\w*\b', _norm(chunk)):
+        if re.match(r'^(mostr|demonstr|aproxim|gir|ajust|fa[çc]a|use|destac|mant[ei]|evit|identidade|rosto)\w*\b',
+                    _norm(chunk)):
             continue   # direcao de cena, nao fato
         add(chunk, _feature_label(chunk))
     for label in _product_features(c, limit=50):
@@ -417,6 +421,26 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
         raise ArcError('Escolha o arco Motivos ou Questionada.', 400)
     if clips not in CLIP_COUNTS:
         raise ArcError('Escolha 2 ou 3 clipes.', 400)
+    espelho, facts = check_campaign(c)
+    w = _wording(espelho)
+    drafted = lines is None
+    clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts)] if drafted
+                  else _normalize_lines(lines, clips))
+    return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w)
+
+
+def sequence_problem(c):
+    """Por que a campanha nao pode ser uma sequencia ('' se pode). Usado na criacao, quando o tipo de video
+    escolhido e sequencia de 2 ou 3 clipes: o aviso aparece ali, e nao so na etapa de video."""
+    try:
+        check_campaign(c)
+    except ArcError as error:
+        return str(error)
+    return ''
+
+
+def check_campaign(c):
+    """Formato, tipo de peca e os 3 fatos. Devolve (espelho, fatos) ou levanta ArcError."""
     # Espelho (validado no Grok) e os formatos com a modelo de frente falando para a lente (Com fala, Teste de
     # prova, Respondendo comentario, Troca de cor, 3 jeitos). POV e so movimento nao tem fala de frente.
     espelho = _video_mode(c) == 'espelho'
@@ -427,7 +451,6 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
         raise ArcError('A sequência storytelling funciona nos formatos "Celular no espelho" e com a modelo de frente '
                        'falando (Com fala, Teste de prova, Respondendo comentário, Troca de cor). Troque o formato '
                        'do vídeo e tente de novo.')
-    w = _wording(espelho)
     if _product_family(c) not in ('moda', 'infantil'):
         raise ArcError('A sequência storytelling está disponível para roupas. Para creme, brinco e colar use o '
                        'formato "Na mesa, de perto".')
@@ -437,9 +460,11 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
         raise ArcError(f'{achados}. A sequência usa 3 motivos, e cada um precisa ser um fato confirmado: escreva '
                        f'pelo menos 3 no campo Detalhes, separados por vírgula (ex.: cintura alta, lavagem clara, '
                        f'bolsos na frente).')
-    drafted = lines is None
-    clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts)] if drafted
-                  else _normalize_lines(lines, clips))
+    return espelho, facts
+
+
+def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w):
+    """Prompts de cada clipe, montagem no CapCut e o texto para copiar."""
     # De frente, a sequencia traz falas proprias: o formato da campanha (teste, comentario...) nao entra nos
     # clipes, so a base de camera de frente.
     source = {**c, 'color': color, 'video_mode': 'espelho' if espelho else ''}
