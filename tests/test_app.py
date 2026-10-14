@@ -2161,6 +2161,23 @@ class WorkflowTests(unittest.TestCase):
         mesa=self.post('/story-arc',dict(arc='motivos',clips=2))
         self.assertEqual(mesa.status_code,409)
 
+    def test_story_arc_takes_facts_for_this_sequence_without_touching_the_briefing(self):
+        # Editar o Detalhes de campanha com imagem aprovada apaga a imagem e os prompts: os fatos podem vir so no
+        # pedido da sequencia, sem gravar nada.
+        puffer=dict(product='Casaco Puffer',outfit='Casaco Puffer',color='preto',niche='casual',
+                    details='Destacar textura e modelagem.',video_mode='espelho')
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer},headers=self.headers).json['id']
+        antes=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2)).status_code,409)
+        ok=self.post('/story-arc',dict(arc='motivos',clips=2,facts='capuz, zíper frontal, bolsos laterais'))
+        self.assertEqual(ok.status_code,200,ok.json)
+        self.assertEqual(ok.json['facts'],['capuz','zíper frontal','bolsos laterais'])
+        depois=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual((depois['details'],depois['version'],depois['status']),
+                         (antes['details'],antes['version'],antes['status']))
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,facts=['capuz'])).status_code,400)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,facts='x'*501)).status_code,400)
+
     def test_story_arc_ignores_the_niche_default_text_in_details(self):
         # Teste real: "Destacar textura e modelagem" (texto padrao da moda casual) virava motivo da sequencia.
         import json as _json

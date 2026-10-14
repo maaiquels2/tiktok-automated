@@ -235,10 +235,11 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [drafts,setDrafts]=useState([]);
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
+  const [facts,setFacts]=useState('');
   async function build(lines){
     setLoading(true);setMessage('');
     try{
-      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines});
+      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined});
       setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
     }catch(e){setData(null);setMessage(e.message)}
     finally{setLoading(false)}
@@ -272,6 +273,7 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
       </div>
       <button type="button" className="primary" disabled={loading} onClick={()=>build()}>{loading?'Montando…':data?'Montar de novo (rascunho novo)':'Montar sequência'}</button>
       {message&&<p className="help story-arc-message" role="alert">{message}</p>}
+      {(message.includes('Detalhes')||facts)&&<label className="sequence-facts">Fatos da peça só para esta sequência<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={500}/><small className="help">Não muda o briefing: a imagem aprovada e os prompts continuam. Escreva fatos verdadeiros, separados por vírgula, e monte de novo.</small></label>}
       {data&&<>
         <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
         <small className="help">Motivos usados (do campo Detalhes): {data.facts.join(' · ')}</small>
