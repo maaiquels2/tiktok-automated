@@ -65,7 +65,7 @@ Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente se
 - Todos os clipes partem da **mesma imagem aprovada**. Na etapa de vídeo a sequência já aparece montada no topo, com o prompt de cada clipe (versão completa e Guia do Grok), o texto na tela e o passo a passo de montagem no CapCut.
 - As falas de cada clipe podem ser editadas no painel antes de atualizar os prompts.
 - Em campanhas antigas, o painel tem o campo **"Fatos da peça só para esta sequência"**: ele não mexe no briefing, então a imagem aprovada e os prompts continuam. (Editar o Detalhes do briefing de uma campanha com imagem aprovada apaga a imagem e os prompts.)
-- Funciona em Celular no espelho e nos formatos com a modelo de frente (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Não funciona em POV, Só movimento, Close ASMR e Na mesa.
+- Funciona em Celular no espelho e nos formatos com a modelo de frente (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Não funciona em POV, Abrindo o pacote, Só movimento, Close ASMR e Na mesa.
 - As falas da sequência ainda são rascunhos montados por regras (não pela IA); revise antes de gerar.
 
 ### Sequência storytelling do Extend Video (mais de 15 s)
@@ -253,14 +253,14 @@ Isso **não** é a versão nuvem: o servidor continua sendo o seu PC, que precis
 | Onde | O que é | Quando age |
 |---|---|---|
 | **Gerador local** (`services/prompts.py`) | Regras em Python. Monta hook, desenvolvimento, CTA e legenda a partir dos campos do briefing. Não usa internet nem API. | Sempre que a escrita por IA está desligada, falha ou é reprovada. |
-| **Escrita por IA** (`services/copywriter.py`) | O app chama a API da OpenAI ou do Gemini com a sua chave, recebe o texto e audita antes de aceitar. Também usada pra analisar a foto de descrição do produto (mesma chave, se o modelo tiver visão). | Só quando você liga em Identidade → Escrita das falas. É o app que faz a chamada, sozinho, a cada geração. |
+| **Escrita por IA** (`services/copywriter.py`) | O app chama a API da OpenAI ou do Gemini com a sua chave, recebe o texto e audita antes de aceitar. Também usada pra analisar a foto de descrição do produto (mesma chave, se o modelo tiver visão). | Sempre que há chave: com `OPENAI_API_KEY` definida (como na nuvem) já vem ligada; sem ela, quando você cola a chave e liga em Identidade → Escrita das falas. Desmarcar na tela desliga. É o app que faz a chamada, sozinho, a cada geração. |
 | **Skill `roteiro-ugc-15s`** | Um documento de método. Vive no Claude, **não** dentro do app. | Quando você pede roteiro ao Claude numa conversa. O app não lê esse arquivo. |
 
 As regras da skill foram traduzidas para a instrução que o app manda ao modelo, mas são **duas cópias**: mudar a skill não muda o app, e vice-versa. Se você evoluir a skill e quiser que o app acompanhe, peça a sincronização.
 
 **Como saber qual dos dois escreveu:** a etapa *Roteiro de 15s* mostra um selo no topo — "Escrito por IA · OpenAI" ou "Texto local (sem IA)". Quando a IA é recusada pela auditoria ou pelo provedor, o selo mostra o motivo.
 
-### Escrita das falas por IA (opcional, funciona nos dois modos)
+### Escrita das falas por IA (funciona nos dois modos)
 
 O gerador local é correto e nunca inventa atributo, mas monta a frase a partir do rótulo do briefing — por isso sai coisa como *"Repara no tecido sem transparência"*. Quem escreve bem é um modelo de linguagem; quem garante a honestidade é o código.
 
