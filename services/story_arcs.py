@@ -66,6 +66,10 @@ OPEN_END_FRENTE = ('termina de frente para a lente, com uma das mãos pousada na
 FINAL_END_FRENTE = 'no final, de frente para a lente, uma das mãos aponta uma vez para baixo com o indicador, sorrindo'
 
 
+# Formatos com a modelo de frente falando para a lente (frontend: ARC_FORMATS, sem o espelho).
+FRONT_FORMATS = ('', 'comentario', 'teste', 'troca_cor', 'tres_jeitos')
+
+
 def _wording(espelho):
     """Os textos que mudam entre o espelho (validado) e o formato de frente."""
     if espelho:
@@ -416,7 +420,10 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
     # Espelho (validado no Grok) e os formatos com a modelo de frente falando para a lente (Com fala, Teste de
     # prova, Respondendo comentario, Troca de cor, 3 jeitos). POV e so movimento nao tem fala de frente.
     espelho = _video_mode(c) == 'espelho'
-    if not espelho and _video_mode(c) != '':
+    # Lista explicita (a mesma da tela): "Na mesa" tambem cai na base de frente, mas la nao ha modelo.
+    bruto = str(c.get('video_mode') or '').strip().casefold()
+    de_frente = bruto in FRONT_FORMATS
+    if not espelho and not de_frente:
         raise ArcError('A sequência storytelling funciona nos formatos "Celular no espelho" e com a modelo de frente '
                        'falando (Com fala, Teste de prova, Respondendo comentário, Troca de cor). Troque o formato '
                        'do vídeo e tente de novo.')

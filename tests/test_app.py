@@ -2140,6 +2140,27 @@ class WorkflowTests(unittest.TestCase):
                     self.assertIn('olhar na lente',r['clips'][1]['prompt'])
                     self.assertIn('de frente para a lente',r['clips'][-1]['guide'])
 
+    def test_story_arc_endpoint_accepts_front_formats_and_refuses_the_table(self):
+        # Campanha real do pedido: Casaco Puffer em "Teste de prova". Sem Detalhes explica o que falta; com 3
+        # fatos monta. "Na mesa" cai na mesma base de camera, mas nao tem modelo: continua recusado.
+        puffer=dict(product='Casaco Puffer',outfit='Casaco Puffer',color='preto',niche='casual',details='',
+                    video_mode='teste')
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer},headers=self.headers).json['id']
+        vazio=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(vazio.status_code,409)
+        self.assertIn('Detalhes',vazio.json['error'])
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer,
+                                                         'details':'capuz, zíper frontal, bolsos laterais'},
+                                  headers=self.headers).json['id']
+        ok=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(ok.status_code,200,ok.json)
+        self.assertEqual(ok.json['clips_count'],2)
+        self.assertEqual(ok.json['facts'],['capuz','zíper frontal','bolsos laterais'])
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**self.ARC_PRODUCTS['jeans'],'video_mode':'mesa'},
+                                  headers=self.headers).json['id']
+        mesa=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(mesa.status_code,409)
+
     def test_story_arc_survives_objection_and_techniques(self):
         # Com objecao (expressao de "necessidade") ou tecnicas (rotulo de AÇÕES diferente) a sequencia caia com
         # erro 500 porque procurava um texto fixo do prompt.
