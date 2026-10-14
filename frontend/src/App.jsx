@@ -8,6 +8,7 @@ import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, colorList, swatchFor } from './ui';
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, AutoCreatePanel, FORMAT_OPTIONS} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
+import { pointToFacts } from './sequenceText';
 
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
@@ -189,14 +190,14 @@ export default function App(){
   function flash(text){setNotice(text);clearTimeout(noticeTimer.current);noticeTimer.current=setTimeout(()=>setNotice(''),7000)}
   function discard(){if(!dirty)return true;if(window.confirm('Há alterações sem salvar. Deseja descartá-las?')){setDirty(false);return true}return false}
   async function refresh(){const [list,refs]=await Promise.all([api('/campaigns'),api('/references')]);setCampaigns(list);setReferences(refs)}
-  async function run(action,message='Salvo localmente.',next){
+  async function run(action,message='Salvo localmente.',next,errorText){
     if(lock.current)return false;
     lock.current=true;setBusy(true);setError('');
     // O painel remonta a cada gravacao (a chave inclui a versao da campanha),
     // o que garante texto sempre atual mas jogava o scroll de volta ao topo.
     const keepScroll=window.scrollY||0;
     try{const result=await action();if(result?.id){setC(result);setDirty(false);if(next)setSelected(next)}await refresh();flash(message);return true}
-    catch(e){setError(e.message);return false}
+    catch(e){setError(errorText?errorText(e.message):e.message);return false}
     finally{
       lock.current=false;setBusy(false);
       if(keepScroll>0&&!next){
@@ -705,7 +706,7 @@ export default function App(){
           setSelected(go);
           syncHash({mode:'produce',campaignId:result.id,stage:go});
           return result;
-        }, opts.message || (photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a produção.'));
+        }, opts.message || (photos?.length ? 'Campanha criada com fotos do produto.' : 'Campanha criada. Continue a produção.'), undefined, opts.errorText);
         if(created&&generateError)setError(`Campanha criada, mas os prompts não foram gerados: ${generateError} Confira a foto da modelo e toque em Gerar prompts.`);
         if(created&&analysisOutcome){
           if(analysisOutcome.error)setError(`Campanha criada, mas a análise da IA da foto de descrição falhou: ${analysisOutcome.error}`);
@@ -911,7 +912,9 @@ export default function App(){
         <button type="button" className="choice-card is-auto" disabled={busy} onClick={()=>setModal({type:'auto',title:'Campanha automática'})}><Sparkles size={22}/><strong>Automática</strong><small>Escolha a moda e suba a foto do produto e o print da descrição. A IA lê tudo, escreve o roteiro e deixa os prompts do Grok prontos.</small></button>
         <button type="button" className="choice-card" disabled={busy} onClick={()=>setModal({type:'create'})}><Pencil size={22}/><strong>Manual</strong><small>Você preenche o briefing do zero, campo por campo, até os prompts do Grok.</small></button>
       </div>:modal.type==='auto'?<AutoCreatePanel modelName={readStoredModel()||identity?.model_name||'Micaela'} busy={busy} onError={setError}
-        onCreate={(values,photos,message)=>createCampaign(values,photos,[],null,{generate:true,message})}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={createCampaign}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
+        onCreate={(values,photos,message)=>createCampaign(values,photos,[],null,{generate:true,message,
+          // Na criacao automatica nao ha campo Detalhes: o aviso de poucos fatos aponta para o Fatos da peca.
+          errorText:values.sequence_clips?m=>pointToFacts(m,'acima'):undefined})}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={createCampaign}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
       {error&&<p className="inline-error" role="alert">{error}</p>}
     </Dialog>}
   </>;

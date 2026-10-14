@@ -3220,6 +3220,14 @@ def create_app(config=None):
         except (TypeError,ValueError):
             raise Invalid('Escolha 2 ou 3 clipes.')
         try:
+            # Fatos so para esta sequencia (nao gravados): editar o Detalhes do briefing apaga a imagem
+            # aprovada e os prompts, e campanha antiga muitas vezes so tem o texto padrao da moda ali.
+            extra=data.get('facts')
+            if extra is not None:
+                if not isinstance(extra,str) or len(extra)>500:
+                    raise Invalid('Fatos inválidos: escreva até 500 caracteres, separados por vírgula.')
+                if extra.strip():
+                    c={**c,'details':', '.join(p for p in (extra.strip(),c.get('details') or '') if p)}
             return jsonify(build_story_arc(c,color,str(data.get('arc') or ''),clips,data.get('lines'),
                                            base_image=base_image))
         except ArcError as error:
