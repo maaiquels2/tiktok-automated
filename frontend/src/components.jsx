@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
+import { isFewFacts, pointToFacts } from './sequenceText';
 import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, storyArc, speechBank, deleteFromSpeechBank, persuasionPreview, quickBrief } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus, Palette } from 'lucide-react';
 export function Dialog({title,children,onClose}){
@@ -271,12 +272,12 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
           </label>)}
         </div>
       </div>
+      {message&&<p className="help story-arc-message" role="alert">{pointToFacts(message,'abaixo')}</p>}
+      {(isFewFacts(message)||facts)&&<label className="sequence-facts">Fatos da peça só para esta sequência<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={500}/><small className="help">Não muda o briefing: a imagem aprovada e os prompts continuam. Escreva fatos verdadeiros, separados por vírgula, e monte de novo.</small></label>}
       <button type="button" className="primary" disabled={loading} onClick={()=>build()}>{loading?'Montando…':data?'Montar de novo (rascunho novo)':'Montar sequência'}</button>
-      {message&&<p className="help story-arc-message" role="alert">{message}</p>}
-      {(message.includes('Detalhes')||facts)&&<label className="sequence-facts">Fatos da peça só para esta sequência<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={500}/><small className="help">Não muda o briefing: a imagem aprovada e os prompts continuam. Escreva fatos verdadeiros, separados por vírgula, e monte de novo.</small></label>}
       {data&&<>
         <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
-        <small className="help">Motivos usados (do campo Detalhes): {data.facts.join(' · ')}</small>
+        <small className="help">Motivos usados: {data.facts.join(' · ')}</small>
         {data.notes.map(note=><small key={note} className="help">{note}</small>)}
         {data.clips.map((clip,index)=>{
           const draft=drafts[index]??clip.lines.join('\n');
@@ -2657,7 +2658,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
       const lidos=[values.offer&&`oferta “${values.offer}”`,values.social_proof&&`prova social “${values.social_proof}”`].filter(Boolean);
       const message='Campanha automática criada: roteiro e prompts do Grok prontos. Cores: '+values.color+'.'+(lidos.length?` Do print: ${lidos.join(' e ')} — confira no briefing se ainda valem.`:'');
       await onCreate?.(values,products,message);
-    }catch(e){onError?.(e.message||String(e))}
+    }catch(e){const m=e.message||String(e);onError?.(seqClips?pointToFacts(m,'acima'):m)}
     finally{setReading(false)}
   };
   if(reading||busy)return <div className="quick-create quick-reading" aria-live="polite">
