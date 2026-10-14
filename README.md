@@ -1,6 +1,8 @@
 # Fábrica TikTok
 
-App da fábrica TikTok para o perfil da **Micaela**: produção de shorts/UGC para TikTok Shop com interface em **React + Vite** (navegação Início / Produzir / Resultados), API **Flask**. Organiza campanhas com modelo fixa, produto, **várias cores**, prompts, roteiros de 15s, imagens, vídeos, legendas inteligentes e publicação **manual** no TikTok Studio (uma cor por vez).
+App da fábrica TikTok para o perfil da **Micaela**: produção de shorts/UGC para TikTok Shop com interface em **React + Vite** (navegação Início / Produzir / Resultados), API **Flask**. Organiza campanhas com modelo fixa, produto, **várias cores**, prompts de imagem e de vídeo para o **Grok Imagine** (ou Flow), roteiros de 15s em voz de cliente real, **11 formatos de vídeo**, **sequências de 2 ou 3 clipes** com storytelling, legendas inteligentes e publicação **manual** no TikTok Studio (uma cor por vez).
+
+A campanha pode nascer **automática** (fotos do produto + print da descrição → a IA preenche o briefing e já deixa os prompts prontos) ou **manual** (campo por campo).
 
 Repositório: [maaiquels2/tiktok-automated](https://github.com/maaiquels2/tiktok-automated)
 
@@ -26,6 +28,57 @@ Escrita de prompts/roteiro/legenda, biblioteca de modelo, análise de foto por I
 
 ## O que o projeto entrega
 
+### Nova campanha: automática ou manual
+- **Automática** — escolha a moda (praia, academia, casual, dia a dia, íntima, fantasia), suba **1 a 3 fotos do produto** e o **print da descrição** da página do produto. Opcional: a **foto das cores** (print do seletor de cores ou as cores lado a lado), e a IA descreve cada cor com os detalhes. As cores também podem ser digitadas à mão, e o que você escreve vale mais que a leitura da IA.
+  - A IA lê tudo, sugere o briefing inteiro (produto, benefício, ângulo, movimentos, detalhes, objeção, oferta e prova social do print), cria a campanha, escreve o roteiro e deixa os prompts do Grok prontos.
+  - Oferta e prova social lidas do print aparecem no aviso final para você conferir se ainda valem.
+- **Manual** — você preenche o briefing do zero. Os campos já vêm com o padrão da moda escolhida.
+- Nas duas formas você já escolhe o **formato do vídeo**, o **tipo de vídeo** (clipe único ou sequência), as **técnicas de câmera** e se a modelo gira um pouco de lado (sem mostrar as costas).
+
+### Formatos de vídeo
+Cada formato muda a abertura, as ações do meio, o encerramento e o texto na tela, sobre uma das bases (modelo de frente falando, POV ou só movimento):
+
+| Formato | O que é |
+|---|---|
+| **Com fala** | Modelo de frente falando com a câmera (padrão) |
+| **Celular no espelho** | Ela grava o próprio look no espelho, com o celular na mão — o formato que melhor funcionou nos testes |
+| **POV** | Só mãos e produto, sem rosto. Nos testes reais o Grok errou mãos e giro da peça: use só em último caso |
+| **Só movimento** | Sem fala: puxa, gira e ajusta a peça |
+| **Respondendo comentário** | Responde a dúvida de uma cliente e prova na hora |
+| **Teste de prova** | Agacha, pula ou gira para provar a peça |
+| **Troca de cor** | Termina com a mão na lente para emendar as cores na edição |
+| **3 jeitos de usar** | A mesma peça em três looks (experimental) |
+| **Abrindo o pacote** | POV tirando a peça da caixa (experimental) |
+| **Close ASMR** | Sem fala: closes e o som do tecido |
+| **Na mesa, de perto** | Sentada à mesa, mostra o produto e traz perto da lente (experimental) |
+
+Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente sem refazer a imagem. POV, Espelho e Abrindo o pacote mudam a imagem-base: esses se trocam em **Definir look**.
+
+**Câmera e técnicas (opcional):** *Closes no produto* (o rosto sai do quadro por 1 a 2 s para mostrar o material), *Movimentos ousados*, e até **2 técnicas de retenção** por vídeo — *Começar em movimento*, *Aproximação rápida*, *Mão revelando*, *Loop* e *Esticar o tecido*.
+
+### Tipo de vídeo: clipe único ou sequência em 2 ou 3 clipes
+- Escolhido **já na criação da campanha**: *Clipe único* (15 s), *Sequência de 2 clipes* (~30 s) ou *Sequência de 3 clipes* (~45 s).
+- Dois arcos de storytelling, com **fala nova em cada clipe**:
+  - **Motivos** — "Três motivos pra essa peça estar no seu guarda-roupa", um motivo por trecho.
+  - **Questionada** — "Sabe o que dizem por aí? Que ela não te valoriza", e a resposta.
+- Os motivos só podem ser **fatos verdadeiros da peça**: a sequência exige **pelo menos 3 fatos** (ex.: *capuz, zíper frontal, bolsos laterais*). O texto padrão da moda no campo Detalhes não conta como fato. Sem 3 fatos, a campanha não é criada e o aviso diz o que faltou.
+- Todos os clipes partem da **mesma imagem aprovada**. Na etapa de vídeo a sequência já aparece montada no topo, com o prompt de cada clipe (versão completa e Guia do Grok), o texto na tela e o passo a passo de montagem no CapCut.
+- As falas de cada clipe podem ser editadas no painel antes de atualizar os prompts.
+- Em campanhas antigas, o painel tem o campo **"Fatos da peça só para esta sequência"**: ele não mexe no briefing, então a imagem aprovada e os prompts continuam. (Editar o Detalhes do briefing de uma campanha com imagem aprovada apaga a imagem e os prompts.)
+- Funciona em Celular no espelho e nos formatos com a modelo de frente (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Não funciona em POV, Só movimento, Close ASMR e Na mesa.
+- As falas da sequência ainda são rascunhos montados por regras (não pela IA); revise antes de gerar.
+
+### Sequência storytelling do Extend Video (mais de 15 s)
+- Separada da anterior: reparte as **mesmas falas** do roteiro de 15 s em 3 partes (gancho → prova → fechamento) para usar com o **Extend Video** do Grok, com o checklist de montagem no CapCut.
+
+### Prompt de vídeo: Completo ou Guia do Grok
+- Duas versões para o mesmo vídeo, trocadas por um botão na etapa de vídeo:
+  - **Completo** — o prompt inteiro com cena, falas, ações cronometradas, expressão e regras de consistência.
+  - **Guia do Grok** — versão enxuta no formato do guia oficial do Grok Imagine para imagem-para-vídeo.
+- Nos testes, cada versão ganhou em produtos diferentes: vale gerar as duas.
+- O prompt respeita o limite de 4.000 caracteres do Grok: acima de ~3.940, o app tira blocos inteiros pelo menos essencial (contexto de nicho, ângulo de venda) e nunca corta identidade, cenário, falas ou as regras de honestidade.
+- **Nota do prompt** (1 a 10): checagens rápidas que explicam por que o gerador costuma se perder (muitas ações, atributo que o próprio prompt proíbe, fala longa). É um alerta, não garantia.
+
 ### Produção multi-cor
 - Informe várias cores no briefing (`Branco, Preto, Azul Marinho…`).
 - **Gerar prompts e roteiro** cria automaticamente **um pacote por cor** (imagem, vídeo, falas e legenda).
@@ -44,23 +97,28 @@ Escrita de prompts/roteiro/legenda, biblioteca de modelo, análise de foto por I
 
 ### Análise de foto por IA (opcional)
 - Ao criar ou editar o briefing, anexe a **foto de descrição do produto** (aquela print com as características, tamanho, tecido etc.).
-- Se a Escrita por IA estiver configurada (ver abaixo), o app manda a foto pra um modelo com visão (`gpt-4o-mini` ou `gemini-2.0-flash` — os mesmos padrões da escrita de texto, sem precisar de chave nova) e preenche sozinho benefício, ângulo, movimentos e detalhes.
+- Se a Escrita por IA estiver configurada (ver abaixo), o app manda a foto pra um modelo com visão (`gpt-6-luna` na OpenAI ou `gemini-2.0-flash` — mesma chave da escrita de texto) e preenche sozinho benefício, ângulo, movimentos e detalhes. É a mesma leitura usada na criação automática.
 - **A foto manda mais que o modelo padrão do nicho**: o que a IA encontrar na foto substitui o texto genérico do nicho; o texto do nicho só continua valendo pros campos que a foto não esclareceu.
 - Sem IA configurada, ou se a análise não encontrar nada de útil, os campos ficam com o padrão do nicho escolhido, como sempre foi.
 
-### Argumento de venda (objeção e oferta)
-- Dois campos opcionais no briefing mudam bastante o roteiro:
-  - **O que mais segura a compra?** — com ele preenchido, o hook passa a falar da dor do cliente e o meio do roteiro vira a prova que derruba a dúvida.
-  - **Oferta real** — só preencha se for verdade. É o único caso em que o roteiro usa urgência; prazo ou estoque inventado é propaganda enganosa.
-- Sem esses campos, o gerador usa o motor de **desejo**, que não afirma nada além do que está no briefing.
+### Argumento de venda: motor de persuasão
+- Três motores, cada um com a sua fórmula, **sempre com fato**:
+  - **Necessidade** (dor → agitação → prova) — liga quando o campo **O que mais segura a compra?** está preenchido: o gancho nomeia a dor do cliente e o meio vira a prova que derruba a dúvida.
+  - **Desejo** (o padrão) — encanto pela peça e a cliente se imaginando usando, sem afirmar nada além do briefing.
+  - **Escassez** (novidade → prova rápida → prazo/estoque) — só existe com **Oferta real** declarada. Cada fala de urgência usa o número exato da oferta; sem prazo não existe "só hoje", sem estoque não existe "últimas peças". Urgência inventada é propaganda enganosa (CDC, art. 37) e derruba vídeo no TikTok Shop.
+- **Prova social** ("2 mil vendidos", "nota 4,8") só entra quando declarada no campo próprio.
+- O motor também define a direção de cena do vídeo: expressão no gancho, arco emocional e gesto da chamada.
+- No briefing, uma prévia mostra como a oferta e a prova social vão virar fatos no roteiro, antes de gerar.
 
 ### Roteiros 15s inteligentes
-- Produto único também tem **Atualizar hook + legenda** e **Atualizar fala inteira**. Salve edições manuais antes de regenerar. A imagem aprovada é preservada; novas falas exigem revisão do roteiro e um novo vídeo.
-- O hook usa uma abertura completa com janela sugerida de 4s. Confira o tempo total com leitura em voz alta.
+- Falas em **primeira pessoa, na voz de cliente real** (UGC), nunca em tom de catálogo.
 - Hook (0–4s), desenvolvimento (4–12s) e CTA (12–15s) **variam por cor**.
-- **Orçamento de fala por trecho**, com contador colorido no editor: hook 10–12 palavras, desenvolvimento 20–24, CTA 7–9, total de 38 a 45 (português falado rende ~2,8 palavras por segundo).
+- **Fala que ocupa o clipe inteiro:** o alvo é de **45 a 56 palavras** no total. Nos testes reais, com 33 a 46 palavras sobravam 2 a 3 s de silêncio no fim; com ~57 ficava acelerado. Abaixo do alvo o gerador acrescenta uma frase de imaginação de uso (sem afirmar nada novo); acima de 57, encurta pelo fim do desenvolvimento.
+- Contador de palavras por trecho no editor, como orientação: comprimento nunca bloqueia o roteiro (fala natural e com gestos vale mais que caber num número).
 - O desenvolvimento segue três batidas: prova → objeção quebrada → posse. Se o roteiro estoura o tempo, a posse cai primeiro — a prova nunca é descartada.
-- Botões **Atualizar hook + legenda** e **Atualizar fala inteira** para gerar outra variação sem recomeçar a campanha.
+- **Banco de falas** por categoria de peça (biquíni não fala como pijama): objeções típicas, prova falada, ocasiões de uso e moldes de gancho e chamada. Molde que cita um atributo só aparece quando o briefing confirma esse atributo.
+- **Guardar no banco:** roteiros bons viram exemplos de estilo para a IA nas próximas campanhas da mesma categoria. Dá para excluir do banco depois.
+- Botões **Atualizar hook + legenda** e **Atualizar fala inteira** para gerar outra variação sem recomeçar a campanha (também em produto de uma cor só). Salve edições manuais antes de regenerar. A imagem aprovada é preservada; novas falas exigem revisão do roteiro e um novo vídeo.
 - Edição manual por campo, com prompt de vídeo recalculado a partir das falas.
 
 ### Vídeos
@@ -93,6 +151,20 @@ Escrita de prompts/roteiro/legenda, biblioteca de modelo, análise de foto por I
 - Na versão local, o app pode coletar boa parte desses números sozinho, direto do TikTok Studio (Playwright/Chrome CDP). Na nuvem, esse preenchimento é manual.
 - **Gerar insights** roda um crítico local (`services/insights.py`) e grava `checklist.insights` (Hook / Desenvolvimento / CTA + ações). Sem dados inventados do TikTok.
 - **Preview 9:16** na aprovação de vídeo: telefone, scrubber e beats Hook (0–4s) · Desenvolvimento (4–12s) · CTA (12–15s) com overlay do roteiro.
+- **Teste de gancho:** marque campanhas que mudaram uma coisa só (o gancho) como parte do mesmo teste; o app compara quanto cada uma rendeu por mil visualizações. Sem isso não dá para saber se o vídeo foi bem pelo gancho, pela peça, pela cor ou pelo horário.
+
+### Resultados: auditoria do Studio, playbook e próximos vídeos
+- **Auditoria em lote** dos posts do TikTok Studio dos últimos 7, 15 ou 30 dias (ignora vídeos com menos de 100 views por padrão).
+- **Playbook de replicação** montado a partir da auditoria: o que repetir no próximo vídeo. Um clique cria uma campanha já preenchida com esse briefing.
+- **Análise de link:** coleta as métricas de qualquer vídeo do TikTok pela URL, mesmo sem campanha no app.
+- **Fila de produtividade:** o que continuar, o que produzir a seguir pelo playbook e o que melhorar.
+- A coleta automática (auditoria e análise de link) usa o Chrome do PC: só na versão local.
+
+### Outras ferramentas da produção
+- **Duplicar campanha:** cria uma cópia editável e preserva a original (também a partir de campanha publicada).
+- **Vídeo da galeria do celular:** registra um vídeo que ficou na galeria do celular sem precisar subir o arquivo.
+- **Auto-cut / Crítico de Vendas** (só local): salva o pedido de corte e entra na fila para o robô do PC processar.
+- **Conferir se a peça continua a mesma no vídeo** ([`ferramentas/conferir_produto`](ferramentas/conferir_produto/README.md)): ferramenta local, fora do app, que compara os quadros do vídeo gerado com a imagem aprovada (DINOv2) e avisa quando a peça perde detalhes (bordado que some, estampa que muda). É uma triagem: não pega detalhe novo que aparece, como um laço a mais.
 
 ### Renomear campanha
 - Controle **Renomear** (lápis) perto do título da campanha.
@@ -109,7 +181,8 @@ Escrita de prompts/roteiro/legenda, biblioteca de modelo, análise de foto por I
 - Interface ajustada pra celular: menos texto, atalhos de serviço em grade 2×2, fotos da modelo lado a lado, formulários em coluna única.
 
 ### Privacidade
-- Rascunhos de texto são **determinísticos e locais** (sem API paga de LLM para gerar prompts, a menos que você ligue a Escrita por IA).
+- Prompts e rascunhos de texto são **determinísticos e locais** (regras em Python). A API paga de texto só é chamada pela Escrita por IA, pela leitura de fotos e pela criação automática — e só com a chave configurada.
+- A chave da OpenAI **nunca** vai para o código nem para o GitHub: fica na variável de ambiente `OPENAI_API_KEY` (Vercel ou `.env` do PC) ou salva pela tela de Identidade.
 - Geração de imagem/vídeo é **manual** no Flow ou Grok Imagine (sua assinatura).
 - Na versão local, tudo fica no PC: banco, mídia, perfis de navegador. `.gitignore` exclui `data/`, `media/`, `browser_profiles/`, `.venv/`, etc.
 - Na nuvem, banco e mídia ficam no Supabase da conta do projeto; o acesso exige login.
@@ -142,6 +215,9 @@ No celular, os botões de Grok/Flow/TikTok Studio/TikTok abrem como links direto
 | `FABRICA_SUPABASE_SERVICE_KEY` | Chave de serviço do Supabase (Storage) |
 | `FABRICA_SUPABASE_ANON_KEY` | Chave anônima, exigida pelo cabeçalho `Authorization` do Storage |
 | `FABRICA_STORAGE_BUCKET` | Nome do bucket de mídia no Supabase Storage |
+| `OPENAI_API_KEY` | Chave da OpenAI para a Escrita por IA, a leitura de fotos e a criação automática. Com ela definida, a IA já vem ligada (desliga quem desmarcar na tela). Secreta: nunca no código |
+
+Colunas novas do banco (como as da sequência, `sequence_clips` e `sequence_arc`) são criadas sozinhas no Postgres quando o servidor sobe.
 
 ### Fazer um novo deploy
 
@@ -154,7 +230,7 @@ Dois cliques em **`iniciar.vbs`**: sobe o servidor e abre `http://127.0.0.1:5050
 Pelo terminal:
 
 ```powershell
-cd C:\Users\Admin\Documents\Codex\2026-09-10\Fabrica TikTok
+cd C:\Users\Admin\Documents\Codex\2026-09-10\Fabrica_TikTok
 .\.venv\Scripts\python.exe app.py
 ```
 
@@ -195,7 +271,7 @@ Por isso os dois trabalham juntos:
 3. O app **audita** o resultado: palavras por trecho, nenhum atributo de desempenho fora do briefing, urgência só com oferta real, no máximo 5 hashtags.
 4. Reprovado? Volta para o modelo com os erros apontados, uma vez. Reprovado de novo? Usa o texto local.
 
-Configure no ícone de **Identidade** no cabeçalho: escolha OpenAI ou Gemini, cole a chave e ligue. O botão **Testar conexão** gera um exemplo na hora.
+Configure no ícone de **Identidade** no cabeçalho: escolha OpenAI ou Gemini, cole a chave e ligue. O botão **Testar conexão** gera um exemplo na hora. Modelo padrão da OpenAI para texto: `gpt-6.1-sol`. Se a variável `OPENAI_API_KEY` existir (Vercel ou `.env`), ela é usada quando não há chave salva pela tela.
 
 Na versão local, a chave fica em **`data/llm.json`**, só neste computador — fora do Git. Na nuvem, a mesma configuração fica salva no Postgres do projeto (visível pras duas contas do estúdio). Em ambos os casos a API do app nunca devolve a chave inteira — só os últimos quatro caracteres.
 
@@ -223,13 +299,13 @@ Instala dependências e compila a interface. Rascunhos de texto funcionam offlin
 
 ## Fluxo de uso (resumo)
 
-1. **Nova campanha** — briefing + Flow (1080p) ou Grok (720p).
-2. **Modelo fixa** — anexe a referência (ou reutilize de outra campanha).
+1. **Nova campanha** — *Automática* (fotos + print → a IA preenche e já gera os prompts) ou *Manual* (briefing + Grok 720p ou Flow 1080p). Escolha o formato do vídeo e o tipo: clipe único ou sequência de 2/3 clipes (com 3 fatos da peça).
+2. **Modelo fixa** — anexe a referência (ou reutilize da biblioteca ou de outra campanha).
 3. **Definir look** — produto, cores (vírgulas), movimentos, fotos do produto (e, se quiser, a foto de descrição pra IA sugerir os campos) → **Gerar prompts e roteiro**.
 4. **Criar imagem** — uma geração/anexo por cor.
 5. **Aprovar imagens** — todas as cores.
-6. **Roteiro** — revise falas; use refresh se não gostar.
-7. **Criar vídeo** — um MP4 de 15s por cor (Grok/Flow no topo).
+6. **Roteiro** — revise falas; use refresh se não gostar; guarde as boas no banco de falas.
+7. **Criar vídeo** — um MP4 de 15s por cor (Grok/Flow no topo), com o prompt Completo ou o Guia do Grok. Se a campanha é uma sequência, os prompts de cada clipe já estão no topo.
 8. **Aprovar vídeos** — lote com checagem de duração/resolução.
 9. **Preparar publicação** — fila por cor: legenda (≤5 hashtags) + MP4 + Studio + registrar.
 10. **Editar / copiar / excluir** campanhas na fila lateral.
@@ -296,9 +372,20 @@ npm run dev
 # Build servido pelo Flask (local) ou pelo Vercel (nuvem)
 npm run build
 
-# Testes
+# Testes do backend
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+# Testes da interface (Vitest)
+cd frontend
+npm test
 ```
+
+### Segurança
+- Na nuvem, login obrigatório com limite de tentativas (bloqueio temporário depois de várias senhas erradas).
+- Toda gravação (POST/PATCH/DELETE) exige o cabeçalho do próprio app e confere a origem, contra pedidos de outros sites.
+- Cabeçalhos de segurança (Content-Security-Policy e afins) em todas as respostas.
+- Na versão local, só aceita `localhost` ou rede privada, e a rede pede PIN.
+- Arquivos enviados são validados pelo conteúdo (imagem e MP4), não pelo nome.
 
 Rotas úteis: `/` e `/creator` (nova campanha). A documentação completa do projeto — propósito, escopo, arquivo por arquivo, banco de dados, arquitetura da nuvem, as rotas da API e o histórico de mudanças — está em [`DOCUMENTACAO-PROJETO.md`](DOCUMENTACAO-PROJETO.md).
 
