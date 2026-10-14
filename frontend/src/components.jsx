@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
 import { swatchFor } from './ui';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank, persuasionPreview, quickBrief } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, openStudioFree, analyzePublishedLink, listLinkAnalyses, studioAudit, studioAuditLatest, studioPlaybook, studioPlaybookBuild, productivityQueue, playbookCreateCampaign, studioIdentity, saveStudioIdentity, setupStatus, characterSheet, openCharacterSheet, writerSettings, saveWriterSettings, testWriter, listExperiments, statusLabels, storySequence, speechBank, deleteFromSpeechBank, promptLibrary, savePromptToLibrary, deletePromptFromLibrary, persuasionPreview, quickBrief } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus, Palette } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -260,6 +260,9 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <div className="rd-prompt-actions">
           {launch('rd-cta')}
           <CopyButton text={p.video||''} onError={onError} label="Só copiar"/>
+          <SaveToLibrary kind="video" prompt={p.video} product={campaign?.product} onError={onError}
+            format={(FORMAT_OPTIONS.find(([id])=>id===mode)||[,'Com fala'])[1]} version={guia?'Guia do Grok':'Completo'}
+            note={campaign?.id?`Guardado da campanha #${campaign.id}${color?` · cor ${color}`:''}.`:''}/>
           {!immutable&&onRefreshVideoPrompt&&<button type="button" className="button" disabled={busy} onClick={()=>(guia?onImproveVideoPrompt:onRefreshVideoPrompt)?.(variantId)}><RefreshCw size={15}/> Recriar</button>}
           <span className={'rd-prompt-count'+(over?' is-over':'')}>{length.toLocaleString('pt-BR')}{videoPromptLimit?` / ${videoPromptLimit.toLocaleString('pt-BR')}`:''} caracteres</span>
         </div>
@@ -2382,6 +2385,64 @@ export function ResultsQuickTools({busy,onBusy,onError,onFlash,tab='studio',onTa
 // Banco de falas: como uma pessoa real fala de cada tipo de peca, mais os
 // roteiros que o estudio aprovou. As falas aprovadas viram exemplo de voz
 // para a escrita por IA nas proximas campanhas da mesma categoria.
+// Guarda o prompt que deu certo na biblioteca (fica no banco do app).
+export function SaveToLibrary({kind,prompt,product,format,version,note,onError}){
+  const [state,setState]=useState('');
+  if(!prompt||String(prompt).length<40)return null;
+  const save=async()=>{
+    setState('saving');
+    try{await savePromptToLibrary({kind,prompt,product:product||'',format:format||'',version:version||'',note:note||''});setState('saved')}
+    catch(e){setState('');onError?.(e.message||String(e))}
+  };
+  return <button type="button" className="button" disabled={state==='saving'||state==='saved'} onClick={save}
+    title="Guarda este prompt na Biblioteca de prompts para reaproveitar">
+    {state==='saved'?<><Check size={15}/> Guardado na biblioteca</>:<><BookmarkPlus size={15}/> Guardar na biblioteca</>}
+  </button>;
+}
+
+// Biblioteca de prompts aprovados: os que deram certo nos testes reais.
+export function PromptLibraryPanel({onError,onFlash}){
+  const [items,setItems]=useState(null);
+  const [kind,setKind]=useState('');
+  const [confirm,setConfirm]=useState('');
+  const load=async()=>{try{setItems(await promptLibrary(kind))}catch(e){onError?.(e.message||String(e))}};
+  useEffect(()=>{load()},[kind]);
+  const remove=async key=>{
+    try{await deletePromptFromLibrary(key);setConfirm('');onFlash?.('Prompt removido da biblioteca.');load()}
+    catch(e){onError?.(e.message||String(e))}
+  };
+  return <div className="prompt-library">
+    <p className="help">Prompts de imagem e de vídeo que deram certo nos testes reais. Copie e adapte para produtos parecidos. Para guardar um novo, use “Guardar na biblioteca” na etapa de vídeo.</p>
+    <div className="quick-niches" role="radiogroup" aria-label="Tipo de prompt">
+      {[['','Todos'],['video','Vídeo'],['imagem','Imagem']].map(([id,label])=><button key={id||'todos'} type="button" role="radio"
+        aria-checked={kind===id} aria-pressed={kind===id} className="rd-chip-tab" onClick={()=>setKind(id)}>{label}</button>)}
+    </div>
+    {!items?<p className="help">Carregando…</p>:!items.length?<p className="help">Nenhum prompt guardado ainda.</p>:
+      <ul className="prompt-library-list">{items.map(it=><li key={it.key}>
+        <div className="prompt-library-head"><strong>{it.product||'Sem produto'}</strong>
+          <small>{[it.kind==='video'?'Vídeo':'Imagem',it.format,it.version].filter(Boolean).join(' · ')}</small>
+          {it.note&&<small>{it.note}</small>}</div>
+        <details><summary>Ver prompt ({it.prompt.length.toLocaleString('pt-BR')} caracteres)</summary><pre className="rd-prompt-box">{it.prompt}</pre></details>
+        <div className="prompt-library-actions"><CopyButton text={it.prompt} onError={onError}/>
+          {confirm===it.key
+            ?<><button type="button" className="danger" onClick={()=>remove(it.key)}>Confirmar remoção</button><button type="button" onClick={()=>setConfirm('')}>Cancelar</button></>
+            :<button type="button" onClick={()=>setConfirm(it.key)}><Trash2 size={15}/> Remover</button>}
+        </div>
+      </li>)}</ul>}
+  </div>;
+}
+
+// Uso da IA desta campanha: tokens (o que a OpenAI cobra) e custo, se houver
+// tabela de precos configurada no servidor.
+export function AiUsage({usage}){
+  if(!usage||!usage.calls)return null;
+  const n=v=>Number(v||0).toLocaleString('pt-BR');
+  const custo=usage.cost_usd==null?'':` · ~US$ ${Number(usage.cost_usd).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4})}`;
+  return <p className="help ai-usage" title={usage.by_model.map(m=>`${m.model}: ${m.calls} chamadas, ${n(m.input_tokens)} + ${n(m.output_tokens)} tokens`).join('\n')}>
+    <strong>IA nesta campanha:</strong> {n(usage.calls)} {usage.calls===1?'chamada':'chamadas'} · {n(usage.input_tokens+usage.output_tokens)} tokens ({n(usage.input_tokens)} de entrada, {n(usage.output_tokens)} de saída){custo}
+  </p>;
+}
+
 export function SpeechBankPanel({campaignId,onApply,onError,onFlash}){
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
@@ -2488,6 +2549,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [products,setProducts]=useState([]);
   const [description,setDescription]=useState(null);
   const [colorsPhoto,setColorsPhoto]=useState(null);
+  const [hint,setHint]=useState('');
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
   const [turn,setTurn]=useState(true);
@@ -2502,7 +2564,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const start=async()=>{
     onError?.('');setReading(true);
     try{
-      const {brief}=await quickBrief(products,description,niche,colorsPhoto);
+      const {brief}=await quickBrief(products,description,niche,colorsPhoto,hint);
       const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':'',
         video_style:style};
       if(!values.color){onError?.('A IA não achou as cores. Suba a foto das cores ou escreva as cores e tente de novo.');return}
@@ -2528,6 +2590,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
       <ImagePlus size={22}/><strong>Foto do produto</strong><small>1 a 3 fotos da peça</small>
       {products.length>0&&<span className="quick-thumbs">{urls.slice(0,products.length).map(u=><img key={u} src={u} alt=""/>)}</span>}
     </label>
+    <label>Qual peça é o produto? (opcional)<input value={hint} onChange={e=>setHint(e.target.value)} placeholder="Ex.: a calça de courino, não a blusa" maxLength={80}/></label>
+    <small className="help">Use quando a foto mostra o look inteiro: a IA descreve só essa peça.</small>
     <label className="quick-tile">
       <input type="file" accept="image/*" onChange={e=>setDescription(e.target.files?.[0]||null)}/>
       <Upload size={22}/><strong>Print da descrição</strong><small>Página do produto com tecido, preço e avaliações</small>

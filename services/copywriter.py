@@ -18,6 +18,7 @@ configurada, ou sem internet, o app continua funcionando exatamente como antes.
 """
 from __future__ import annotations
 
+import contextvars
 import difflib
 import json
 import os
@@ -28,6 +29,23 @@ import urllib.request
 from pathlib import Path
 
 from services import formats, persuasion, speech_bank
+
+# Uso da IA por requisicao: cada chamada ao provedor anota os tokens aqui e o
+# app grava por campanha (o que a OpenAI cobra).
+_USAGE = contextvars.ContextVar('fabrica_ai_usage', default=None)
+
+
+def usage_start() -> list:
+    lista: list = []
+    _USAGE.set(lista)
+    return lista
+
+
+def _record_usage(model, tokens_in, tokens_out):
+    lista = _USAGE.get()
+    if lista is not None:
+        lista.append({'model': str(model or ''), 'input_tokens': int(tokens_in or 0),
+                      'output_tokens': int(tokens_out or 0)})
 from services.prompts import without_niche_defaults
 from services.prompts import (
     _count_words, _objection_parts, _offer_text, _product_features,
@@ -688,6 +706,8 @@ def _call_openai(settings: dict, system: str, user: str, images: list[tuple[byte
                 # Mantém a assinatura de três argumentos usada também pelas
                 # integrações e testes antigos; _post_json aplica TIMEOUT.
                 out = _post_json(*post_args)
+            uso = out.get('usage') or {}
+            _record_usage(body.get('model'), uso.get('prompt_tokens'), uso.get('completion_tokens'))
             return out['choices'][0]['message']['content']
         except ProviderError as exc:
             alvo = exc.param if exc.param in body else next(
@@ -720,6 +740,8 @@ def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[byte
                     url, body, {}, timeout=int(settings['_request_timeout']))
             else:
                 out = _post_json(url, body, {})
+            uso = out.get('usageMetadata') or {}
+            _record_usage(settings.get('model'), uso.get('promptTokenCount'), uso.get('candidatesTokenCount'))
             return out['candidates'][0]['content']['parts'][0]['text']
         except ProviderError as exc:
             baixo = (exc.message or '').casefold()
@@ -1166,7 +1188,8 @@ def _call_with_deadline(caller, settings: dict, system: str, user: str, images, 
         except BaseException as exc:  # repassado para quem chamou
             resultado['erro'] = exc
 
-    tarefa = threading.Thread(target=alvo, daemon=True)
+    # O contexto vai junto para a thread: sem isso o uso da IA se perdia.
+    tarefa = threading.Thread(target=contextvars.copy_context().run, args=(alvo,), daemon=True)
     tarefa.start()
     tarefa.join(orcamento_s)
     if tarefa.is_alive():
@@ -1225,6 +1248,10 @@ Você recebe, nesta ordem: uma a três fotos do produto/roupa; se houver, a foto
 seletor de cores da loja ou as variações lado a lado); e, por último (se houver), o print da página do
 produto no TikTok Shop ou na loja (título, especificações, preço, avaliações).
 Cada foto vem identificada na mensagem do usuário.
+
+Se a foto mostra um look com várias peças, o produto é a peça indicada pela pessoa ou citada no print.
+Sem essa indicação, escolha a peça mais destacada e descreva SÓ ela: nunca misture peças diferentes
+(teste real: a IA descreveu a blusa quando o produto era a calça).
 
 Olhe SOMENTE o que está visível ou escrito nas fotos e devolva um JSON com estes campos, em
 português do Brasil:
@@ -1297,7 +1324,7 @@ def vision_settings(settings: dict) -> dict:
 
 
 def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches,
-                niche: str = '') -> tuple[dict | None, str]:
+                niche: str = '', hint: str = '') -> tuple[dict | None, str]:
     """Briefing inteiro a partir das fotos do produto e do print da pagina
     ("Criar com IA"). Devolve (campos, motivo_da_falha). Nada e gravado aqui:
     a tela mostra o resultado para a pessoa conferir antes de criar."""
@@ -1310,6 +1337,10 @@ def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches,
     user = f'Monte o briefing com as fotos anexadas.\n\nIdentificação de cada foto, na ordem: {identificacao}.'
     if niche in niches:
         user += f'\n\nNicho escolhido pela pessoa (use este): {niche}.'
+    hint = ' '.join((hint or '').split())[:80]
+    if hint:
+        user += (f'\n\nA PEÇA À VENDA é: {hint}. Descreva SOMENTE essa peça (nome, cores, detalhes, movimentos e '
+                 'objeção); ignore as outras roupas e acessórios da foto.')
     fotos = [_shrink_for_vision(dados, mime) for dados, mime, _ in images]
     settings = vision_settings(settings)
     try:

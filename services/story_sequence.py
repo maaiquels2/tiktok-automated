@@ -19,8 +19,12 @@ import re
 from services.prompt_improve import (
     _clean, _quote, _touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
-from services import persuasion
-from services.prompts import _count_words, _dominant_motor, _focus_parts, _video_mode, _with_em
+from services import formats, persuasion
+from services.prompts import (
+    _count_words, _dominant_motor, _focus_parts, _light_scene, _video_mode, _with_em, bold_move, close_target,
+    mirror_hands,
+    video_style,
+)
 
 # Fala natural em portugues: cerca de 2,5 palavras por segundo, mais um
 # respiro para a acao antes e depois da frase.
@@ -56,9 +60,34 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     shot = framing(c) if mode == 'movimento' else speech_framing(c)
     spoken = f'{hook} {development}'
     # Com fala, o mesmo teto do prompt resumido: 3 acoes no meio.
-    steps = flow(movement_steps(c, spoken, limit=3 if not silent else 4)[:3])
+    lista = movement_steps(c, spoken, limit=3 if not silent else 4)[:3]
+    # Formato e tecnicas (services/formats.py) valem tambem na sequencia:
+    # antes, quem escolhia closes ou "respondendo comentario" perdia isso aqui.
+    lugar = 'espelho' if mode == 'espelho' else ('movimento' if silent else '')
+    estilo = video_style(c)
+    extra = formats.lead_moves(c, lugar if lugar != 'movimento' else '')
+    if 'ousado' in estilo and mode != 'pov':
+        extra.append(bold_move(c, espelho=mode == 'espelho')[0])
+    luz = '' if silent else _light_scene((hook, development, cta), mode == 'espelho')
+    if luz:
+        extra.insert(0, luz)
+    jeitos = formats.three_looks(c, 'a peça')
+    lista = [jeitos] if jeitos else (extra + lista)[:4]
+    if mode == 'espelho':
+        lista = [mirror_hands(s) for s in lista]
+    steps = flow(lista)
+    closes = ''
+    if 'closes' in estilo and mode != 'pov':
+        alvo = close_target(c)
+        closes = (f' No meio, ela aproxima o celular da peça para um close curto (1 a 2 s) {alvo} e volta ao reflexo.'
+                  if mode == 'espelho' else
+                  f' No meio, a câmera faz um close curto (1 a 2 s) {alvo}, com a voz continuando, e volta ao rosto.')
+    fim = formats.ending(c, lugar)
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'
     cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
+    abre = formats.opening(c, cena['hook'], lugar)
+    if mode == 'espelho':
+        abre = abre.replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
     keep_line = 'Continuação do mesmo take, já em movimento: mesma pessoa, roupa e luz; segue o último quadro sem pausa.'
     # Emenda das partes: quem para no ultimo quadro faz o Extend recomecar
     # do zero, e o video final trava na juncao.
@@ -73,7 +102,8 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             'A imagem anexada é o primeiro quadro: mesmo ambiente e mesma luz. '
             f'A câmera é o olhar de quem veste {keeps}; aparecem só as mãos e o corpo do pescoço para baixo, nunca o rosto.',
             'Câmera: na mão, apontada para baixo, take contínuo com leve balanço natural.',
-            f'A mão aparece e mostra {touch} pela primeira vez, com curiosidade. Narração: "{hook}"',
+            (f'{formats.pov_opening(c, product)}. Narração: "{hook}"' if formats.video_format(c) == 'unboxing'
+             else f'A mão aparece e mostra {touch} pela primeira vez, com curiosidade. Narração: "{hook}"'),
             ends_moving,
             'Som: voz feminina natural em português do Brasil, só a frase entre aspas; som ambiente baixo, '
             'sem música. Sem texto na tela.',
@@ -92,10 +122,13 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             f'{head} Sem fala.',
             f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), mesmo rosto, cabelo e corpo, '
             'vestindo exatamente o que aparece nela. Luz: a mesma da imagem.',
-            f'Câmera: fixa na altura do peito, {shot}, sem zoom, take contínuo.',
-            f'Ela {cena["hook"]}.',
+            (f'Câmera: na mão, {formats.ASMR_CAMERA}, take contínuo.' if formats.asmr(c)
+             else f'Câmera: fixa na altura do peito, {shot}, sem zoom, take contínuo.'),
+            f'Ela {abre}.',
             ends_moving,
-            'Som: sem voz e sem fala; só som ambiente discreto. Sem texto na tela.',
+            ('Som (é o conteúdo): sons nítidos do tecido, da amarração ou do zíper e dos passos; sem voz e sem '
+             'música. Sem texto na tela.' if formats.asmr(c)
+             else 'Som: sem voz e sem fala; só som ambiente discreto. Sem texto na tela.'),
         ])
         middle = '\n'.join([
             keep_line,
@@ -105,7 +138,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         last = '\n'.join([
             keep_line,
             f'Ela volta de frente para a lente e {cena["cta"]}; corpo parado, sorriso leve e confiante. '
-            'Câmera fixa. Sem fala.',
+            f'Câmera fixa. Sem fala. {fim}'.strip(),
         ])
     else:
         first = '\n'.join([
@@ -115,21 +148,27 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             ('Câmera: o celular dela grava o reflexo no espelho de corpo inteiro, sempre na mão, na altura do peito, '
              'sem cobrir o rosto; take contínuo, sem cortes.' if mode == 'espelho'
              else f'Câmera: na mão, estável, {shot}, take contínuo, sem cortes.'),
-            f'Ela {cena["hook"]}. Ela diz: "{hook}"',
+            f'Ela {abre}. Ela diz: "{hook}"',
             f'Expressão: {cena["arc"].split(" → ")[0]}.',
             ends_moving,
             voice,
         ])
         middle = '\n'.join([
             keep_line,
-            f'Ela {steps}, gesticulando enquanto fala; dolly-in suave até {push_target(c)} e volta. '
-            f'Ela emenda a fala, no mesmo tom: "{development}"',
+            # No espelho a camera e o celular dela: "dolly-in" nao existe ali.
+            (f'Ela {steps}, gesticulando com a mão livre enquanto fala.{closes} '
+             if mode == 'espelho' else
+             f'Ela {steps}, gesticulando enquanto fala; '
+             + (closes.strip() + ' ' if closes else f'dolly-in suave até {push_target(c)} e volta. '))
+            + f'Ela emenda a fala, no mesmo tom: "{development}"',
             ends_moving,
         ])
         last = '\n'.join([
             keep_line,
-            f'Ela termina de frente para a lente e {cena["cta"]}; sorriso confiante, a câmera fica parada. '
-            f'E fecha, sorrindo: "{cta}"',
+            (f'Ela termina de frente para o espelho e {cena["cta"]}; sorriso confiante. '
+             if mode == 'espelho' else
+             f'Ela termina de frente para a lente e {cena["cta"]}; sorriso confiante, a câmera fica parada. ')
+            + f'E fecha, sorrindo: "{cta}" {fim}'.rstrip(),
         ])
 
     _focus, features = _focus_parts(c)

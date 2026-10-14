@@ -752,6 +752,9 @@ def _configured_movement_plan(value: str, c: dict, limit: int = 6) -> str:
 
 
 def _slug_tag(value, limit=28):
+    # "maio" sem acento e o mes: o maio de praia mantem o circunflexo.
+    if re.fullmatch(r'mai[ôo]s?', _phrase(value), re.I):
+        return ('Maiôs' if _phrase(value).lower().endswith('s') else 'Maiô')[:limit]
     tag = ''.join(ch for ch in unicodedata.normalize('NFKD', _phrase(value)) if not unicodedata.combining(ch))
     tag = re.sub(r'[^a-zA-Z0-9]', '', tag)
     return tag[:limit]
@@ -1392,6 +1395,42 @@ _SPOKEN_OCCASION = {
 }
 
 
+# Variacoes das frases de prova do banco de falas. A frase original saia
+# igual em toda campanha da mesma objecao. As variantes de "contra a luz"
+# mantem a expressao, porque ela aciona a cena de contraluz no prompt.
+_PROOF_VARIANTS = (
+    (r'quis te mostrar (ela|ele) no corpo, de frente e de lado',
+     ('quis te mostrar {p} no corpo, de frente e de lado', 'tô usando {p} aqui pra você ver de frente e de lado',
+      'vesti {p} pra você ver de frente e de lado')),
+    (r'quis te mostrar (ela|ele) no corpo, de frente',
+     ('quis te mostrar {p} no corpo, de frente', 'tô com {p} no corpo, pra você ver de frente',
+      'vesti {p} pra você ver como fica de frente')),
+    (r'tô aqui contra a luz, pra você conferir',
+     ('tô aqui contra a luz, pra você conferir', 'vim pra frente da janela, contra a luz, pra você conferir',
+      'olha aqui contra a luz, pode conferir')),
+    (r'tô aqui na luz, pra você ver o tecido',
+     ('tô aqui na luz, pra você ver o tecido', 'chega mais perto, olha o tecido aqui na luz',
+      'trouxe pra perto da luz pra você ver o tecido')),
+    (r'quis te mostrar (ela|ele) aqui na luz, pra você ver o acabamento',
+     ('quis te mostrar {p} aqui na luz, pra você ver o acabamento', 'olha o acabamento aqui na luz, de pertinho',
+      'trouxe {p} pra luz pra você ver o acabamento')),
+)
+
+
+def _vary_proof(text, index=0):
+    """Troca a frase de prova por uma variante equivalente (mesmo sentido)."""
+    if not text:
+        return text
+    for pattern, variants in _PROOF_VARIANTS:
+        m = re.search(pattern, text, re.I)
+        if m:
+            pron = m.group(1) if m.groups() else ''
+            escolha = variants[int(index or 0) % len(variants)].replace('{p}', pron or 'ela')
+            novo = text[:m.start()] + escolha + text[m.end():]
+            return novo[:1].upper() + novo[1:] if text[:1].isupper() else novo
+    return text
+
+
 def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     """O meio da fala, como gente fala: uma reacao em primeira pessoa que
     continua o gancho, e nao tres ordens soltas.
@@ -1424,7 +1463,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     # depois de um gancho de oferta ou de detalhe, a prova entra direta.
     dor_no_gancho = bool(pain) and pain.casefold() in (hook or '').casefold()
     if pain:
-        prova_falada = spoken_check or 'Por isso fiz questão de te mostrar aqui.'
+        prova_falada = _vary_proof(spoken_check, index) or 'Por isso fiz questão de te mostrar aqui.'
         if not dor_no_gancho and hook:
             prova_falada = re.sub(r'^Por isso\s+', '', prova_falada)
             prova_falada = prova_falada[:1].upper() + prova_falada[1:]
@@ -1610,6 +1649,12 @@ def _sem_artigo(value):
     return re.sub(r'^(o|a|os|as)\s+', '', _phrase(value), flags=re.I)
 
 
+def _infinitive(phrase):
+    """'ficar transparente', 'não segurar em cima' -> True; 'amassa fácil' -> False."""
+    palavras = re.sub(r'^(não|nao)\s+', '', _phrase(phrase), flags=re.I).split()
+    return any(re.search(r'(ar|er|ir)$', w, re.I) for w in palavras[:3])
+
+
 def _cover_text(c, forms, detail, index=0):
     """Texto da capa: 3 a 6 palavras, lido no feed ANTES de alguem dar play.
 
@@ -1628,7 +1673,7 @@ def _cover_text(c, forms, detail, index=0):
         f'{nu.capitalize()}?',
         f'{piece.capitalize()} com {nu}',
         f'Repara {_with_em(det)}',
-        f'O detalhe é {det}',
+        f'Repara {_with_em(det)}' if re.match(r'^(os|as)\s', det) else f'O detalhe é {det}',
     ]
     opcoes = [o for o in opcoes if 2 <= _count_words(o) <= 6]
     if not opcoes:
@@ -1650,8 +1695,16 @@ def _screen_text(c, forms, detail, index=0):
     opcoes = []
     if pain:
         # A objecao escrita e o que mais segura o dedo de quem tem essa duvida.
-        opcoes.append(f'O medo era {pain}')
-        opcoes.append(f'Você também desistiu por {pain}?')
+        # Dor do banco vem no infinitivo ("ficar transparente"); texto livre
+        # vem do jeito que a pessoa escreveu ("amassa fácil"). "Desistiu por
+        # amassa fácil" nao e portugues: cada forma ganha a frase que cabe.
+        pain = re.sub(r'^(tenho\s+)?medo\s+de\s+', '', pain, flags=re.I)
+        if _infinitive(pain):
+            opcoes.append(f'Medo de {pain}?')
+            opcoes.append(f'Você também tem medo de {pain}?')
+        else:
+            opcoes.append(f'{pain[:1].upper() + pain[1:]}?')
+            opcoes.append(f'A dúvida: {pain}?')
     opcoes.extend([
         f'{piece.capitalize()}: {nu}',
         f'Não sabia que tinha {det}',
@@ -2018,7 +2071,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
             "Fundo, objetos e luz vêm só dessa foto; descrição genérica de nicho não autoriza substituir. "
             "Não trocar a locação nem desfocar o fundo; a câmera pode aproximar, voltando ao enquadramento inicial no fim. "),
         (2, f"CÂMERA: {camera}. "),
-        (0, f"DETALHE PRINCIPAL: {focus}. "),
+        (0, _main_detail(focus, facts)),
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "),
         (3, f"EVITAR: {dirn['avoid']}; "),
         (0, "EVITAR TAMBÉM: qualquer fala, narração ou voz; legenda automática; textos, ícones ou carrinho na tela; marcas inventadas; "
@@ -2332,6 +2385,33 @@ def close_target(c):
     return _with_em(_with_article(alvo)) if alvo else 'no tecido e nos detalhes da peça'
 
 
+def mirror_hands(text):
+    """No espelho uma mao segura o celular: gesto "com as duas maos" vira da
+    mao livre (senao o Grok inventa uma terceira mao) e a lente vira o espelho."""
+    t = re.sub(r'\bcom as duas mãos\b', 'com a mão livre', text or '')
+    return (t.replace('de frente para a lente', 'de frente para o espelho')
+             .replace('perto da lente', 'perto do espelho').replace('da lente', 'do espelho'))
+
+
+def _main_detail(focus, facts):
+    """Bloco DETALHE PRINCIPAL so quando acrescenta algo aos FATOS CONFIRMADOS
+    (varredura: ele repetia os fatos com "e" no lugar da virgula e gastava
+    espaco do limite do Grok)."""
+    palavras = re.findall(r'\w{3,}', (focus or '').casefold())
+    if palavras and all(w in (facts or '').casefold() for w in palavras):
+        return ''
+    return f"DETALHE PRINCIPAL: {focus}. "
+
+
+def _light_scene(falas, espelho=False):
+    """Acao de contraluz quando a fala promete mostrar a peca contra a luz."""
+    if not re.search(r'contra a luz', ' '.join(f or '' for f in falas), re.I):
+        return ''
+    if espelho:
+        return 'vira de leve para a janela, com a luz batendo atrás do tecido, e volta para o espelho'
+    return 'vira de leve para a janela, com a luz batendo atrás do tecido, e volta de frente'
+
+
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta,
                         base_image=False, formato='ugc'):
     """Prompt unico do Grok para a modelo falando: as travas do prompt completo
@@ -2379,6 +2459,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     espelho = formato == 'espelho'
     if espelho:
         turn_direction = turn_direction.replace('à lente', 'ao espelho').replace('a lente', 'o espelho')
+        gestures = [mirror_hands(g) for g in gestures]
+        moves = mirror_hands(moves)
         # O quadro e o reflexo: mostrar de perto = se aproximar do espelho.
         moves = re.sub(r'\bmostrar de perto\b', 'aproximar-se do espelho e mostrar de perto', moves)
         if 'espelho' not in moves:
@@ -2442,6 +2524,12 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         moves = '; '.join(lead + [jeitos])
     elif lead:
         moves = '; '.join(lead + [moves])
+    # A fala cita contraluz ("tô aqui contra a luz"): a cena precisa existir,
+    # senao o Grok ignora ou improvisa (varredura: 100% das leggings).
+    luz = _light_scene((hook, development, cta), espelho)
+    if luz:
+        moves = f'{luz}; {moves}'
+        lead = lead or [luz]
     if jeitos or lead or 'ousado' in estilo:
         # Com acao especifica, a acao generica do padrao so ocupa espaco.
         moves = '; '.join(m for m in moves.split('; ') if not m.startswith('movimentos sutis')) or moves
@@ -2478,7 +2566,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             "a locação, escurecer ou desfocar; descrição genérica de nicho não autoriza substituir. "
             "ENQUADRAMENTO: manter a mesma cena entre os beats. "),
         (0, f"CÂMERA: {camera}"),
-        (0, f"DETALHE PRINCIPAL: {focus}. "),
+        (0, _main_detail(focus, facts)),
         # So no Flow (sem limite apertado): no Grok o espaco vai para o essencial.
         (4, f"CONTEXTO VISUAL OPCIONAL (não é fato do produto; não inventar): {dirn['must_show']}. "
             if not _limite_video(c) else ''),
