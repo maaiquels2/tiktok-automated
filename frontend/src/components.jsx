@@ -165,9 +165,9 @@ export function StorySequence({campaignId,variantId=null,onError}){
   }
   return <section className="story-sequence">
     <button type="button" onClick={toggle} disabled={loading} aria-expanded={open}>
-      <span className="rd-story-eyebrow">MAIS DE 15 SEGUNDOS</span>
-      <strong>{loading?'Montando sequência…':open?'Fechar sequência storytelling':'Sequência storytelling'}</strong>
-      <small>Gancho, prova e fechamento em 3 partes com Extend Video, e o passo a passo do CapCut.</small>
+      <span className="rd-story-eyebrow">MESMAS FALAS · EXTEND VIDEO</span>
+      <strong>{loading?'Montando as partes…':open?'Fechar mesmas falas em 3 partes':'Mesmas falas em 3 partes (Extend)'}</strong>
+      <small>Divide o roteiro de 15 s em gancho, prova e fechamento para emendar com o Extend Video, e o passo a passo do CapCut. Não cria falas novas: para isso, use “Sequência em 2 ou 3 clipes”.</small>
     </button>
     {open&&seq&&<div className="story-sequence-body">
       <div className="section-title"><strong>3 partes · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
@@ -312,7 +312,6 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
 export const FORMAT_OPTIONS=[
   ['','Com fala','Modelo de frente falando com a câmera'],
   ['espelho','Celular no espelho','Ela grava o próprio look no espelho'],
-  ['pov','POV','Só mãos e produto, sem rosto'],
   ['movimento','Só movimento','Sem fala: puxa, gira e ajusta a peça'],
   ['comentario','Respondendo comentário','Responde a dúvida da cliente e prova na hora'],
   ['teste','Teste de prova','Agacha, pula ou gira para provar a peça'],
@@ -321,6 +320,8 @@ export const FORMAT_OPTIONS=[
   ['unboxing','Abrindo o pacote','POV tirando a peça da caixa (experimental)'],
   ['asmr','Close ASMR','Sem fala: closes e o som do tecido'],
   ['mesa','Na mesa, de perto','Sentada à mesa, mostra o produto e traz perto da lente (experimental)'],
+  // Ultimo da lista de proposito: nos testes reais o Grok errou as maos (terceira mao) e o giro da peca em POV.
+  ['pov','POV (último caso)','Só mãos e produto, sem rosto. Nos testes o Grok errou mãos e giro da peça'],
 ];
 const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
 const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
@@ -1358,8 +1359,8 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               <span><strong>{label}</strong><small>{hint}</small></span>
             </label>)}
           </div>
-          <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
-          <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
+          {draft.video_mode==='pov'&&<small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>}
+          {draft.video_mode==='movimento'&&<small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>}
         </div>
         <SequenceChoice clips={draft.sequence_clips} arc={draft.sequence_arc} format={draft.video_mode} idPrefix="brief-seq"
           onArc={id=>change('sequence_arc',id)}

@@ -42,7 +42,6 @@ Cada formato muda a abertura, as ações do meio, o encerramento e o texto na te
 |---|---|
 | **Com fala** | Modelo de frente falando com a câmera (padrão) |
 | **Celular no espelho** | Ela grava o próprio look no espelho, com o celular na mão — o formato que melhor funcionou nos testes |
-| **POV** | Só mãos e produto, sem rosto. Nos testes reais o Grok errou mãos e giro da peça: use só em último caso |
 | **Só movimento** | Sem fala: puxa, gira e ajusta a peça |
 | **Respondendo comentário** | Responde a dúvida de uma cliente e prova na hora |
 | **Teste de prova** | Agacha, pula ou gira para provar a peça |
@@ -51,13 +50,14 @@ Cada formato muda a abertura, as ações do meio, o encerramento e o texto na te
 | **Abrindo o pacote** | POV tirando a peça da caixa (experimental) |
 | **Close ASMR** | Sem fala: closes e o som do tecido |
 | **Na mesa, de perto** | Sentada à mesa, mostra o produto e traz perto da lente (experimental) |
+| **POV (último caso)** | Só mãos e produto, sem rosto. Nos testes reais o Grok errou mãos e giro da peça: fica por último na lista |
 
 Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente sem refazer a imagem. POV, Espelho e Abrindo o pacote mudam a imagem-base: esses se trocam em **Definir look**.
 
 **Câmera e técnicas (opcional):** *Closes no produto* (o rosto sai do quadro por 1 a 2 s para mostrar o material), *Movimentos ousados*, e até **2 técnicas de retenção** por vídeo — *Começar em movimento*, *Aproximação rápida*, *Mão revelando*, *Loop* e *Esticar o tecido*.
 
 ### Tipo de vídeo: clipe único ou sequência em 2 ou 3 clipes
-- Escolhido **já na criação da campanha**: *Clipe único* (15 s), *Sequência de 2 clipes* (~30 s) ou *Sequência de 3 clipes* (~45 s).
+- Escolhido **já na criação da campanha**, no bloco **Tipo de vídeo** logo abaixo da grade de formatos: *Clipe único* (15 s), *Sequência de 2 clipes* (~30 s) ou *Sequência de 3 clipes* (~45 s).
 - Dois arcos de storytelling, com **fala nova em cada clipe**:
   - **Motivos** — "Três motivos pra essa peça estar no seu guarda-roupa", um motivo por trecho.
   - **Questionada** — "Sabe o que dizem por aí? Que ela não te valoriza", e a resposta.
@@ -68,8 +68,8 @@ Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente se
 - Funciona em Celular no espelho e nos formatos com a modelo de frente (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Não funciona em POV, Abrindo o pacote, Só movimento, Close ASMR e Na mesa.
 - As falas da sequência ainda são rascunhos montados por regras (não pela IA); revise antes de gerar.
 
-### Sequência storytelling do Extend Video (mais de 15 s)
-- Separada da anterior: reparte as **mesmas falas** do roteiro de 15 s em 3 partes (gancho → prova → fechamento) para usar com o **Extend Video** do Grok, com o checklist de montagem no CapCut.
+### Mesmas falas em 3 partes (Extend Video)
+- Cartão "Mesmas falas em 3 partes (Extend)" na etapa de vídeo, separado da sequência acima: não cria falas novas, reparte as **mesmas falas** do roteiro de 15 s em 3 partes (gancho → prova → fechamento) para usar com o **Extend Video** do Grok, com o checklist de montagem no CapCut.
 
 ### Prompt de vídeo: Completo ou Guia do Grok
 - Duas versões para o mesmo vídeo, trocadas por um botão na etapa de vídeo:
