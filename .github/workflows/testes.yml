@@ -1,4 +1,4 @@
-# Roda os testes do backend e da interface, e o build, a cada push e pull request.
+# Roda os testes da interface, o build e os testes do backend, a cada push e pull request.
 # Sem isto, um teste quebrado só aparecia quando alguém rodava a suíte no PC.
 name: Testes
 
@@ -12,6 +12,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+
+      # A interface vem primeiro: alguns testes do backend abrem a página inicial, que só existe depois do build.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Dependências da interface
+        working-directory: frontend
+        run: npm ci
+      - name: Testes da interface
+        working-directory: frontend
+        run: npm test
+      - name: Build da interface
+        working-directory: frontend
+        run: npm run build
 
       - uses: actions/setup-python@v5
         with:
@@ -42,18 +58,3 @@ jobs:
               linhas.append(titulo + ' :: ' + (erro[-1] if erro else '')[:300])
           print('::error title=Testes do backend que falharam::' + '%0A'.join(linhas[:15]))
           EOF
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Dependências da interface
-        working-directory: frontend
-        run: npm ci
-      - name: Testes da interface
-        working-directory: frontend
-        run: npm test
-      - name: Build da interface
-        working-directory: frontend
-        run: npm run build
