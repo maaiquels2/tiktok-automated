@@ -4,7 +4,7 @@ import re
 import unicodedata
 
 from services import formats, persuasion, speech_bank
-from services.limits import GROK_PROMPT_LIMIT, GROK_PROMPT_MARGIN, SPEECH_CEILING
+from services.limits import GROK_PROMPT_LIMIT, GROK_PROMPT_MARGIN, SPEECH_CEILING, SPEECH_MIN
 
 
 def _phrase(value):
@@ -1871,14 +1871,20 @@ _FUTURE_BY_FAMILY = {
 }
 
 
-def _future_line(c, forms, index=0):
+def _future_options(c, forms, index=0):
+    """As frases de imaginacao de uso da peca, a partir da escolhida pelo indice da variacao."""
     lines = (_FUTURE_BY_FAMILY.get(_product_family(c)) or _FUTURE_LINES.get(_niche_key(c))
              or _FUTURE_LINES['casual'])
-    line = lines[int(index or 0) % len(lines)]
-    return line.replace('{com}', 'com ela' if forms.get('art') == 'a' else 'com ele')
+    start = int(index or 0) % len(lines)
+    com = 'com ela' if forms.get('art') == 'a' else 'com ele'
+    return [lines[(start + k) % len(lines)].replace('{com}', com) for k in range(len(lines))]
 
 
-def _script_variation(c, color, index=0):
+def _future_line(c, forms, index=0):
+    return _future_options(c, forms, index)[0]
+
+
+def _script_variation(c, color, index=0, filler=True):
     # Constroi as tres falas a partir de evidencia explicita do briefing.
     # A cor NAO entra no hook: o espectador ja a ve na tela, e cada palavra do
     # hook vale ~0,36s. Ela permanece na legenda e no prompt de imagem.
@@ -1907,8 +1913,13 @@ def _script_variation(c, color, index=0):
     # Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio no fim
     # dos 15 s. Fala de quem vende ocupa o clipe inteiro: abaixo de 46
     # palavras entra uma frase de imaginacao de uso (sem afirmar nada novo).
-    if _count_words(selected_development) < 26 and formats.video_format(c) != 'tres_jeitos':
-        extra = _future_line(c, forms, i)
+    # O total tambem conta: hook e CTA curtos deixavam 43-44 palavras mesmo com o meio cheio.
+    if (filler and (_count_words(selected_development) < 26 or total() < SPEECH_MIN)
+            and formats.video_format(c) != 'tres_jeitos'):
+        # A primeira frase que cabe no teto: uma longa demais entrava e o corte logo abaixo a tirava de novo
+        # (pijama: 44 palavras + 16 = 60, cortado de volta para 44).
+        opcoes = _future_options(c, forms, i)
+        extra = next((o for o in opcoes if total() + _count_words(o) <= SPEECH_CEILING), opcoes[0])
         if extra and extra.casefold() not in selected_development.casefold():
             selected_development = f'{selected_development.rstrip(". ")}. {extra}'
     # Segundo teste: com ~57 palavras ficou um pouco acelerado; teto de 57.
@@ -3213,19 +3224,20 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         build_video = _build_unboxing_video_prompt
     elif formats.mesa(c):
         build_video = _build_mesa_video_prompt
-    video = build_video(
-        c,
-        resolution=resolution,
-        color=c.get('color'),
-        product=product,
-        benefit=_benefit_clause(c),
-        movements=movements,
-        details=details,
-        hook=hook,
-        development=development,
-        cta=cta,
-        base_image=base_image,
-    )
+    def montar(hook, development, cta):
+        return build_video(c, resolution=resolution, color=c.get('color'), product=product,
+                           benefit=_benefit_clause(c), movements=movements, details=details,
+                           hook=hook, development=development, cta=cta, base_image=base_image)
+    video = montar(hook, development, cta)
+    # A fala nunca e cortada do prompt: se a frase de complemento empurrou o prompt para alem da margem do Grok
+    # (POV com 4 tecnicas: 3946), ela sai e a fala fica como era antes dela.
+    limite = _limite_video(c)
+    if limite and len(video) > limite and not script:
+        sem = _script_variation(c, color, variant_index, filler=False)
+        if sem != (hook, development, cta):
+            video_sem = montar(*sem)
+            if len(video_sem) < len(video):
+                (hook, development, cta), video = sem, video_sem
     caption = build_caption(c, color=color, cta=None, variation_index=variant_index)
     # Texto de capa e texto de tela: ficam FORA do video gerado de proposito
     # (o prompt continua proibindo letra dentro do quadro) e sao colados na

@@ -1398,6 +1398,27 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(story_arcs.GROK_LIMIT,limits.GROK_PROMPT_LIMIT-limits.GROK_PROMPT_MARGIN)
         self.assertEqual(prompts_module._limite_video({'generator':'grok'}),story_arcs.GROK_LIMIT)
 
+    def test_local_scripts_fill_the_whole_clip(self):
+        # Teste real: abaixo de 45 palavras sobrava silencio no fim. Pijama e legging com objecao saiam com 43-44:
+        # a frase de complemento era longa demais, entrava e o teto de 57 a tirava de novo.
+        from services import limits
+        produtos=[dict(product='Pijama de cetim com short e camisa',outfit='pijama',color='Rosa claro',niche='intima',
+                       details='cetim, gola com lapela, bolso no peito, botões, elástico no short',objection='amassa fácil',
+                       audience='Mulheres que gostam de dormir bem',
+                       benefit='O cetim com gola de lapela deixa o pijama com cara de presente'),
+                  dict(product='Calça legging tie dye',outfit='legging',color='Preto com branco',niche='academia',
+                       details='estampa tie dye, cintura alta',objection='fica transparente no agachamento',
+                       audience='Mulheres que treinam',benefit='A cintura alta e a estampa tie dye deixam o treino com mais estilo')]
+        base=dict(model_name='Micaela',angle='',tone='Conversacional',style='Natural e realista',movements='',
+                  generator='grok',offer='',social_proof='',motor='',body_turns='leve_lado',video_style='')
+        for p in produtos:
+            for modo in ('','espelho','comentario','teste','troca_cor'):
+                g=generate({**base,**p,'video_mode':modo})
+                palavras=len(' '.join((g['hook'],g['development'],g['cta'])).split())
+                self.assertGreaterEqual(palavras,limits.SPEECH_MIN,(p['outfit'],modo,g['development']))
+                self.assertLessEqual(palavras,limits.SPEECH_CEILING,(p['outfit'],modo))
+                self.assertLessEqual(len(g['video']),limits.GROK_PROMPT_BUDGET,(p['outfit'],modo))
+
     def test_prompt_library_starts_with_the_approved_prompts_and_keeps_new_ones(self):
         # Pedido real: os prompts aprovados nos testes de 11 e 12/10 precisam estar na base de dados.
         lista=self.client.get('/api/prompt-library',headers=self.headers).json
