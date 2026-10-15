@@ -219,8 +219,6 @@ No celular, os botões de Grok/Flow/TikTok Studio/TikTok abrem como links direto
 
 Colunas novas da tabela de campanhas (como as da sequência, `sequence_clips` e `sequence_arc`) são criadas sozinhas no Postgres quando o servidor sobe. **Tabelas e índices novos ainda são manuais**: rode o SQL no painel do Supabase antes do deploy que precisa deles.
 
-Sem `FABRICA_SECRET_KEY`, a nuvem **não sobe** (de propósito): cada instância geraria a sua própria chave e o login cairia a toda hora.
-
 ### Fazer um novo deploy
 
 Depois de uma sessão de mudanças, o fluxo é: revisar o que foi commitado localmente (`git log`, `git status`), `git push origin main`, e então redeployar no painel do Vercel (ou deixar o deploy automático do Vercel disparar pelo push, se estiver configurado assim). O build do Vercel roda `cd frontend && npm ci && npm run build` (ver `vercel.json`) antes de subir o `wsgi.py`.
@@ -366,7 +364,7 @@ Em ambos os modos:
 .\.venv\Scripts\python.exe app.py
 
 # API simulando modo nuvem (Postgres precisa estar acessível)
-$env:FABRICA_CLOUD=1; $env:FABRICA_SECRET_KEY='chave-local-de-teste'; .\.venv\Scripts\python.exe app.py
+$env:FABRICA_CLOUD=1; .\.venv\Scripts\python.exe app.py
 
 # UI com hot reload
 cd frontend
