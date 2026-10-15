@@ -1384,6 +1384,38 @@ class WorkflowTests(unittest.TestCase):
         # Nada foi criado: a campanha so nasce depois da conferencia.
         self.assertEqual(len(self.client.get('/api/campaigns',headers=self.headers).json),1)
 
+    def test_prompt_library_starts_with_the_approved_prompts_and_keeps_new_ones(self):
+        # Pedido real: os prompts aprovados nos testes de 11 e 12/10 precisam estar na base de dados.
+        lista=self.client.get('/api/prompt-library',headers=self.headers).json
+        self.assertEqual(len(lista),18)
+        self.assertEqual({p['kind'] for p in lista},{'imagem','video'})
+        self.assertTrue(all(len(p['prompt'])>=40 for p in lista))
+        videos=self.client.get('/api/prompt-library?kind=video',headers=self.headers).json
+        self.assertTrue(videos and all(p['kind']=='video' for p in videos))
+        novo=dict(kind='video',product='Maiô',format='espelho',version='Completo',note='nota 9',prompt='Prompt aprovado '*5)
+        criado=self.client.post('/api/prompt-library',json=novo,headers=self.headers)
+        self.assertEqual(criado.status_code,201,criado.json)
+        self.assertEqual(len(self.client.get('/api/prompt-library',headers=self.headers).json),19)
+        self.assertEqual(self.client.post('/api/prompt-library',json={**novo,'kind':'audio'},headers=self.headers).status_code,400)
+        self.assertEqual(self.client.post('/api/prompt-library',json={**novo,'prompt':'curto'},headers=self.headers).status_code,400)
+        key=criado.json['key']
+        self.assertEqual(self.client.delete(f'/api/prompt-library/{key}',headers=self.headers).status_code,200)
+        self.assertEqual(len(self.client.get('/api/prompt-library',headers=self.headers).json),18)
+        self.assertEqual(self.client.delete('/api/prompt-library/x;drop',headers=self.headers).status_code,404)
+
+    def test_ai_tokens_are_recorded_per_call(self):
+        # O que a OpenAI cobra: cada chamada grava modelo e tokens, inclusive a leitura de fotos.
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        conteudo=json.dumps({'product':'Biquíni','colors':['Preto'],'niche':'praia','details':'bojo, forro, amarração'})
+        resposta={'usage':{'prompt_tokens':1200,'completion_tokens':300},'choices':[{'message':{'content':conteudo}}]}
+        with patch('services.copywriter._post_json',return_value=resposta):
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),'niche':'praia'})
+        self.assertEqual(r.status_code,200,r.json)
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            linhas=conn.execute('SELECT endpoint,model,input_tokens,output_tokens FROM ai_usage').fetchall()
+        self.assertEqual(linhas,[('quick_brief','gpt-6-luna',1200,300)])
+
     def test_quick_brief_reads_the_optional_colors_photo(self):
         # Cores dificeis de descrever (laranja com floral branco): a foto das
         # cores vai identificada, antes do print, e cada cor volta com detalhe.
