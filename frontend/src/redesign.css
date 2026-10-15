@@ -441,7 +441,8 @@ button.rd-brand {
 /* A biblioteca da modelo fica compacta na coluna lateral. */
 .rd-home-aside .model-library { margin: 0; padding: 20px; border-radius: var(--rd-radius); background: var(--rd-surface); border: 1px solid var(--rd-line); box-shadow: var(--rd-shadow); }
 .rd-home-aside .model-library .home-hero h2 { font-size: 18px; }
-.rd-home-aside .model-library-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 8px !important; }
+/* 3 colunas espremiam "Enviar foto padrão" em 3 linhas: 2 colunas na lateral. */
+.rd-home-aside .model-library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
 
 /* ---------- Produzir ---------- */
 .rd-produce {
@@ -875,3 +876,12 @@ button.rd-brand {
 .rd-format-select { width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 10px; }
 .rd-format-tip { margin: 0 0 10px; }
 .quick-niches .rd-chip-tab:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Biblioteca de prompts aprovados e uso da IA. */
+.prompt-library-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 12px; }
+.prompt-library-list > li { border: 1px solid var(--rd-line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; background: var(--rd-surface); }
+.prompt-library-head { display: grid; gap: 2px; }
+.prompt-library-head small { color: var(--rd-ink-2, #6b6880); }
+.prompt-library-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.prompt-library details pre { max-height: 260px; overflow: auto; white-space: pre-wrap; }
+.ai-usage { margin: 6px 0 0; }

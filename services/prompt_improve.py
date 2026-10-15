@@ -24,7 +24,8 @@ import unicodedata
 
 from services import formats, persuasion
 from services.prompts import (
-    _NO_SPOTLIGHT, _with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
+    _NO_SPOTLIGHT, _with_article, bold_move, close_target, fastening_move, mirror_hands, shows_unconfirmed_feature,
+    video_style)
 from services.prompts import (
     piece_lock_short, _STAY_IN_FRAME, _body_turns, _dominant_motor, _niche_key, _piece_forms, _pov_proof_gestures,
     _product_family, _product_features, _proof_gestures, _video_mode,
@@ -385,7 +386,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     if mode == 'espelho':
         # No espelho a camera e o reflexo: "mostrar de perto" so acontece se ela
         # se aproxima do espelho. Sem isso o video saiu estatico no teste real.
-        steps = [re.sub(r'^mostra de perto\b', 'se aproxima do espelho e mostra de perto', s) for s in steps]
+        steps = [mirror_hands(re.sub(r'^mostra de perto\b', 'se aproxima do espelho e mostra de perto', s))
+                 for s in steps]
         if not any('aproxima' in s for s in steps):
             steps.insert(1 if len(steps) > 1 else len(steps), mirror_approach(c))
     estilo = video_style(c)
@@ -400,6 +402,11 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         steps = lead + steps
     fim = formats.ending(c, mode)
     cortes = ' além das 2 trocas de look' if formats.allows_cuts(c) else ''
+    if mode != 'pov':
+        from services.prompts import _light_scene
+        luz = _light_scene((hook, development, cta), mode == 'espelho')
+        if luz:
+            steps.insert(0, luz)
     closes = ''
     if 'closes' in estilo:
         alvo = close_target(c)
