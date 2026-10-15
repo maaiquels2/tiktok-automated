@@ -633,6 +633,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('Revelar a fantasia',video)
         self.assertNotIn('CTA final animado',video)
 
+    def test_cloud_refuses_to_boot_without_session_secret(self):
+        # Sem a variavel, cada instancia da Vercel gerava a sua chave e o login caia a toda hora.
+        anterior = os.environ.pop('FABRICA_SECRET_KEY', None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                with self.assertRaisesRegex(RuntimeError, 'FABRICA_SECRET_KEY'):
+                    create_app(dict(CLOUD_MODE=True, DATA_DIR=Path(tmp) / 'data',
+                                    MEDIA_DIR=Path(tmp) / 'media', PROFILE_DIR=Path(tmp) / 'profiles'))
+        finally:
+            if anterior is not None:
+                os.environ['FABRICA_SECRET_KEY'] = anterior
+
     def test_cloud_boot_adds_missing_campaign_columns_instead_of_failing_later(self):
         # Regressao de producao: o codigo subiu com 'video_mode' em FIELDS, o
         # Postgres do Supabase nao tinha a coluna e toda criacao de campanha

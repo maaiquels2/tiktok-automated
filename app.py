@@ -102,6 +102,10 @@ def create_app(config=None):
     auth_required=bool(app.config.get('AUTH_REQUIRED',cloud_mode or os.environ.get('FABRICA_AUTH_REQUIRED','0')=='1'))
     secret_path=app.config['DATA_DIR']/'session_secret.txt'
     secret=os.environ.get('FABRICA_SECRET_KEY','').strip()
+    # Na nuvem o disco some a cada instancia: uma chave gerada aqui seria diferente em cada uma,
+    # derrubando o login a toda hora, e ninguem perceberia que faltou a variavel. Melhor nao subir.
+    if cloud_mode and not secret and not app.config.get('TESTING'):
+        raise RuntimeError('FABRICA_SECRET_KEY não definida: a nuvem não sobe sem a chave de sessão.')
     if not secret:
         try:
             secret=secret_path.read_text(encoding='utf-8').strip()

@@ -182,7 +182,7 @@ Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente se
 
 ### Privacidade
 - Prompts e rascunhos de texto são **determinísticos e locais** (regras em Python). A API paga de texto só é chamada pela Escrita por IA, pela leitura de fotos e pela criação automática — e só com a chave configurada.
-- A chave da OpenAI **nunca** vai para o código nem para o GitHub: fica na variável de ambiente `OPENAI_API_KEY` (Vercel ou `.env` do PC) ou salva pela tela de Identidade.
+- A chave da OpenAI **nunca** vai para o código nem para o GitHub: fica na variável de ambiente `OPENAI_API_KEY` (na Vercel ou nas variáveis de ambiente do Windows) ou salva pela tela de Identidade.
 - Geração de imagem/vídeo é **manual** no Flow ou Grok Imagine (sua assinatura).
 - Na versão local, tudo fica no PC: banco, mídia, perfis de navegador. `.gitignore` exclui `data/`, `media/`, `browser_profiles/`, `.venv/`, etc.
 - Na nuvem, banco e mídia ficam no Supabase da conta do projeto; o acesso exige login.
@@ -217,7 +217,9 @@ No celular, os botões de Grok/Flow/TikTok Studio/TikTok abrem como links direto
 | `FABRICA_STORAGE_BUCKET` | Nome do bucket de mídia no Supabase Storage |
 | `OPENAI_API_KEY` | Chave da OpenAI para a Escrita por IA, a leitura de fotos e a criação automática. Com ela definida, a IA já vem ligada (desliga quem desmarcar na tela). Secreta: nunca no código |
 
-Colunas novas do banco (como as da sequência, `sequence_clips` e `sequence_arc`) são criadas sozinhas no Postgres quando o servidor sobe.
+Colunas novas da tabela de campanhas (como as da sequência, `sequence_clips` e `sequence_arc`) são criadas sozinhas no Postgres quando o servidor sobe. **Tabelas e índices novos ainda são manuais**: rode o SQL no painel do Supabase antes do deploy que precisa deles.
+
+Sem `FABRICA_SECRET_KEY`, a nuvem **não sobe** (de propósito): cada instância geraria a sua própria chave e o login cairia a toda hora.
 
 ### Fazer um novo deploy
 
@@ -271,7 +273,7 @@ Por isso os dois trabalham juntos:
 3. O app **audita** o resultado: palavras por trecho, nenhum atributo de desempenho fora do briefing, urgência só com oferta real, no máximo 5 hashtags.
 4. Reprovado? Volta para o modelo com os erros apontados, uma vez. Reprovado de novo? Usa o texto local.
 
-Configure no ícone de **Identidade** no cabeçalho: escolha OpenAI ou Gemini, cole a chave e ligue. O botão **Testar conexão** gera um exemplo na hora. Modelo padrão da OpenAI para texto: `gpt-6.1-sol`. Se a variável `OPENAI_API_KEY` existir (Vercel ou `.env`), ela é usada quando não há chave salva pela tela.
+Configure no ícone de **Identidade** no cabeçalho: escolha OpenAI ou Gemini, cole a chave e ligue. O botão **Testar conexão** gera um exemplo na hora. Modelo padrão da OpenAI para texto: `gpt-6.1-sol`. Se a variável `OPENAI_API_KEY` existir (na Vercel ou no Windows), ela é usada quando não há chave salva pela tela.
 
 Na versão local, a chave fica em **`data/llm.json`**, só neste computador — fora do Git. Na nuvem, a mesma configuração fica salva no Postgres do projeto (visível pras duas contas do estúdio). Em ambos os casos a API do app nunca devolve a chave inteira — só os últimos quatro caracteres.
 
@@ -314,11 +316,12 @@ Identidade da modelo é guiada por prompt + revisão humana (sem reconhecimento 
 
 ## Variáveis e privacidade
 
-Copie `.env.example` para `.env` se existir no projeto, para rodar local. Chaves típicas (nunca commitar `.env`):
+O app **não lê arquivo `.env`**: as variáveis vêm do ambiente do sistema.
 
-- Credenciais/tokens só em `.env` local
-- Opcionais: `FABRICA_MICAELA_PROFILE`, `FABRICA_CHROME_USER_DATA`
-- Nuvem: ver a tabela de variáveis do Vercel, acima
+- **Local (Windows):** defina como variável de ambiente do usuário (Configurações → Variáveis de ambiente) ou no terminal antes de subir (`$env:OPENAI_API_KEY='...'`). A chave da IA também pode ser colada na tela de Identidade, que guarda em `data/llm.json`, fora do Git.
+- Opcionais: `FABRICA_MICAELA_PROFILE`, `FABRICA_CHROME_USER_DATA`, `FABRICA_LAN=0`.
+- **Nuvem:** ver a tabela de variáveis do Vercel, acima.
+- Nunca commitar chaves, senhas ou tokens.
 
 `.gitignore` deve cobrir: `data/`, `media/`, `.venv/`, `browser_profiles/`, `.env`, secrets e caches.
 

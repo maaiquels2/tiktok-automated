@@ -258,7 +258,7 @@ def load_settings(data_dir, storage_get=None) -> dict:
     enabled = bool(raw.get('enabled'))
     source = 'saved' if api_key else ''
     # Chave da OpenAI guardada como variavel de ambiente secreta (Vercel ou
-    # .env do PC). Nunca no codigo: o repositorio vai para o GitHub e a
+    # variavel do Windows; o app nao le .env). Nunca no codigo: o repositorio vai para o GitHub e a
     # OpenAI revoga sozinha toda chave que aparece la. A chave salva pela
     # tela continua tendo prioridade; desligar a IA na tela tambem vale.
     env_key = os.environ.get('OPENAI_API_KEY', '').strip()
