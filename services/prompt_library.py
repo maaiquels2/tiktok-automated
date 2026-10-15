@@ -64,9 +64,9 @@ def prices():
         return {}
 
 
-def usage_summary(rows):
+def usage_summary(rows, tabela=None):
     """Resumo do uso da IA de uma campanha: chamadas, tokens e custo (se houver preco)."""
-    tabela = prices()
+    tabela = prices() if tabela is None else tabela
     modelos = {}
     for row in rows:
         m = modelos.setdefault(row['model'], {'model': row['model'], 'calls': 0, 'input_tokens': 0,

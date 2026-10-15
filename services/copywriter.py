@@ -35,12 +35,21 @@ from services import formats, persuasion, speech_bank
 # Uso da IA por requisicao: cada chamada ao provedor anota os tokens aqui e o
 # app grava por campanha (o que a OpenAI cobra).
 _USAGE = contextvars.ContextVar('fabrica_ai_usage', default=None)
+# Teto de gasto atingido (services/ai_budget.py): o motivo vira a recusa de toda chamada desta requisicao.
+_BLOCK = contextvars.ContextVar('fabrica_ai_block', default='')
 
 
-def usage_start() -> list:
+def usage_start(block: str = '') -> list:
     lista: list = []
     _USAGE.set(lista)
+    _BLOCK.set(block or '')
     return lista
+
+
+def _check_budget():
+    motivo = _BLOCK.get()
+    if motivo:
+        raise ProviderError(motivo)
 
 
 def _record_usage(model, tokens_in, tokens_out):
@@ -292,6 +301,7 @@ def load_settings(data_dir, storage_get=None) -> dict:
         'enabled': enabled and bool(provider) and bool(api_key),
         'key_source': source,
         'disabled_by_user': bool(raw.get('disabled_by_user')),
+        **{k: raw[k] for k in ('cap_daily_usd', 'cap_monthly_usd', 'prices') if k in raw},
     }
 
 
@@ -367,6 +377,9 @@ def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) ->
     if 'enabled' in values:
         current['enabled'] = bool(values['enabled'])
         current['disabled_by_user'] = not current['enabled']
+    from services import ai_budget
+    limites, _erro = ai_budget.clean(values)
+    current.update(limites)
     current['enabled'] = bool(current['enabled'] and current['provider'] and current['api_key'])
     # A chave que veio do ambiente nunca e copiada para o arquivo salvo.
     from_env = current.pop('key_source', '') == 'env' and not (isinstance(key, str) and key.strip())
@@ -393,6 +406,7 @@ def public_settings(data_dir, storage_get=None) -> dict:
         'key_source': s.get('key_source', ''),
         'providers': list(PROVIDERS),
         'default_models': DEFAULT_MODELS,
+        'vision_models': VISION_MODELS,
     }
 
 
@@ -674,6 +688,7 @@ def _image_data_url(image_bytes: bytes, mime: str) -> str:
 
 
 def _call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+    _check_budget()
     if images:
         content = [{'type': 'text', 'text': user}]
         for image_bytes, mime in images:
@@ -720,6 +735,7 @@ def _call_openai(settings: dict, system: str, user: str, images: list[tuple[byte
 
 
 def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+    _check_budget()
     import base64
     model = settings['model'] or DEFAULT_MODELS['gemini']
     url = (f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'

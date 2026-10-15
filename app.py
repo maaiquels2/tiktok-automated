@@ -27,7 +27,7 @@ from services.media import inspect_media
 from services.prompts import (color_variants, generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import copywriter, formats, prompt_library, speech_bank
+from services import ai_budget, copywriter, formats, prompt_library, speech_bank
 from services.limits import GROK_PROMPT_LIMIT
 from services.prompts import _with_article
 
@@ -538,7 +538,26 @@ def create_app(config=None):
             if espera:
                 raise Invalid(f'Muitas chamadas à IA em sequência. Espere {espera} s e tente de novo.',429)
             rate_hit(chave,AI_LIMIT,AI_WINDOW,AI_WINDOW)
-            g.ai_usage=copywriter.usage_start()
+            # Teto de gasto: atingido, toda chamada a IA desta requisicao e recusada com o motivo (a escrita volta
+            # para o texto local; a leitura de fotos avisa). Salvar o teto nunca e bloqueado.
+            motivo=''
+            if request.endpoint!='save_writer_settings':
+                try:
+                    motivo=ai_budget.status(db(),writer_settings_cached())['blocked']
+                except Exception as exc:  # conferir o teto nunca derruba a requisicao
+                    app.logger.warning('Nao foi possivel conferir o teto de gasto da IA: %s', exc)
+            g.ai_usage=copywriter.usage_start(block=motivo)
+
+    # Configuracao da escrita por IA guardada por 60 s: na nuvem cada leitura e uma ida ao Storage, e o teto e os
+    # precos sao conferidos em toda chamada a IA e em toda tela de campanha. Salvar pela tela renova na hora.
+    _writer_cache={'t':0.0,'v':None}
+
+    def writer_settings_cached(max_age=60):
+        agora=time.monotonic()
+        if _writer_cache['v'] is None or agora-_writer_cache['t']>max_age:
+            _writer_cache['v']=copywriter.load_settings(app.config['DATA_DIR'],storage_get=(_storage_get if cloud_mode else None))
+            _writer_cache['t']=agora
+        return _writer_cache['v']
 
     def client_ip():
         # Na Vercel o IP real vem no X-Forwarded-For (o primeiro e o cliente).
@@ -1102,8 +1121,13 @@ def create_app(config=None):
         c['device_videos']=device_videos_of(cid)
         # Dica de edicao do formato (juntar as cores, responder comentario...).
         c['edit_tip']=formats.edit_tip(c)
+        try:
+            precos=ai_budget.price_table(writer_settings_cached())
+        except Exception:
+            precos=None
         c['ai_usage']=prompt_library.usage_summary(
-            db().execute('SELECT model,input_tokens,output_tokens FROM ai_usage WHERE campaign_id=?',(cid,)).fetchall())
+            db().execute('SELECT model,input_tokens,output_tokens FROM ai_usage WHERE campaign_id=?',(cid,)).fetchall(),
+            precos)
         c['product_assets']=[]
         for row in db().execute('SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id',(cid,)):
             a=dict(row)
@@ -2060,9 +2084,14 @@ def create_app(config=None):
         registrar(settings.get('provider') or 'ia')
         return merged, ''
 
+    def writer_public():
+        dados=copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        dados['budget']=ai_budget.status(db(),writer_settings_cached())
+        return dados
+
     @app.get('/api/writer')
     def writer_settings():
-        return jsonify(copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
+        return jsonify(writer_public())
 
     @app.patch('/api/writer')
     def save_writer_settings():
@@ -2074,6 +2103,9 @@ def create_app(config=None):
             valor = data.get(campo)
             if valor is not None and (not isinstance(valor, str) or len(valor) > 400):
                 raise Invalid(f'Campo {campo} invalido.')
+        _limites, erro_teto = ai_budget.clean(data)
+        if erro_teto:
+            raise Invalid(erro_teto)
         # A chave so e gravada e ligada depois de conferida no provedor.
         current = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
         new_key = (data.get('api_key') or '').strip()
@@ -2093,7 +2125,8 @@ def create_app(config=None):
             storage_get=(_storage_get if cloud_mode else None),
             storage_put=(_storage_put if cloud_mode else None),
         )
-        return jsonify(copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
+        _writer_cache['v']=None
+        return jsonify(writer_public())
 
     @app.post('/api/writer/test')
     def test_writer():

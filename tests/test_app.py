@@ -1451,6 +1451,65 @@ class WorkflowTests(unittest.TestCase):
             linhas=conn.execute('SELECT endpoint,model,input_tokens,output_tokens FROM ai_usage').fetchall()
         self.assertEqual(linhas,[('quick_brief','gpt-6-luna',1200,300)])
 
+    def gasto(self,model,tokens_in,tokens_out,quando=None):
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            if quando:
+                conn.execute('INSERT INTO ai_usage(campaign_id,endpoint,model,input_tokens,output_tokens,created_at) '
+                             'VALUES(NULL,?,?,?,?,?)',('teste',model,tokens_in,tokens_out,quando))
+            else:
+                conn.execute('INSERT INTO ai_usage(campaign_id,endpoint,model,input_tokens,output_tokens) '
+                             'VALUES(NULL,?,?,?,?)',('teste',model,tokens_in,tokens_out))
+            conn.commit()
+
+    def test_ai_spend_cap_blocks_calls_and_writing_falls_back_to_local_text(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        # Sem preco cadastrado o modelo conta pelo preco de seguranca (alto): 100 mil tokens de saida = US$ 2.
+        self.gasto('gpt-6.1-sol',0,100_000)
+        w=self.client.get('/api/writer',headers=self.headers).json
+        self.assertEqual(w['budget']['unpriced_models'],['gpt-6.1-sol'])
+        self.assertIn('teto de gasto da IA de hoje',w['budget']['blocked'])
+        with patch('services.copywriter._post_json') as chamada:
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),'niche':'praia'})
+        chamada.assert_not_called()
+        self.assertNotEqual(r.status_code,200)
+        self.assertIn('teto de gasto',r.json['error'])
+        # Escrita do roteiro: nenhuma chamada sai, o texto local entra e o motivo fica gravado para a tela.
+        self.client.post(f'/api/campaigns/{self.cid}/assets',headers=self.headers,
+                         data={'kind':'reference','file':(io.BytesIO(image_bytes()),'ref.png')})
+        v=self.client.get(f'/api/campaigns/{self.cid}',headers=self.headers).json['version']
+        with patch('services.copywriter._post_json') as chamada:
+            g=self.client.post(f'/api/campaigns/{self.cid}/generate',json={'version':v},headers=self.headers)
+        chamada.assert_not_called()
+        self.assertEqual(g.status_code,200,g.json)
+        writer=(g.json.get('checklist') or {}).get('writer') or {}
+        self.assertEqual(writer.get('by'),'local')
+        self.assertIn('teto de gasto',writer.get('reason',''))
+        # Com o preco real cadastrado (barato), o mesmo uso cabe no teto e a IA volta.
+        r=self.client.patch('/api/writer',json={'prices':{'gpt-6.1-sol':[1,4]}},headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(r.json['budget']['blocked'],'')
+        self.assertAlmostEqual(r.json['budget']['today_usd'],0.4)
+
+    def test_ai_spend_cap_settings_are_validated_and_zero_price_counts_as_unpriced(self):
+        from services import ai_budget
+        self.assertEqual(self.client.patch('/api/writer',json={'cap_daily_usd':-1},headers=self.headers).status_code,400)
+        self.assertEqual(self.client.patch('/api/writer',json={'prices':{'gpt-6.1-sol':[1]}},headers=self.headers).status_code,400)
+        r=self.client.patch('/api/writer',json={'cap_daily_usd':5,'cap_monthly_usd':0,'prices':{'gpt-6.1-sol':[0,0]}},
+                            headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual((r.json['budget']['cap_daily_usd'],r.json['budget']['cap_monthly_usd']),(5,0))
+        # Preco zero faria o teto nunca disparar: conta como sem preco.
+        self.gasto('gpt-6.1-sol',0,300_000)
+        b=self.client.get('/api/writer',headers=self.headers).json['budget']
+        self.assertEqual(b['unpriced_models'],['gpt-6.1-sol'])
+        self.assertIn('de hoje',b['blocked'])
+        # Uso de ontem conta no mes e nao no dia; teto mensal 0 = desligado.
+        from datetime import datetime, timezone, timedelta
+        dia,mes=ai_budget.period_starts(datetime(2026,10,15,12,tzinfo=timezone.utc))
+        self.assertEqual((dia,mes),('2026-10-15 03:00:00','2026-10-01 03:00:00'))
+        self.assertEqual(ai_budget.period_starts(datetime(2026,10,1,2,tzinfo=timezone.utc))[0],'2026-09-30 03:00:00')
+
     def test_quick_brief_reads_the_optional_colors_photo(self):
         # Cores dificeis de descrever (laranja com floral branco): a foto das
         # cores vai identificada, antes do print, e cada cor volta com detalhe.

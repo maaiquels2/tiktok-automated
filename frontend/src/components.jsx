@@ -1513,6 +1513,50 @@ export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,o
 }
 
 
+// Teto de gasto da IA (services/ai_budget.py): o que ja foi gasto hoje e no mes, o teto e o preco de cada modelo.
+// Modelo sem preco conta pelo preco de seguranca, alto de proposito, para o teto disparar cedo e nunca tarde.
+const usd=v=>`US$ ${Number(v||0).toFixed(2).replace('.',',')}`;
+export function AiBudget({data,busy,onSaved,onError,onFlash}){
+  const b=data.budget||{};
+  const modelos=[...new Set([(data.default_models||{}).openai,(data.vision_models||{}).openai,...Object.keys(b.prices||{}),...(b.unpriced_models||[])].filter(Boolean))];
+  const [teto,setTeto]=useState({daily:String(b.cap_daily_usd??''),monthly:String(b.cap_monthly_usd??'')});
+  const [precos,setPrecos]=useState(()=>Object.fromEntries(modelos.map(m=>[m,(b.prices||{})[m]?b.prices[m].map(String):['','']])));
+  const [saving,setSaving]=useState(false);
+  async function salvar(){
+    setSaving(true);
+    try{
+      const prices={};
+      for(const [m,[ent,sai]] of Object.entries(precos)){
+        if(String(ent).trim()===''&&String(sai).trim()==='')continue;
+        prices[m]=[Number(String(ent).replace(',','.')),Number(String(sai).replace(',','.'))];
+      }
+      const saved=await saveWriterSettings({cap_daily_usd:Number(String(teto.daily).replace(',','.')),
+        cap_monthly_usd:Number(String(teto.monthly).replace(',','.')),prices});
+      onFlash?.('Teto de gasto salvo.');onSaved?.(saved);
+    }catch(e){onError?.(e.message)}finally{setSaving(false)}
+  }
+  return <div className="ai-budget">
+    <span className="option-field-title">Teto de gasto da IA</span>
+    <p className={'help'+(b.blocked?' field-error':'')} role={b.blocked?'alert':undefined}>
+      Hoje: <strong>{usd(b.today_usd)}</strong>{b.cap_daily_usd?` de ${usd(b.cap_daily_usd)}`:' (sem teto)'} · No mês: <strong>{usd(b.month_usd)}</strong>{b.cap_monthly_usd?` de ${usd(b.cap_monthly_usd)}`:' (sem teto)'}
+      {b.blocked&&<><br/>Teto atingido: as falas saem pelo texto local e a leitura de fotos fica parada até amanhã ou até você aumentar o teto.</>}
+    </p>
+    <div className="ai-budget-caps">
+      <label>Teto por dia (US$)<input inputMode="decimal" autoComplete="off" value={teto.daily} disabled={busy||saving} onChange={e=>setTeto(t=>({...t,daily:e.target.value}))}/></label>
+      <label>Teto por mês (US$)<input inputMode="decimal" autoComplete="off" value={teto.monthly} disabled={busy||saving} onChange={e=>setTeto(t=>({...t,monthly:e.target.value}))}/></label>
+    </div>
+    <small className="help">0 desliga o teto. O dia e o mês são os de Brasília.</small>
+    <span className="option-field-title">Preço por 1 milhão de tokens (US$)</span>
+    {modelos.map(m=><div key={m} className="ai-budget-price">
+      <span>{m}{(b.unpriced_models||[]).includes(m)&&<small className="field-error"> (sem preço)</small>}</span>
+      <label>Entrada<input inputMode="decimal" autoComplete="off" value={(precos[m]||['',''])[0]} disabled={busy||saving} onChange={e=>setPrecos(p=>({...p,[m]:[e.target.value,(p[m]||['',''])[1]]}))}/></label>
+      <label>Saída<input inputMode="decimal" autoComplete="off" value={(precos[m]||['',''])[1]} disabled={busy||saving} onChange={e=>setPrecos(p=>({...p,[m]:[(p[m]||['',''])[0],e.target.value]}))}/></label>
+    </div>)}
+    <small className="help">Copie da página de preços da OpenAI. Sem preço, o modelo é contado como {usd((b.safety_price||[])[0])} na entrada e {usd((b.safety_price||[])[1])} na saída por milhão (alto de propósito, para o teto parar cedo e nunca tarde).</small>
+    <div className="form-actions"><button type="button" disabled={busy||saving} onClick={salvar}>{saving?'Salvando…':'Salvar teto e preços'}</button></div>
+  </div>;
+}
+
 export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
   const [data,setData]=useState(null);
   const [open,setOpen]=useState(false);
@@ -1555,6 +1599,7 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       <button type="button" className="identity-toggle" onClick={()=>setOpen(o=>!o)}>
         <span className="eyebrow">ESCRITA DAS FALAS</span>
         <strong>{data.enabled?`Por IA · ${data.provider==='gemini'?'Gemini':'OpenAI'}`:'Texto local (sem IA)'}</strong>
+        {data.budget&&<small className={data.budget.blocked?'field-error':undefined}>{data.budget.blocked?'Teto de gasto atingido':`Gasto hoje ${usd(data.budget.today_usd)}${data.budget.cap_daily_usd?` de ${usd(data.budget.cap_daily_usd)}`:''}`}</small>}
       </button>
       <button type="button" className="button" onClick={()=>setOpen(o=>!o)}>{open?'Recolher':'Configurar'}</button>
     </div>
@@ -1593,6 +1638,8 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       <button type="button" className="primary" disabled={busy||saving||!!keyError||missingKey} onClick={()=>save()}>{saving?'Conferindo a chave…':'Salvar escrita por IA'}</button>
     </div>
     {missingKey&&<small className="field-error">Cole a chave da API para ligar a escrita por IA.</small>}
+    {data.budget&&<AiBudget key={JSON.stringify(data.budget.prices)+data.budget.cap_daily_usd+data.budget.cap_monthly_usd} data={data} busy={busy}
+      onSaved={saved=>setData(saved)} onError={onError} onFlash={onFlash}/>}
     {sample&&<div className="notice writer-sample">
       <strong>Exemplo gerado agora:</strong>
       <p><em>Hook:</em> {sample.hook}</p>
