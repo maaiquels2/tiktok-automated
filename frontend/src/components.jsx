@@ -237,12 +237,14 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
   const [facts,setFacts]=useState('');
-  async function build(lines){
-    setLoading(true);setMessage('');
+  // ai=true so pelo botao proprio: gasta tokens. A montagem automatica ao abrir a etapa reaproveita as falas que
+  // a IA ja escreveu (guardadas no servidor) e nunca chama a IA sozinha.
+  async function build(lines,ai=false){
+    setLoading(ai?'ai':true);setMessage('');
     try{
-      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined});
+      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined});
       setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
-    }catch(e){setData(null);setMessage(e.message)}
+    }catch(e){if(!ai)setData(null);setMessage(e.message)}
     finally{setLoading(false)}
   }
   const choose=(setter,value)=>{setter(value);setData(null);setMessage('')};
@@ -274,7 +276,13 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
       </div>
       {message&&<p className="help story-arc-message" role="alert">{pointToFacts(message,'abaixo')}</p>}
       {(isFewFacts(message)||facts)&&<label className="sequence-facts">Fatos da peça só para esta sequência<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={500}/><small className="help">Não muda o briefing: a imagem aprovada e os prompts continuam. Escreva fatos verdadeiros, separados por vírgula, e monte de novo.</small></label>}
-      <button type="button" className="primary" disabled={loading} onClick={()=>build()}>{loading?'Montando…':data?'Montar de novo (rascunho novo)':'Montar sequência'}</button>
+      <div className="story-arc-actions">
+        <button type="button" className="primary" disabled={!!loading} onClick={()=>build()}>{loading===true?'Montando…':data?'Montar de novo':'Montar sequência'}</button>
+        <button type="button" disabled={!!loading} onClick={()=>build(undefined,true)}><Sparkles size={16}/> {loading==='ai'?'A IA está escrevendo…':'Escrever as falas com IA'}</button>
+      </div>
+      <small className="help">A IA escreve falas novas para cada clipe com os mesmos fatos e passa pela mesma conferência do rascunho. Gasta tokens da OpenAI (entra no teto de gasto) e fica guardada: reabrir a etapa não gasta de novo.</small>
+      {data?.ai_error&&<p className="help story-arc-message" role="alert">A IA tentou e foi recusada: {data.ai_error}. Ficou o rascunho por regras.</p>}
+      {data?.written_by&&<p className="writer-badge is-ai"><strong>{data.written_by==='ai'?'Falas escritas pela IA agora':'Falas escritas pela IA (guardadas)'}</strong></p>}
       {data&&<>
         <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
         <small className="help">Motivos usados: {data.facts.join(' · ')}</small>

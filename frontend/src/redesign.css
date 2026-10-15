@@ -892,3 +892,5 @@ button.rd-brand {
 .ai-budget-price { display: grid; grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 1fr)); gap: 8px; align-items: end; }
 .ai-budget-price > span { font-weight: 600; overflow-wrap: anywhere; padding-bottom: 10px; }
 @media (max-width: 520px) { .ai-budget-price { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ai-budget-price > span { grid-column: 1 / -1; padding-bottom: 0; } }
+.story-arc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.story-arc-actions > button { display: inline-flex; align-items: center; gap: 6px; }

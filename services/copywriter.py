@@ -1000,6 +1000,44 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
     return None, ultimo or 'o texto nao passou na auditoria'
 
 
+def ask_json(settings: dict, system: str, user: str, validate, attempts: int = 2,
+             orcamento_s: float = BUDGET_SECONDS) -> tuple[object | None, str]:
+    """Pede um JSON ao modelo e confere com ``validate(dados) -> (resultado, problemas)``.
+
+    Mesmo molde de write_script: teto de tempo TOTAL, e a segunda tentativa recebe os pontos que a conferencia
+    recusou. Devolve (resultado, motivo_da_falha); o motivo vai para a tela quando o app fica com o texto local.
+    """
+    caller = CALLERS.get(settings.get('provider'))
+    if not caller or not settings.get('api_key'):
+        return None, 'sem provedor configurado'
+    pedido, ultimo, comeco = user, '', time.monotonic()
+    for tentativa in range(max(1, attempts)):
+        if tentativa and (time.monotonic() - comeco) + TIMEOUT > orcamento_s:
+            return None, (ultimo or 'sem tempo para uma nova tentativa')
+        restante = max(1.0, orcamento_s - (time.monotonic() - comeco)) if tentativa else orcamento_s
+        try:
+            bruto = _call_with_deadline(lambda st, sy, u, _imgs: caller(st, sy, u),
+                                        settings, system, pedido, None, orcamento_s=restante)
+            dados = json.loads(bruto)
+        except ProviderError as exc:
+            if exc.status:
+                return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
+            return None, exc.message[:400]
+        except urllib.error.URLError as exc:
+            return None, f'nao foi possivel falar com o provedor ({exc.reason})'
+        except (ValueError, TypeError) as exc:
+            ultimo = f'resposta ilegivel ({exc})'
+            continue
+        resultado, problemas = validate(dados)
+        if resultado is not None and not problemas:
+            return resultado, ''
+        unicos = list(dict.fromkeys(problemas or ['formato de resposta inesperado']))[:8]
+        ultimo = '; '.join(unicos)
+        pedido = (user + '\n\nA tentativa anterior foi recusada pela conferência do app:\n- ' + '\n- '.join(unicos)
+                  + '\nReescreva corrigindo exatamente esses pontos.')
+    return None, ultimo or 'o texto nao passou na conferencia'
+
+
 def write_scripts(campaigns: list[dict], settings: dict,
                   attempts: int = 1,
                   orcamento_s: float = BUDGET_SECONDS,

@@ -43,7 +43,7 @@ AI_LIMIT, AI_WINDOW = 20, 60
 # Rotas que chamam a OpenAI (cada chamada gasta a chave do estudio).
 AI_ENDPOINTS = {'analyze_product_photo', 'analyze_product_photo_confirm', 'quick_brief', 'save_writer_settings',
                 'test_writer', 'generate_prompts', 'generate_prompt_variants', 'refresh_single_script',
-                'refresh_variant_script', 'refresh_all_variant_scripts'}
+                'refresh_variant_script', 'refresh_all_variant_scripts', 'story_arc'}
 FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style','sequence_clips','sequence_arc']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
@@ -3308,7 +3308,7 @@ def create_app(config=None):
     # operador pode mandar as falas que editou para gerar os prompts de novo.
     @app.post('/api/campaigns/<int:cid>/story-arc')
     def story_arc(cid):
-        from services.story_arcs import ArcError, build_story_arc
+        from services.story_arcs import ArcError, arc_facts, build_story_arc, write_lines_with_ai
         data=body()
         c=detail(cid)
         color,base_image=c.get('color') or '',False
@@ -3337,8 +3337,34 @@ def create_app(config=None):
                     raise Invalid('Fatos inválidos: escreva até 500 caracteres, separados por vírgula.')
                 if extra.strip():
                     c={**c,'details':', '.join(p for p in (extra.strip(),c.get('details') or '') if p)}
-            return jsonify(build_story_arc(c,color,str(data.get('arc') or ''),clips,data.get('lines'),
-                                           base_image=base_image))
+            arc=str(data.get('arc') or '')
+            # Falas escritas pela IA ficam guardadas no checklist, por arco, clipes e cor, junto com os fatos usados:
+            # reabrir a etapa de video reaproveita sem gastar de novo, e nada do briefing, da imagem ou do status muda.
+            chave=f'{arc}|{clips}|{color}'
+            guardadas=((json.loads(c.get('checklist') or '{}') if isinstance(c.get('checklist'),str)
+                        else (c.get('checklist') or {})) or {}).get('story_arc_ai') or {}
+            lines,extra_resposta=data.get('lines'),{}
+            if data.get('ai'):
+                settings=writer_settings_cached()
+                if not settings.get('enabled'):
+                    raise Invalid('Ligue a escrita por IA em Identidade → Escrita das falas para a IA escrever as falas.',409)
+                falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings)
+                if falas:
+                    lines,extra_resposta=falas,{'written_by':'ai'}
+                    linha=db().execute('SELECT checklist FROM campaigns WHERE id=?',(cid,)).fetchone()
+                    checklist=json.loads((linha['checklist'] if linha else '') or '{}')
+                    if not isinstance(checklist,dict):
+                        checklist={}
+                    checklist.setdefault('story_arc_ai',{})[chave]={'facts':fatos,'lines':falas}
+                    db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
+                    db().commit()
+                else:
+                    extra_resposta={'ai_error':motivo or 'a IA não respondeu'}
+            elif lines is None and isinstance(guardadas.get(chave),dict):
+                salvo=guardadas[chave]
+                if salvo.get('facts')==[f['text'] for f in arc_facts(c)[:3]] and salvo.get('lines'):
+                    lines,extra_resposta=salvo['lines'],{'written_by':'ai_saved'}
+            return jsonify({**build_story_arc(c,color,arc,clips,lines,base_image=base_image),**extra_resposta})
         except ArcError as error:
             raise Invalid(str(error),error.status)
 

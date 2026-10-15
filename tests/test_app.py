@@ -2304,6 +2304,67 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,facts=['capuz'])).status_code,400)
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,facts='x'*501)).status_code,400)
 
+    ARC_AI_LINES=[["Gente, três motivos pra esse casaco morar no teu guarda-roupa, olha só.",
+                   "O primeiro é o capuz. Olha que charme quando eu ajeito ele assim do lado, sério, mudou o look inteiro e eu fiquei apaixonada.",
+                   "E o segundo motivo eu te conto no próximo vídeo, fica aqui comigo."],
+                  ["O segundo motivo é o zíper frontal, e olha como ele deixa tudo mais arrumadinho quando eu fecho.",
+                   "E o terceiro são os bolsos laterais, onde eu coloco a mão assim e pronto, virou meu casaco preferido.",
+                   "Corre pro carrinho laranja e garante o teu antes de esfriar."]]
+
+    def puffer_campaign(self):
+        puffer=dict(product='Casaco Puffer',outfit='Casaco Puffer',color='preto',niche='casual',
+                    details='capuz, zíper frontal, bolsos laterais',video_mode='espelho')
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer},headers=self.headers).json['id']
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+
+    def test_story_arc_lines_written_by_ai_are_checked_saved_and_reused(self):
+        # As falas por regras saiam engessadas ("O primeiro motivo? Capuz. Repara bem aqui"): a IA escreve, a
+        # mesma regua do rascunho confere, e o resultado fica guardado para nao gastar de novo.
+        self.puffer_campaign()
+        antes=self.client.get(f'/api/campaigns/{self.cid}').json
+        resposta=json.dumps({'clips':self.ARC_AI_LINES})
+        with patch('services.copywriter._call_with_deadline',return_value=resposta) as chamada:
+            r=self.post('/story-arc',dict(arc='motivos',clips=2,ai=True))
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(chamada.call_count,1)
+        self.assertEqual(r.json['written_by'],'ai')
+        self.assertEqual([c['lines'] for c in r.json['clips']],self.ARC_AI_LINES)
+        self.assertEqual([c['problems'] for c in r.json['clips']],[[],[]])
+        sistema=chamada.call_args.args[2]
+        self.assertIn('1) capuz; 2) zíper frontal; 3) bolsos laterais',sistema)
+        self.assertIn('Não existe oferta',sistema)
+        depois=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual((depois['details'],depois['status']),(antes['details'],antes['status']))
+        # Reabrir a etapa de video (montagem normal) reaproveita sem chamar a IA.
+        with patch('services.copywriter._call_with_deadline') as chamada:
+            de_novo=self.post('/story-arc',dict(arc='motivos',clips=2))
+        chamada.assert_not_called()
+        self.assertEqual(de_novo.json['written_by'],'ai_saved')
+        self.assertEqual([c['lines'] for c in de_novo.json['clips']],self.ARC_AI_LINES)
+        # Com outros fatos (so para esta sequencia), as falas guardadas nao valem.
+        outro=self.post('/story-arc',dict(arc='motivos',clips=2,facts='forro de pelúcia, punho canelado, gola alta'))
+        self.assertNotIn('written_by',outro.json)
+        # Outro arco nao usa as falas guardadas do Motivos.
+        self.assertEqual(self.post('/story-arc',dict(arc='questionada',clips=3)).json.get('written_by'),None)
+
+    def test_story_arc_ai_lines_that_fail_the_check_fall_back_to_the_draft(self):
+        self.puffer_campaign()
+        ruim=json.loads(json.dumps(self.ARC_AI_LINES))
+        ruim[0][2]='Corre pro carrinho laranja agora.'      # pede a compra antes do ultimo clipe
+        ruim[1][1]=ruim[1][1].replace('bolsos laterais','bolsos')   # fato nao citado
+        with patch('services.copywriter._call_with_deadline',return_value=json.dumps({'clips':ruim})) as chamada:
+            r=self.post('/story-arc',dict(arc='motivos',clips=2,ai=True))
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(chamada.call_count,2)    # segunda tentativa recebe os pontos recusados
+        self.assertIn('A tentativa anterior foi recusada',chamada.call_args.args[3])
+        self.assertIn('só o último clipe pode pedir a compra',r.json['ai_error'])
+        self.assertIn('"bolsos laterais" não foi citado',r.json['ai_error'])
+        self.assertNotEqual([c['lines'] for c in r.json['clips']],ruim)
+        self.assertNotIn('written_by',r.json)
+        # Sem a escrita por IA ligada, o botao explica o que fazer.
+        self.client.patch('/api/writer',json={'enabled':False},headers=self.headers)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,ai=True)).status_code,409)
+
     def test_story_arc_ignores_the_niche_default_text_in_details(self):
         # Teste real: "Destacar textura e modelagem" (texto padrao da moda casual) virava motivo da sequencia.
         import json as _json

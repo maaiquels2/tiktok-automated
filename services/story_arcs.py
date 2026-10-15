@@ -430,6 +430,70 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
     return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w)
 
 
+def write_lines_with_ai(c, arc, clips, settings):
+    """Falas da sequencia escritas pela IA, conferidas pela mesma regua do rascunho (clip_problems), e cada um
+    dos 3 fatos citado. Devolve (falas, fatos, motivo_da_falha). So roda pelo botao proprio: gasta tokens."""
+    from services import copywriter
+    if arc not in ARCS:
+        raise ArcError('Escolha o arco Motivos ou Questionada.', 400)
+    if clips not in CLIP_COUNTS:
+        raise ArcError('Escolha 2 ou 3 clipes.', 400)
+    espelho, facts = check_campaign(c)
+    source = {**c, 'video_mode': 'espelho' if espelho else ''}
+    fatos = [f['text'] for f in facts[:3]]
+    roles = _ROLES[(arc, clips)]
+    oferta = str(c.get('offer') or '').strip()
+    system = '\n'.join([
+        'Você escreve as falas de vídeos UGC do TikTok Shop em português do Brasil, em primeira pessoa, como uma '
+        'cliente real' + (' gravando o próprio look no espelho com o celular na mão.' if espelho
+                          else ' falando de frente para a câmera.'),
+        f'É uma SEQUÊNCIA de {clips} clipes de 15 segundos, emendados no CapCut. Arco: {ARCS[arc]["hint"]}.',
+        'Regras:',
+        '- Cada clipe tem 3 trechos: abertura (0-4 s), meio (4-12 s) e fechamento (12-15 s).',
+        f'- Cada clipe soma de {WORD_FLOOR} a {WORD_CEILING - 1} palavras: quem vende fala o clipe inteiro, e fala '
+        'curta deixa silêncio no fim. Nunca passe de ' + str(WORD_CEILING) + ' palavras por clipe.',
+        '- Os motivos são SÓ estes fatos da peça, nesta ordem, citados com estas palavras: '
+        + '; '.join(f'{n}) {t}' for n, t in enumerate(fatos, 1)) + '.',
+        '- Não invente nada fora do briefing: tecido, conforto, caimento, tamanho, transparência, durabilidade, preço, '
+        'desconto, estoque ou prazo. Opinião pessoal pode ("fiquei me sentindo linda"); desempenho, não.',
+        '- Papel de cada clipe: ' + '; '.join(f'clipe {n}: {r}' for n, r in enumerate(roles, 1)) + '.',
+        '- Só o último clipe pede a compra, com "carrinho laranja". Os outros terminam deixando gancho para o '
+        'próximo clipe, sem falar em carrinho, comprar ou garantir.',
+        ('- Oferta real que pode ser citada no último clipe, com os números exatos: ' + oferta) if oferta
+        else '- Não existe oferta: nada de urgência, "só hoje", "últimas peças" ou desconto.',
+        '- Linguagem falada e natural, com as emendas de quem conversa ("e olha", "sério", "aí"). Nada de direção '
+        'de câmera dentro da fala (câmera, close, enquadramento, "mostrando").',
+        f'Responda só JSON: {{"clips": [["abertura", "meio", "fechamento"], ...]}} com exatamente {clips} clipes.',
+    ])
+    user = '\n'.join(x for x in (
+        f'Produto: {c.get("product") or c.get("outfit") or ""}',
+        f'Cor: {c.get("color") or ""}' if c.get('color') else '',
+        f'Público: {c.get("audience")}' if c.get('audience') else '',
+        f'Benefício que o briefing confirma: {c.get("benefit")}' if c.get('benefit') else '',
+        f'O que mais segura a compra (objeção): {c.get("objection")}' if c.get('objection') else '',
+        f'Prova social real: {c.get("social_proof")}' if c.get('social_proof') else '',
+    ) if x)
+
+    def validate(dados):
+        lista = dados.get('clips') if isinstance(dados, dict) else None
+        if not isinstance(lista, list) or len(lista) != clips:
+            return None, [f'a resposta precisa ter exatamente {clips} clipes']
+        falas, problemas = [], []
+        for i, trio in enumerate(lista, 1):
+            if (not isinstance(trio, list) or len(trio) != 3
+                    or not all(isinstance(t, str) and t.strip() for t in trio)):
+                return None, [f'o clipe {i} precisa ter 3 trechos de texto']
+            trio = [' '.join(t.split()) for t in trio]
+            problemas += [f'clipe {i}: {p}' for p in clip_problems(trio, i, clips, source)]
+            falas.append(trio)
+        juntos = ' '.join(' '.join(t) for t in falas).casefold()
+        problemas += [f'o fato "{t}" não foi citado' for t in fatos if t.casefold() not in juntos]
+        return falas, problemas
+
+    falas, motivo = copywriter.ask_json(settings, system, user, validate)
+    return falas, fatos, motivo
+
+
 def sequence_problem(c):
     """Por que a campanha nao pode ser uma sequencia ('' se pode). Usado na criacao, quando o tipo de video
     escolhido e sequencia de 2 ou 3 clipes: o aviso aparece ali, e nao so na etapa de video."""
@@ -464,6 +528,21 @@ def check_campaign(c):
     return espelho, facts
 
 
+def clip_problems(trio, index, clips, source):
+    """A regua de cada clipe, igual para o rascunho e para as falas da IA: honestidade (nada fora do briefing,
+    urgencia so com oferta real), so o ultimo clipe pede a compra e a fala ocupa os 15 s sem correr."""
+    words = sum(_count_words(part) for part in trio)
+    problems = list(honesty_audit(dict(hook=trio[0], development=trio[1], cta=trio[2]), source,
+                                  require_caption=False, strict_style=False))
+    if index < clips and re.search(r'carrinho|corre pro|garante', ' '.join(trio), re.I):
+        problems.append('só o último clipe pode pedir a compra')
+    if words < WORD_FLOOR:
+        problems.append(f'fala curta ({words} palavras): pode sobrar silêncio no fim do clipe')
+    elif words > WORD_CEILING:
+        problems.append(f'fala longa ({words} palavras): pode ficar corrida')
+    return problems
+
+
 def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w):
     """Prompts de cada clipe, montagem no CapCut e o texto para copiar."""
     # De frente, a sequencia traz falas proprias: o formato da campanha (teste, comentario...) nao entra nos
@@ -476,14 +555,7 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         facts_here = _clip_facts(arc, clips, i - 1, facts)
         full, opening, acoes = _full_prompt(source, i, clips, trio, facts_here, base_image, opening, w)
         words = sum(_count_words(part) for part in trio)
-        problems = list(honesty_audit(dict(hook=trio[0], development=trio[1], cta=trio[2]), source,
-                                      require_caption=False, strict_style=False))
-        if i < clips and re.search(r'carrinho|corre pro|garante', ' '.join(trio), re.I):
-            problems.append('só o último clipe pode pedir a compra')
-        if words < WORD_FLOOR:
-            problems.append(f'fala curta ({words} palavras): pode sobrar silêncio no fim do clipe')
-        elif words > WORD_CEILING:
-            problems.append(f'fala longa ({words} palavras): pode ficar corrida')
+        problems = clip_problems(trio, i, clips, source)
         if len(full) > GROK_LIMIT:
             problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em 4.000')
         result.append(dict(
