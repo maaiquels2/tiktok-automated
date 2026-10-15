@@ -23,7 +23,25 @@ jobs:
       - name: Dependências do backend
         run: pip install -r requirements-local.txt
       - name: Testes do backend
-        run: python -m unittest discover -s tests
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests 2>&1 | tee testes-backend.log
+      # Os testes que falharam aparecem como anotação na página da execução, sem precisar abrir o log.
+      - name: Resumo das falhas do backend
+        if: failure()
+        run: |
+          python - <<'EOF'
+          import re
+          log = open('testes-backend.log', encoding='utf-8', errors='replace').read()
+          blocos = re.split(r'^={50,}$', log, flags=re.M)[1:]
+          linhas = []
+          for b in blocos:
+              b = b.strip()
+              titulo = b.splitlines()[0] if b else ''
+              erro = [l for l in b.splitlines() if re.match(r'^\w*(Error|Exception)\b', l)]
+              linhas.append(titulo + ' :: ' + (erro[-1] if erro else '')[:300])
+          print('::error title=Testes do backend que falharam::' + '%0A'.join(linhas[:15]))
+          EOF
 
       - uses: actions/setup-node@v4
         with:

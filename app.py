@@ -546,6 +546,8 @@ def create_app(config=None):
                     motivo=ai_budget.status(db(),writer_settings_cached())['blocked']
                 except Exception as exc:  # conferir o teto nunca derruba a requisicao
                     app.logger.warning('Nao foi possivel conferir o teto de gasto da IA: %s', exc)
+                    # No Postgres uma consulta que falha trava a transacao: sem isto a propria rota falhava depois.
+                    db().rollback()
             g.ai_usage=copywriter.usage_start(block=motivo)
 
     # Configuracao da escrita por IA guardada por 60 s: na nuvem cada leitura e uma ida ao Storage, e o teto e os
@@ -2086,7 +2088,12 @@ def create_app(config=None):
 
     def writer_public():
         dados=copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
-        dados['budget']=ai_budget.status(db(),writer_settings_cached())
+        try:
+            dados['budget']=ai_budget.status(db(),writer_settings_cached())
+        except Exception as exc:  # sem a tabela ai_usage (migracao falhou) o painel abre sem o teto
+            app.logger.warning('Nao foi possivel ler o gasto da IA: %s', exc)
+            db().rollback()
+            dados['budget']=None
         return dados
 
     @app.get('/api/writer')

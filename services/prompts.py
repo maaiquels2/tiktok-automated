@@ -4,7 +4,7 @@ import re
 import unicodedata
 
 from services import formats, persuasion, speech_bank
-from services.limits import GROK_PROMPT_LIMIT, GROK_PROMPT_MARGIN, SPEECH_CEILING, SPEECH_MIN
+from services.limits import GROK_PROMPT_LIMIT, GROK_PROMPT_MARGIN, SPEECH_CEILING, SPEECH_MAX, SPEECH_MIN
 
 
 def _phrase(value):
@@ -1916,10 +1916,10 @@ def _script_variation(c, color, index=0, filler=True):
     # O total tambem conta: hook e CTA curtos deixavam 43-44 palavras mesmo com o meio cheio.
     if (filler and (_count_words(selected_development) < 26 or total() < SPEECH_MIN)
             and formats.video_format(c) != 'tres_jeitos'):
-        # A primeira frase que cabe no teto: uma longa demais entrava e o corte logo abaixo a tirava de novo
-        # (pijama: 44 palavras + 16 = 60, cortado de volta para 44).
+        # A primeira frase que cabe no alvo (56): uma longa demais entrava e o corte logo abaixo a tirava de novo
+        # (pijama: 44 palavras + 16 = 60, cortado de volta para 44). 57 ja soou acelerado no teste real.
         opcoes = _future_options(c, forms, i)
-        extra = next((o for o in opcoes if total() + _count_words(o) <= SPEECH_CEILING), opcoes[0])
+        extra = next((o for o in opcoes if total() + _count_words(o) <= SPEECH_MAX), opcoes[0])
         if extra and extra.casefold() not in selected_development.casefold():
             selected_development = f'{selected_development.rstrip(". ")}. {extra}'
     # Segundo teste: com ~57 palavras ficou um pouco acelerado; teto de 57.

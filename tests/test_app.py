@@ -1491,6 +1491,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(r.json['budget']['blocked'],'')
         self.assertAlmostEqual(r.json['budget']['today_usd'],0.4)
 
+    def test_missing_usage_table_never_breaks_the_writer_panel_or_ai_routes(self):
+        # Se a criacao da tabela falhar na nuvem, conferir o teto nao pode derrubar a tela nem a chamada.
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            conn.execute('DROP TABLE ai_usage'); conn.commit()
+        w=self.client.get('/api/writer',headers=self.headers)
+        self.assertEqual(w.status_code,200,w.json)
+        self.assertIsNone(w.json['budget'])
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        conteudo=json.dumps({'product':'Biquíni','colors':['Preto'],'niche':'praia','details':'bojo, forro'})
+        with patch('services.copywriter._call_with_deadline',return_value=conteudo):
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),'niche':'praia'})
+        self.assertEqual(r.status_code,200,r.json)
+
     def test_ai_spend_cap_settings_are_validated_and_zero_price_counts_as_unpriced(self):
         from services import ai_budget
         self.assertEqual(self.client.patch('/api/writer',json={'cap_daily_usd':-1},headers=self.headers).status_code,400)
