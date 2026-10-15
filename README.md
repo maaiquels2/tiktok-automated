@@ -366,7 +366,7 @@ Em ambos os modos:
 .\.venv\Scripts\python.exe app.py
 
 # API simulando modo nuvem (Postgres precisa estar acessível)
-$env:FABRICA_CLOUD=1; .\.venv\Scripts\python.exe app.py
+$env:FABRICA_CLOUD=1; $env:FABRICA_SECRET_KEY='chave-local-de-teste'; .\.venv\Scripts\python.exe app.py
 
 # UI com hot reload
 cd frontend
