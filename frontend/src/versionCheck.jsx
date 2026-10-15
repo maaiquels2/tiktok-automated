@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
+import { AboveDialogs } from './aboveDialogs.jsx';
 
 // Aba aberta há dias continua rodando o JavaScript antigo: o computador mostrava 4 formatos de vídeo e nota 6 enquanto o
 // celular, recém-aberto, mostrava os 11 formatos e nota 10. O servidor entrega o index.html sem cache, e os arquivos de
@@ -12,8 +13,10 @@ export function assetSignature(html) {
   return [...new Set(found)].sort().join('|');
 }
 
+// Os dois lados contam os mesmos arquivos: com o JavaScript dividido em pedaços, o index.html cita cada pedaço num
+// <link rel="modulepreload">; contar só script e stylesheet aqui deixava o aviso aceso para sempre.
 function loadedSignature() {
-  const urls = [...document.querySelectorAll('script[src^="/assets/"], link[rel="stylesheet"][href^="/assets/"]')]
+  const urls = [...document.querySelectorAll('script[src^="/assets/"], link[href^="/assets/"]')]
     .map(el => el.getAttribute('src') || el.getAttribute('href'));
   return [...new Set(urls)].sort().join('|');
 }
@@ -55,7 +58,7 @@ export default function NewVersionBanner() {
   }, []);
 
   if (!latest || latest === dismissed) return null;
-  return (
+  return (<AboveDialogs>
     <div className="toast update-toast" role="status" aria-live="polite">
       <RefreshCw size={19} aria-hidden="true" />
       <span>Há uma versão nova da Fábrica. Recarregue para usar as correções mais recentes.</span>
@@ -64,5 +67,5 @@ export default function NewVersionBanner() {
         <button type="button" className="primary" onClick={() => window.location.reload()}>Recarregar</button>
       </div>
     </div>
-  );
+  </AboveDialogs>);
 }

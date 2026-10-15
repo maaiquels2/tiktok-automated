@@ -3,6 +3,7 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, s
 import { useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors, BookOpen, BookmarkPlus } from 'lucide-react';
 import Canvas from './Canvas';
+import { AboveDialogs } from './aboveDialogs.jsx';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, colorList, swatchFor, nextStepLabel } from './ui';
@@ -907,7 +908,7 @@ export default function App(){
       <button type="button" aria-current={mode==='results'?'page':undefined} disabled={busy} onClick={()=>goMode('results','agora')}><BarChart3 size={22} aria-hidden="true"/>Resultados</button>
     </nav>
     {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
-    {notice&&!error&&<div className="toast" role="status"><Check size={19}/>{notice}</div>}
+    {notice&&!error&&<AboveDialogs><div className="toast" role="status"><Check size={19}/>{notice}</div></AboveDialogs>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
       {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='library'?<PromptLibraryPanel onError={setError} onFlash={flash}/>:modal.type==='bank'?<SpeechBankPanel campaignId={modal.campaignId} onError={setError} onFlash={flash} onApply={modal.onApply?async item=>{if(await modal.onApply(item))setModal(null)}:null}/>:modal.type==='choose'?<div className="create-choice">
         <button type="button" className="choice-card is-auto" disabled={busy} onClick={()=>setModal({type:'auto',title:'Campanha automática'})}><Sparkles size={22}/><strong>Automática</strong><small>Escolha a moda e suba a foto do produto e o print da descrição. A IA lê tudo, escreve o roteiro e deixa os prompts do Grok prontos.</small></button>
