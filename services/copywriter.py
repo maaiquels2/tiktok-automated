@@ -115,9 +115,6 @@ URGENCY_PATTERNS = (
 # de palavras nao reprova roteiro -- fala natural vale mais que caber num
 # numero (pedido do estudio depois de os roteiros soarem robóticos).
 BUDGET = {'hook': (6, 20), 'development': (10, 45), 'cta': (4, 16)}
-# Acima disso a fala passa de ~15 s num clipe so; a tela sugere a sequencia
-# de clipes (Extend) em vez de barrar.
-TOTAL_MAX = 45
 
 STAGE_DIRECTION_PATTERNS = (
     r'\bc[âa]mera\b', r'\benquadramento\b', r'\bclose(?:-up)?\b',
@@ -168,7 +165,7 @@ ESTRUTURA (obrigatória)
 - hook (abertura, de 10 a 18 palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
 - development (meio, de 20 a 40 palavras): linguagem falada em primeira pessoa, com as pausas e emendas de quem conversa ("e olha", "sério", "aí"). Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
 - cta (fechamento, de 7 a 14 palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
-- TOTAL das três falas: de 45 a 55 palavras. O vídeo tem 15 segundos e quem vende fala o tempo todo: fala curta
+- TOTAL das três falas: de 45 a 56 palavras. O vídeo tem 15 segundos e quem vende fala o tempo todo: fala curta
   deixa silêncio no fim (aconteceu no teste real). Encha com conversa de verdade, nunca com palavra vazia.
 - caption: uma frase de gancho + o que é o produto, e no máximo 5 hashtags no fim.
 

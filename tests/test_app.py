@@ -1384,6 +1384,20 @@ class WorkflowTests(unittest.TestCase):
         # Nada foi criado: a campanha so nasce depois da conferencia.
         self.assertEqual(len(self.client.get('/api/campaigns',headers=self.headers).json),1)
 
+    def test_speech_and_grok_numbers_agree_everywhere(self):
+        # Gerador, IA, sequencias e tela tinham cada um o seu numero (57, "45 a 55", 44/58, 46 a 57).
+        from services import limits, story_arcs, prompts as prompts_module
+        from services.copywriter import SYSTEM_PROMPT
+        self.assertEqual((limits.SPEECH_MIN,limits.SPEECH_MAX,limits.SPEECH_CEILING),(45,56,57))
+        js=(Path(__file__).resolve().parents[1]/'frontend'/'src'/'speechBudget.js').read_text(encoding='utf-8')
+        numeros={k:int(v) for k,v in re.findall(r'export const (SPEECH_\w+) = (\d+);',js)}
+        self.assertEqual(numeros,{'SPEECH_MIN':limits.SPEECH_MIN,'SPEECH_MAX':limits.SPEECH_MAX,
+                                  'SPEECH_CEILING':limits.SPEECH_CEILING})
+        self.assertIn(f'de {limits.SPEECH_MIN} a {limits.SPEECH_MAX} palavras',SYSTEM_PROMPT)
+        self.assertEqual((story_arcs.WORD_FLOOR,story_arcs.WORD_CEILING),(limits.SPEECH_MIN,limits.SPEECH_CEILING))
+        self.assertEqual(story_arcs.GROK_LIMIT,limits.GROK_PROMPT_LIMIT-limits.GROK_PROMPT_MARGIN)
+        self.assertEqual(prompts_module._limite_video({'generator':'grok'}),story_arcs.GROK_LIMIT)
+
     def test_prompt_library_starts_with_the_approved_prompts_and_keeps_new_ones(self):
         # Pedido real: os prompts aprovados nos testes de 11 e 12/10 precisam estar na base de dados.
         lista=self.client.get('/api/prompt-library',headers=self.headers).json

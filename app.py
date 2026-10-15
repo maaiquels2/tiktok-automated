@@ -28,6 +28,7 @@ from services.prompts import (color_variants, generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
 from services import copywriter, formats, prompt_library, speech_bank
+from services.limits import GROK_PROMPT_LIMIT
 from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
@@ -3082,7 +3083,7 @@ def create_app(config=None):
             source,script=prompts,
             variant_index=int(prompts.get('variation_index') or 0),
             base_image=base_image)['video']
-        if (c.get('generator') or '').casefold()=='grok' and len(rebuilt)>4000:
+        if (c.get('generator') or '').casefold()=='grok' and len(rebuilt)>GROK_PROMPT_LIMIT:
             raise Invalid('O prompt recriado ainda ultrapassou o limite de 4.000 caracteres do Grok.',500)
         return rebuilt
 

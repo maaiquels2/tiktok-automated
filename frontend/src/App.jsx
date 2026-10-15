@@ -10,6 +10,7 @@ import { PHASES, statusInfo, phaseTone, colorList, swatchFor, nextStepLabel } fr
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, AutoCreatePanel, FORMAT_OPTIONS, PromptLibraryPanel, AiUsage, SaveToLibrary} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
+import { SPEECH_MIN, SPEECH_MAX, SPEECH_CEILING } from './speechBudget';
 
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
@@ -1124,14 +1125,15 @@ function ScriptBudget({draft}){
     return {key,words,low,high,time,state};
   });
   const total=rows.reduce((sum,row)=>sum+row.words,0);
-  // 45 a 56 palavras ocupam os 15 s; menos que isso deixa silencio no fim.
-  const totalState=total<44||total>58?'near':'ok';
+  // 45 a 56 palavras ocupam os 15 s; menos que isso deixa silencio no fim. Uma palavra de folga para cada lado.
+  const curto=total<SPEECH_MIN-1, longo=total>SPEECH_CEILING+1;
+  const totalState=curto||longo?'near':'ok';
   return <div className="script-budget">
     {rows.map(row=><span key={row.key} className={'budget-chip is-'+row.state} title={`${row.time}: alvo ${row.low} a ${row.high} palavras`}>
       <em>{row.time}</em>{row.words}<small>/{row.low}–{row.high}</small>
     </span>)}
-    <span className={'budget-chip is-total is-'+totalState} title="De 45 a 56 palavras ocupam os 15 s sem silêncio; acima de 58, use a sequência de clipes">
-      <em>total</em>{total}<small>{total>58?' · sequência':total<44?' · vai sobrar silêncio':' palavras'}</small>
+    <span className={'budget-chip is-total is-'+totalState} title={`De ${SPEECH_MIN} a ${SPEECH_MAX} palavras ocupam os 15 s sem silêncio; acima de ${SPEECH_CEILING+1}, use a sequência de clipes`}>
+      <em>total</em>{total}<small>{longo?' · sequência':curto?' · vai sobrar silêncio':' palavras'}</small>
     </span>
   </div>;
 }

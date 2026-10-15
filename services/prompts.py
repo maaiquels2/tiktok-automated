@@ -4,6 +4,7 @@ import re
 import unicodedata
 
 from services import formats, persuasion, speech_bank
+from services.limits import GROK_PROMPT_LIMIT, GROK_PROMPT_MARGIN, SPEECH_CEILING
 
 
 def _phrase(value):
@@ -1899,7 +1900,7 @@ def _script_variation(c, color, index=0):
     selected_development = (formats.script_development(c, forms, [_with_article(f) for f in features[:2]])
                             or selected_development)
 
-    # Teto absoluto de 45 palavras faladas (~15s). Se estourar, encurta o
+    # Teto de fala de um clipe de 15 s (services/limits.py). Se estourar, encurta o
     # desenvolvimento pela ultima batida, nunca pela prova.
     def total():
         return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
@@ -1911,9 +1912,9 @@ def _script_variation(c, color, index=0):
         if extra and extra.casefold() not in selected_development.casefold():
             selected_development = f'{selected_development.rstrip(". ")}. {extra}'
     # Segundo teste: com ~57 palavras ficou um pouco acelerado; teto de 57.
-    if total() > 57:
+    if total() > SPEECH_CEILING:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 57:
+        while len(sentences) > 1 and total() > SPEECH_CEILING:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -2077,9 +2078,9 @@ def _niche_key(c):
 # 4000 sem avisar: ate aqui todo prompt de video saia com 4600 a 6800
 # caracteres, entao o FINAL (honestidade, audio, "fale so as falas") era
 # descartado em silencio -- as travas que o projeto inteiro existe para manter.
-_LIMITE_PROMPT = {'grok': 4000}
+_LIMITE_PROMPT = {'grok': GROK_PROMPT_LIMIT}
 # Margem: nome de produto, cor e movimentos vem do briefing e variam de tamanho.
-_MARGEM_PROMPT = 60
+_MARGEM_PROMPT = GROK_PROMPT_MARGIN
 
 
 def _limite_video(c):
