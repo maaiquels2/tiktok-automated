@@ -6,7 +6,7 @@ import { scorePrompt } from './promptScore';
 import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
 import { isFewFacts, pointToFacts } from './sequenceText';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, storyArc, persuasionPreview } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, storyArc, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -167,9 +167,9 @@ export function StorySequence({campaignId,variantId=null,onError}){
   }
   return <section className="story-sequence">
     <button type="button" onClick={toggle} disabled={loading} aria-expanded={open}>
-      <span className="rd-story-eyebrow">MAIS DE 15 SEGUNDOS</span>
-      <strong>{loading?'Montando sequência…':open?'Fechar sequência storytelling':'Sequência storytelling'}</strong>
-      <small>Gancho, prova e fechamento em 3 partes com Extend Video, e o passo a passo do CapCut.</small>
+      <span className="rd-story-eyebrow">MESMAS FALAS · EXTEND VIDEO</span>
+      <strong>{loading?'Montando as partes…':open?'Fechar mesmas falas em 3 partes':'Mesmas falas em 3 partes (Extend)'}</strong>
+      <small>Divide o roteiro de 15 s em gancho, prova e fechamento para emendar com o Extend Video, e o passo a passo do CapCut. Não cria falas novas: para isso, use “Sequência em 2 ou 3 clipes”.</small>
     </button>
     {open&&seq&&<div className="story-sequence-body">
       <div className="section-title"><strong>3 partes · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
@@ -239,12 +239,14 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
   const [facts,setFacts]=useState('');
-  async function build(lines){
-    setLoading(true);setMessage('');
+  // ai=true so pelo botao proprio: gasta tokens. A montagem automatica ao abrir a etapa reaproveita as falas que
+  // a IA ja escreveu (guardadas no servidor) e nunca chama a IA sozinha.
+  async function build(lines,ai=false){
+    setLoading(ai?'ai':true);setMessage('');
     try{
-      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined});
+      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined});
       setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
-    }catch(e){setData(null);setMessage(e.message)}
+    }catch(e){if(!ai)setData(null);setMessage(e.message)}
     finally{setLoading(false)}
   }
   const choose=(setter,value)=>{setter(value);setData(null);setMessage('')};
@@ -276,7 +278,13 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
       </div>
       {message&&<p className="help story-arc-message" role="alert">{pointToFacts(message,'abaixo')}</p>}
       {(isFewFacts(message)||facts)&&<label className="sequence-facts">Fatos da peça só para esta sequência<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={500}/><small className="help">Não muda o briefing: a imagem aprovada e os prompts continuam. Escreva fatos verdadeiros, separados por vírgula, e monte de novo.</small></label>}
-      <button type="button" className="primary" disabled={loading} onClick={()=>build()}>{loading?'Montando…':data?'Montar de novo (rascunho novo)':'Montar sequência'}</button>
+      <div className="story-arc-actions">
+        <button type="button" className="primary" disabled={!!loading} onClick={()=>build()}>{loading===true?'Montando…':data?'Montar de novo':'Montar sequência'}</button>
+        <button type="button" disabled={!!loading} onClick={()=>build(undefined,true)}><Sparkles size={16}/> {loading==='ai'?'A IA está escrevendo…':'Escrever as falas com IA'}</button>
+      </div>
+      <small className="help">A IA escreve falas novas para cada clipe com os mesmos fatos e passa pela mesma conferência do rascunho. Gasta tokens da OpenAI (entra no teto de gasto) e fica guardada: reabrir a etapa não gasta de novo.</small>
+      {data?.ai_error&&<p className="help story-arc-message" role="alert">A IA tentou e foi recusada: {data.ai_error}. Ficou o rascunho por regras.</p>}
+      {data?.written_by&&<p className="writer-badge is-ai"><strong>{data.written_by==='ai'?'Falas escritas pela IA agora':'Falas escritas pela IA (guardadas)'}</strong></p>}
       {data&&<>
         <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
         <small className="help">Motivos usados: {data.facts.join(' · ')}</small>
@@ -314,7 +322,6 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
 export const FORMAT_OPTIONS=[
   ['','Com fala','Modelo de frente falando com a câmera'],
   ['espelho','Celular no espelho','Ela grava o próprio look no espelho'],
-  ['pov','POV','Só mãos e produto, sem rosto'],
   ['movimento','Só movimento','Sem fala: puxa, gira e ajusta a peça'],
   ['comentario','Respondendo comentário','Responde a dúvida da cliente e prova na hora'],
   ['teste','Teste de prova','Agacha, pula ou gira para provar a peça'],
@@ -323,6 +330,8 @@ export const FORMAT_OPTIONS=[
   ['unboxing','Abrindo o pacote','POV tirando a peça da caixa (experimental)'],
   ['asmr','Close ASMR','Sem fala: closes e o som do tecido'],
   ['mesa','Na mesa, de perto','Sentada à mesa, mostra o produto e traz perto da lente (experimental)'],
+  // Ultimo da lista de proposito: nos testes reais o Grok errou as maos (terceira mao) e o giro da peca em POV.
+  ['pov','POV (último caso)','Só mãos e produto, sem rosto. Nos testes o Grok errou mãos e giro da peça'],
 ];
 const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
 const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
@@ -392,6 +401,9 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <div className="rd-prompt-actions">
           {launch('rd-cta')}
           <CopyButton text={p.video||''} onError={onError} label="Só copiar"/>
+          <SaveToLibrary kind="video" prompt={p.video} product={campaign?.product} onError={onError}
+            format={(FORMAT_OPTIONS.find(([id])=>id===mode)||[,'Com fala'])[1]} version={guia?'Guia do Grok':'Completo'}
+            note={campaign?.id?`Guardado da campanha #${campaign.id}${color?` · cor ${color}`:''}.`:''}/>
           {!immutable&&onRefreshVideoPrompt&&<button type="button" className="button" disabled={busy} onClick={()=>(guia?onImproveVideoPrompt:onRefreshVideoPrompt)?.(variantId)}><RefreshCw size={15}/> Recriar</button>}
           <span className={'rd-prompt-count'+(over?' is-over':'')}>{length.toLocaleString('pt-BR')}{videoPromptLimit?` / ${videoPromptLimit.toLocaleString('pt-BR')}`:''} caracteres</span>
         </div>
@@ -1114,8 +1126,8 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
               <span><strong>{label}</strong><small>{hint}</small></span>
             </label>)}
           </div>
-          <small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>
-          <small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>
+          {draft.video_mode==='pov'&&<small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>}
+          {draft.video_mode==='movimento'&&<small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>}
         </div>
         <SequenceChoice clips={draft.sequence_clips} arc={draft.sequence_arc} format={draft.video_mode} idPrefix="brief-seq"
           onArc={id=>change('sequence_arc',id)}
@@ -1568,6 +1580,32 @@ export function ModelLibraryPanel({modelName='Micaela',busy,onError,onFlash}){
 }
 
 
+
+// Guarda o prompt que deu certo na biblioteca (fica no banco do app).
+export function SaveToLibrary({kind,prompt,product,format,version,note,onError}){
+  const [state,setState]=useState('');
+  if(!prompt||String(prompt).length<40)return null;
+  const save=async()=>{
+    setState('saving');
+    try{await savePromptToLibrary({kind,prompt,product:product||'',format:format||'',version:version||'',note:note||''});setState('saved')}
+    catch(e){setState('');onError?.(e.message||String(e))}
+  };
+  return <button type="button" className="button" disabled={state==='saving'||state==='saved'} onClick={save}
+    title="Guarda este prompt na Biblioteca de prompts para reaproveitar">
+    {state==='saved'?<><Check size={15}/> Guardado na biblioteca</>:<><BookmarkPlus size={15}/> Guardar na biblioteca</>}
+  </button>;
+}
+
+// Uso da IA desta campanha: tokens (o que a OpenAI cobra) e custo, se houver
+// tabela de precos configurada no servidor.
+export function AiUsage({usage}){
+  if(!usage||!usage.calls)return null;
+  const n=v=>Number(v||0).toLocaleString('pt-BR');
+  const custo=usage.cost_usd==null?'':` · ~US$ ${Number(usage.cost_usd).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:4})}`;
+  return <p className="help ai-usage" title={usage.by_model.map(m=>`${m.model}: ${m.calls} chamadas, ${n(m.input_tokens)} + ${n(m.output_tokens)} tokens`).join('\n')}>
+    <strong>IA nesta campanha:</strong> {n(usage.calls)} {usage.calls===1?'chamada':'chamadas'} · {n(usage.input_tokens+usage.output_tokens)} tokens ({n(usage.input_tokens)} de entrada, {n(usage.output_tokens)} de saída){custo}
+  </p>;
+}
 
 
 // Mostra o que o gerador entendeu da oferta e da prova social: so esses

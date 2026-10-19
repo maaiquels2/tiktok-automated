@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ImagePlus, Palette, RefreshCw, Sparkles, Trash2, Upload } from 'lucide-react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { deleteFromSpeechBank, quickBrief, saveStudioIdentity, saveWriterSettings, speechBank, testWriter, writerSettings } from './api';
+import { deleteFromSpeechBank, deletePromptFromLibrary, promptLibrary, quickBrief, saveStudioIdentity, saveWriterSettings, speechBank, testWriter, writerSettings } from './api';
 import { isCloudMode } from './serviceLinks';
 import { pointToFacts } from './sequenceText';
 import { CopyButton, FORMAT_OPTIONS, SequenceChoice, StyleChips, emptyBrief } from './components';
@@ -56,6 +56,50 @@ export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,o
 }
 
 
+// Teto de gasto da IA (services/ai_budget.py): o que ja foi gasto hoje e no mes, o teto e o preco de cada modelo.
+// Modelo sem preco conta pelo preco de seguranca, alto de proposito, para o teto disparar cedo e nunca tarde.
+const usd=v=>`US$ ${Number(v||0).toFixed(2).replace('.',',')}`;
+export function AiBudget({data,busy,onSaved,onError,onFlash}){
+  const b=data.budget||{};
+  const modelos=[...new Set([(data.default_models||{}).openai,(data.vision_models||{}).openai,...Object.keys(b.prices||{}),...(b.unpriced_models||[])].filter(Boolean))];
+  const [teto,setTeto]=useState({daily:String(b.cap_daily_usd??''),monthly:String(b.cap_monthly_usd??'')});
+  const [precos,setPrecos]=useState(()=>Object.fromEntries(modelos.map(m=>[m,(b.prices||{})[m]?b.prices[m].map(String):['','']])));
+  const [saving,setSaving]=useState(false);
+  async function salvar(){
+    setSaving(true);
+    try{
+      const prices={};
+      for(const [m,[ent,sai]] of Object.entries(precos)){
+        if(String(ent).trim()===''&&String(sai).trim()==='')continue;
+        prices[m]=[Number(String(ent).replace(',','.')),Number(String(sai).replace(',','.'))];
+      }
+      const saved=await saveWriterSettings({cap_daily_usd:Number(String(teto.daily).replace(',','.')),
+        cap_monthly_usd:Number(String(teto.monthly).replace(',','.')),prices});
+      onFlash?.('Teto de gasto salvo.');onSaved?.(saved);
+    }catch(e){onError?.(e.message)}finally{setSaving(false)}
+  }
+  return <div className="ai-budget">
+    <span className="option-field-title">Teto de gasto da IA</span>
+    <p className={'help'+(b.blocked?' field-error':'')} role={b.blocked?'alert':undefined}>
+      Hoje: <strong>{usd(b.today_usd)}</strong>{b.cap_daily_usd?` de ${usd(b.cap_daily_usd)}`:' (sem teto)'} · No mês: <strong>{usd(b.month_usd)}</strong>{b.cap_monthly_usd?` de ${usd(b.cap_monthly_usd)}`:' (sem teto)'}
+      {b.blocked&&<><br/>Teto atingido: as falas saem pelo texto local e a leitura de fotos fica parada até amanhã ou até você aumentar o teto.</>}
+    </p>
+    <div className="ai-budget-caps">
+      <label>Teto por dia (US$)<input inputMode="decimal" autoComplete="off" value={teto.daily} disabled={busy||saving} onChange={e=>setTeto(t=>({...t,daily:e.target.value}))}/></label>
+      <label>Teto por mês (US$)<input inputMode="decimal" autoComplete="off" value={teto.monthly} disabled={busy||saving} onChange={e=>setTeto(t=>({...t,monthly:e.target.value}))}/></label>
+    </div>
+    <small className="help">0 desliga o teto. O dia e o mês são os de Brasília.</small>
+    <span className="option-field-title">Preço por 1 milhão de tokens (US$)</span>
+    {modelos.map(m=><div key={m} className="ai-budget-price">
+      <span>{m}{(b.unpriced_models||[]).includes(m)&&<small className="field-error"> (sem preço)</small>}</span>
+      <label>Entrada<input inputMode="decimal" autoComplete="off" value={(precos[m]||['',''])[0]} disabled={busy||saving} onChange={e=>setPrecos(p=>({...p,[m]:[e.target.value,(p[m]||['',''])[1]]}))}/></label>
+      <label>Saída<input inputMode="decimal" autoComplete="off" value={(precos[m]||['',''])[1]} disabled={busy||saving} onChange={e=>setPrecos(p=>({...p,[m]:[(p[m]||['',''])[0],e.target.value]}))}/></label>
+    </div>)}
+    <small className="help">Copie da página de preços da OpenAI. Sem preço, o modelo é contado como {usd((b.safety_price||[])[0])} na entrada e {usd((b.safety_price||[])[1])} na saída por milhão (alto de propósito, para o teto parar cedo e nunca tarde).</small>
+    <div className="form-actions"><button type="button" disabled={busy||saving} onClick={salvar}>{saving?'Salvando…':'Salvar teto e preços'}</button></div>
+  </div>;
+}
+
 export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
   const [data,setData]=useState(null);
   const [open,setOpen]=useState(false);
@@ -98,6 +142,7 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       <button type="button" className="identity-toggle" onClick={()=>setOpen(o=>!o)}>
         <span className="eyebrow">ESCRITA DAS FALAS</span>
         <strong>{data.enabled?`Por IA · ${data.provider==='gemini'?'Gemini':'OpenAI'}`:'Texto local (sem IA)'}</strong>
+        {data.budget&&<small className={data.budget.blocked?'field-error':undefined}>{data.budget.blocked?'Teto de gasto atingido':`Gasto hoje ${usd(data.budget.today_usd)}${data.budget.cap_daily_usd?` de ${usd(data.budget.cap_daily_usd)}`:''}`}</small>}
       </button>
       <button type="button" className="button" onClick={()=>setOpen(o=>!o)}>{open?'Recolher':'Configurar'}</button>
     </div>
@@ -136,6 +181,8 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
       <button type="button" className="primary" disabled={busy||saving||!!keyError||missingKey} onClick={()=>save()}>{saving?'Conferindo a chave…':'Salvar escrita por IA'}</button>
     </div>
     {missingKey&&<small className="field-error">Cole a chave da API para ligar a escrita por IA.</small>}
+    {data.budget&&<AiBudget key={JSON.stringify(data.budget.prices)+data.budget.cap_daily_usd+data.budget.cap_monthly_usd} data={data} busy={busy}
+      onSaved={saved=>setData(saved)} onError={onError} onFlash={onFlash}/>}
     {sample&&<div className="notice writer-sample">
       <strong>Exemplo gerado agora:</strong>
       <p><em>Hook:</em> {sample.hook}</p>
@@ -148,6 +195,38 @@ export function WriterSettingsPanel({busy,onError,onFlash,onSaved}){
 // Banco de falas: como uma pessoa real fala de cada tipo de peca, mais os
 // roteiros que o estudio aprovou. As falas aprovadas viram exemplo de voz
 // para a escrita por IA nas proximas campanhas da mesma categoria.
+// Biblioteca de prompts aprovados: os que deram certo nos testes reais.
+export function PromptLibraryPanel({onError,onFlash}){
+  const [items,setItems]=useState(null);
+  const [kind,setKind]=useState('');
+  const [confirm,setConfirm]=useState('');
+  const load=async()=>{try{setItems(await promptLibrary(kind))}catch(e){onError?.(e.message||String(e))}};
+  useEffect(()=>{load()},[kind]);
+  const remove=async key=>{
+    try{await deletePromptFromLibrary(key);setConfirm('');onFlash?.('Prompt removido da biblioteca.');load()}
+    catch(e){onError?.(e.message||String(e))}
+  };
+  return <div className="prompt-library">
+    <p className="help">Prompts de imagem e de vídeo que deram certo nos testes reais. Copie e adapte para produtos parecidos. Para guardar um novo, use “Guardar na biblioteca” na etapa de vídeo.</p>
+    <div className="quick-niches" role="radiogroup" aria-label="Tipo de prompt">
+      {[['','Todos'],['video','Vídeo'],['imagem','Imagem']].map(([id,label])=><button key={id||'todos'} type="button" role="radio"
+        aria-checked={kind===id} aria-pressed={kind===id} className="rd-chip-tab" onClick={()=>setKind(id)}>{label}</button>)}
+    </div>
+    {!items?<p className="help">Carregando…</p>:!items.length?<p className="help">Nenhum prompt guardado ainda.</p>:
+      <ul className="prompt-library-list">{items.map(it=><li key={it.key}>
+        <div className="prompt-library-head"><strong>{it.product||'Sem produto'}</strong>
+          <small>{[it.kind==='video'?'Vídeo':'Imagem',it.format,it.version].filter(Boolean).join(' · ')}</small>
+          {it.note&&<small>{it.note}</small>}</div>
+        <details><summary>Ver prompt ({it.prompt.length.toLocaleString('pt-BR')} caracteres)</summary><pre className="rd-prompt-box">{it.prompt}</pre></details>
+        <div className="prompt-library-actions"><CopyButton text={it.prompt} onError={onError}/>
+          {confirm===it.key
+            ?<><button type="button" className="danger" onClick={()=>remove(it.key)}>Confirmar remoção</button><button type="button" onClick={()=>setConfirm('')}>Cancelar</button></>
+            :<button type="button" onClick={()=>setConfirm(it.key)}><Trash2 size={15}/> Remover</button>}
+        </div>
+      </li>)}</ul>}
+  </div>;
+}
+
 export function SpeechBankPanel({campaignId,onApply,onError,onFlash}){
   const [data,setData]=useState(null);
   const [loading,setLoading]=useState(true);
@@ -236,6 +315,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [products,setProducts]=useState([]);
   const [description,setDescription]=useState(null);
   const [colorsPhoto,setColorsPhoto]=useState(null);
+  const [hint,setHint]=useState('');
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
   const [turn,setTurn]=useState(true);
@@ -253,7 +333,7 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const start=async()=>{
     onError?.('');setReading(true);
     try{
-      const {brief}=await quickBrief(products,description,niche,colorsPhoto);
+      const {brief}=await quickBrief(products,description,niche,colorsPhoto,hint);
       const values={...briefFromAI(brief,modelName,niche,colors),video_mode:format,body_turns:turn?'leve_lado':'',
         video_style:style,sequence_clips:seqClips,sequence_arc:seqClips?seqArc:''};
       if(seqClips){
@@ -284,6 +364,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
       <ImagePlus size={22}/><strong>Foto do produto</strong><small>1 a 3 fotos da peça</small>
       {products.length>0&&<span className="quick-thumbs">{urls.slice(0,products.length).map(u=><img key={u} src={u} alt=""/>)}</span>}
     </label>
+    <label>Qual peça é o produto? (opcional)<input value={hint} onChange={e=>setHint(e.target.value)} placeholder="Ex.: a calça de courino, não a blusa" maxLength={80}/></label>
+    <small className="help">Use quando a foto mostra o look inteiro: a IA descreve só essa peça.</small>
     <label className="quick-tile">
       <input type="file" accept="image/*" onChange={e=>setDescription(e.target.files?.[0]||null)}/>
       <Upload size={22}/><strong>Print da descrição</strong><small>Página do produto com tecido, preço e avaliações</small>

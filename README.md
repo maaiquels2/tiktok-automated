@@ -42,7 +42,6 @@ Cada formato muda a abertura, as ações do meio, o encerramento e o texto na te
 |---|---|
 | **Com fala** | Modelo de frente falando com a câmera (padrão) |
 | **Celular no espelho** | Ela grava o próprio look no espelho, com o celular na mão — o formato que melhor funcionou nos testes |
-| **POV** | Só mãos e produto, sem rosto. Nos testes reais o Grok errou mãos e giro da peça: use só em último caso |
 | **Só movimento** | Sem fala: puxa, gira e ajusta a peça |
 | **Respondendo comentário** | Responde a dúvida de uma cliente e prova na hora |
 | **Teste de prova** | Agacha, pula ou gira para provar a peça |
@@ -51,25 +50,27 @@ Cada formato muda a abertura, as ações do meio, o encerramento e o texto na te
 | **Abrindo o pacote** | POV tirando a peça da caixa (experimental) |
 | **Close ASMR** | Sem fala: closes e o som do tecido |
 | **Na mesa, de perto** | Sentada à mesa, mostra o produto e traz perto da lente (experimental) |
+| **POV (último caso)** | Só mãos e produto, sem rosto. Nos testes reais o Grok errou mãos e giro da peça: fica por último na lista |
 
 Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente sem refazer a imagem. POV, Espelho e Abrindo o pacote mudam a imagem-base: esses se trocam em **Definir look**.
 
 **Câmera e técnicas (opcional):** *Closes no produto* (o rosto sai do quadro por 1 a 2 s para mostrar o material), *Movimentos ousados*, e até **2 técnicas de retenção** por vídeo — *Começar em movimento*, *Aproximação rápida*, *Mão revelando*, *Loop* e *Esticar o tecido*.
 
 ### Tipo de vídeo: clipe único ou sequência em 2 ou 3 clipes
-- Escolhido **já na criação da campanha**: *Clipe único* (15 s), *Sequência de 2 clipes* (~30 s) ou *Sequência de 3 clipes* (~45 s).
+- Escolhido **já na criação da campanha**, no bloco **Tipo de vídeo** logo abaixo da grade de formatos: *Clipe único* (15 s), *Sequência de 2 clipes* (~30 s) ou *Sequência de 3 clipes* (~45 s).
 - Dois arcos de storytelling, com **fala nova em cada clipe**:
   - **Motivos** — "Três motivos pra essa peça estar no seu guarda-roupa", um motivo por trecho.
   - **Questionada** — "Sabe o que dizem por aí? Que ela não te valoriza", e a resposta.
 - Os motivos só podem ser **fatos verdadeiros da peça**: a sequência exige **pelo menos 3 fatos** (ex.: *capuz, zíper frontal, bolsos laterais*). O texto padrão da moda no campo Detalhes não conta como fato. Sem 3 fatos, a campanha não é criada e o aviso diz o que faltou.
 - Todos os clipes partem da **mesma imagem aprovada**. Na etapa de vídeo a sequência já aparece montada no topo, com o prompt de cada clipe (versão completa e Guia do Grok), o texto na tela e o passo a passo de montagem no CapCut.
 - As falas de cada clipe podem ser editadas no painel antes de atualizar os prompts.
+- **Escrever as falas com IA:** botão próprio no painel (nunca automático, porque gasta tokens). A IA escreve falas novas para cada clipe com os mesmos 3 fatos, e elas passam pela mesma conferência do rascunho: nada fora do briefing, urgência só com oferta real, carrinho só no último clipe, 45 a 57 palavras por clipe e os 3 fatos citados. Reprovadas duas vezes, fica o rascunho, com o motivo na tela. Aprovadas, ficam guardadas por arco, número de clipes e cor: reabrir a etapa de vídeo mostra as mesmas falas sem chamar a IA de novo. Briefing, imagem e status não mudam.
 - Em campanhas antigas, o painel tem o campo **"Fatos da peça só para esta sequência"**: ele não mexe no briefing, então a imagem aprovada e os prompts continuam. (Editar o Detalhes do briefing de uma campanha com imagem aprovada apaga a imagem e os prompts.)
 - Funciona em Celular no espelho e nos formatos com a modelo de frente (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Não funciona em POV, Abrindo o pacote, Só movimento, Close ASMR e Na mesa.
-- As falas da sequência ainda são rascunhos montados por regras (não pela IA); revise antes de gerar.
+- Sem o botão da IA, as falas são um rascunho montado por regras: revise antes de gerar.
 
-### Sequência storytelling do Extend Video (mais de 15 s)
-- Separada da anterior: reparte as **mesmas falas** do roteiro de 15 s em 3 partes (gancho → prova → fechamento) para usar com o **Extend Video** do Grok, com o checklist de montagem no CapCut.
+### Mesmas falas em 3 partes (Extend Video)
+- Cartão "Mesmas falas em 3 partes (Extend)" na etapa de vídeo, separado da sequência acima: não cria falas novas, reparte as **mesmas falas** do roteiro de 15 s em 3 partes (gancho → prova → fechamento) para usar com o **Extend Video** do Grok, com o checklist de montagem no CapCut.
 
 ### Prompt de vídeo: Completo ou Guia do Grok
 - Duas versões para o mesmo vídeo, trocadas por um botão na etapa de vídeo:
@@ -78,6 +79,10 @@ Na etapa de vídeo dá para alternar entre os formatos com a modelo de frente se
 - Nos testes, cada versão ganhou em produtos diferentes: vale gerar as duas.
 - O prompt respeita o limite de 4.000 caracteres do Grok: acima de ~3.940, o app tira blocos inteiros pelo menos essencial (contexto de nicho, ângulo de venda) e nunca corta identidade, cenário, falas ou as regras de honestidade.
 - **Nota do prompt** (1 a 10): checagens rápidas que explicam por que o gerador costuma se perder (muitas ações, atributo que o próprio prompt proíbe, fala longa). É um alerta, não garantia.
+
+### Biblioteca de prompts aprovados
+- Os 18 prompts de imagem e de vídeo aprovados nos testes reais de 11 e 12/10/2026 já vêm gravados no banco (Identidade → Biblioteca de prompts).
+- Na etapa de vídeo, **Guardar na biblioteca** salva o prompt atual com produto, formato, versão (Completo ou Guia do Grok) e a campanha de origem; dá para filtrar por imagem ou vídeo, copiar e excluir.
 
 ### Produção multi-cor
 - Informe várias cores no briefing (`Branco, Preto, Azul Marinho…`).
@@ -215,6 +220,7 @@ No celular, os botões de Grok/Flow/TikTok Studio/TikTok abrem como links direto
 | `FABRICA_SUPABASE_SERVICE_KEY` | Chave de serviço do Supabase (Storage) |
 | `FABRICA_SUPABASE_ANON_KEY` | Chave anônima, exigida pelo cabeçalho `Authorization` do Storage |
 | `FABRICA_STORAGE_BUCKET` | Nome do bucket de mídia no Supabase Storage |
+| `FABRICA_AI_PRICES` | Opcional: preço por modelo para o teto de gasto, em JSON (`{"gpt-6.1-sol": [entrada, saída]}`, US$ por 1 milhão de tokens). O preço cadastrado na tela vale por cima |
 | `OPENAI_API_KEY` | Chave da OpenAI para a Escrita por IA, a leitura de fotos e a criação automática. Com ela definida, a IA já vem ligada (desliga quem desmarcar na tela). Secreta: nunca no código |
 
 Colunas novas da tabela de campanhas (como as da sequência, `sequence_clips` e `sequence_arc`) são criadas sozinhas no Postgres quando o servidor sobe. **Tabelas e índices novos ainda são manuais**: rode o SQL no painel do Supabase antes do deploy que precisa deles.
@@ -259,6 +265,11 @@ Isso **não** é a versão nuvem: o servidor continua sendo o seu PC, que precis
 As regras da skill foram traduzidas para a instrução que o app manda ao modelo, mas são **duas cópias**: mudar a skill não muda o app, e vice-versa. Se você evoluir a skill e quiser que o app acompanhe, peça a sincronização.
 
 **Como saber qual dos dois escreveu:** a etapa *Roteiro de 15s* mostra um selo no topo — "Escrito por IA · OpenAI" ou "Texto local (sem IA)". Quando a IA é recusada pela auditoria ou pelo provedor, o selo mostra o motivo.
+
+### Teto de gasto da IA
+- Em Identidade → Escrita das falas: **teto por dia e por mês, em dólar** (padrão: US$ 2 por dia e US$ 20 por mês; 0 desliga). O painel mostra o gasto de hoje e do mês. O dia e o mês são os de Brasília.
+- Atingido o teto, nenhuma chamada à IA sai: o roteiro e as falas da sequência ficam com o texto local, com o motivo no selo, e a leitura de fotos e a criação automática avisam.
+- O gasto é calculado pelos tokens que cada chamada grava (por campanha, também mostrado na etapa do roteiro) vezes o **preço de cada modelo** (US$ por 1 milhão de tokens de entrada e de saída). O preço é cadastrado no mesmo painel ou na variável `FABRICA_AI_PRICES`. Modelo sem preço, ou com preço zero, conta pelo **preço de segurança** de US$ 5 na entrada e US$ 20 na saída, alto de propósito, para o teto parar cedo e nunca tarde.
 
 ### Escrita das falas por IA (funciona nos dois modos)
 
@@ -380,6 +391,10 @@ npm run build
 cd frontend
 npm test
 ```
+
+Os dois conjuntos de testes e o build também rodam sozinhos no GitHub a cada push e pull request (`.github/workflows/testes.yml`).
+
+Os números que o gerador, a IA, as sequências e a tela precisam concordar (45 a 56 palavras por clipe de 15 s, teto de 57, limite de 4.000 caracteres do Grok) ficam em `services/limits.py` e `frontend/src/speechBudget.js`; um teste confere que os dois arquivos batem.
 
 ### Segurança
 - Na nuvem, login obrigatório com limite de tentativas (bloqueio temporário depois de várias senhas erradas).

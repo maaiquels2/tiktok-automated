@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getDeviceInfo, isMobileDevice } from './device.js';
 import { mobileServiceUrl, setCloudMode } from './serviceLinks.jsx';
 
@@ -27,7 +27,13 @@ describe('getDeviceInfo', () => {
   });
 
   it('sem navigator não quebra', () => {
-    expect(getDeviceInfo(undefined).type).toBe('unknown');
+    // Node 21+ tem um navigator global ("Node.js/22"): sem tirar, o teste passava no Node 20 e falhava no CI.
+    vi.stubGlobal('navigator', undefined);
+    try {
+      expect(getDeviceInfo(undefined).type).toBe('unknown');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

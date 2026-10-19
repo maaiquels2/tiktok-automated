@@ -1385,6 +1385,143 @@ class WorkflowTests(unittest.TestCase):
         # Nada foi criado: a campanha so nasce depois da conferencia.
         self.assertEqual(len(self.client.get('/api/campaigns',headers=self.headers).json),1)
 
+    def test_speech_and_grok_numbers_agree_everywhere(self):
+        # Gerador, IA, sequencias e tela tinham cada um o seu numero (57, "45 a 55", 44/58, 46 a 57).
+        # Agora moram em script_budget (falas) e generators (limite do Grok); a tela le scriptRules.json.
+        from services import generators, story_arcs
+        from services.copywriter import SYSTEM_PROMPT
+        low,high=script_budget.FILL
+        self.assertEqual((low,high,script_budget.CEILING),(45,56,57))
+        self.assertIn(f'de {low} a {high} palavras',SYSTEM_PROMPT)
+        self.assertEqual((story_arcs.WORD_FLOOR,story_arcs.WORD_CEILING),(low,script_budget.CEILING))
+        self.assertEqual(story_arcs.GROK_LIMIT,generators.GROK.prompt_target)
+
+    def test_local_scripts_fill_the_whole_clip(self):
+        # Teste real: abaixo de 45 palavras sobrava silencio no fim. Pijama e legging com objecao saiam com 43-44:
+        # a frase de complemento era longa demais, entrava e o teto de 57 a tirava de novo.
+        from services import generators
+        produtos=[dict(product='Pijama de cetim com short e camisa',outfit='pijama',color='Rosa claro',niche='intima',
+                       details='cetim, gola com lapela, bolso no peito, botões, elástico no short',objection='amassa fácil',
+                       audience='Mulheres que gostam de dormir bem',
+                       benefit='O cetim com gola de lapela deixa o pijama com cara de presente'),
+                  dict(product='Calça legging tie dye',outfit='legging',color='Preto com branco',niche='academia',
+                       details='estampa tie dye, cintura alta',objection='fica transparente no agachamento',
+                       audience='Mulheres que treinam',benefit='A cintura alta e a estampa tie dye deixam o treino com mais estilo')]
+        base=dict(model_name='Micaela',angle='',tone='Conversacional',style='Natural e realista',movements='',
+                  generator='grok',offer='',social_proof='',motor='',body_turns='leve_lado',video_style='')
+        for p in produtos:
+            for modo in ('','espelho','comentario','teste','troca_cor'):
+                g=generate({**base,**p,'video_mode':modo})
+                palavras=len(' '.join((g['hook'],g['development'],g['cta'])).split())
+                self.assertGreaterEqual(palavras,script_budget.FILL[0],(p['outfit'],modo,g['development']))
+                self.assertLessEqual(palavras,script_budget.CEILING,(p['outfit'],modo))
+                self.assertLessEqual(len(g['video']),generators.GROK.prompt_target,(p['outfit'],modo))
+
+    def test_prompt_library_starts_with_the_approved_prompts_and_keeps_new_ones(self):
+        # Pedido real: os prompts aprovados nos testes de 11 e 12/10 precisam estar na base de dados.
+        lista=self.client.get('/api/prompt-library',headers=self.headers).json
+        self.assertEqual(len(lista),18)
+        self.assertEqual({p['kind'] for p in lista},{'imagem','video'})
+        self.assertTrue(all(len(p['prompt'])>=40 for p in lista))
+        videos=self.client.get('/api/prompt-library?kind=video',headers=self.headers).json
+        self.assertTrue(videos and all(p['kind']=='video' for p in videos))
+        novo=dict(kind='video',product='Maiô',format='espelho',version='Completo',note='nota 9',prompt='Prompt aprovado '*5)
+        criado=self.client.post('/api/prompt-library',json=novo,headers=self.headers)
+        self.assertEqual(criado.status_code,201,criado.json)
+        self.assertEqual(len(self.client.get('/api/prompt-library',headers=self.headers).json),19)
+        self.assertEqual(self.client.post('/api/prompt-library',json={**novo,'kind':'audio'},headers=self.headers).status_code,400)
+        self.assertEqual(self.client.post('/api/prompt-library',json={**novo,'prompt':'curto'},headers=self.headers).status_code,400)
+        key=criado.json['key']
+        self.assertEqual(self.client.delete(f'/api/prompt-library/{key}',headers=self.headers).status_code,200)
+        self.assertEqual(len(self.client.get('/api/prompt-library',headers=self.headers).json),18)
+        self.assertEqual(self.client.delete('/api/prompt-library/x;drop',headers=self.headers).status_code,404)
+
+    def test_ai_tokens_are_recorded_per_call(self):
+        # O que a OpenAI cobra: cada chamada grava modelo e tokens, inclusive a leitura de fotos.
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        conteudo=json.dumps({'product':'Biquíni','colors':['Preto'],'niche':'praia','details':'bojo, forro, amarração'})
+        resposta={'usage':{'prompt_tokens':1200,'completion_tokens':300},'choices':[{'message':{'content':conteudo}}]}
+        with patch('services.copywriter._post_json',return_value=resposta):
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),'niche':'praia'})
+        self.assertEqual(r.status_code,200,r.json)
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            linhas=conn.execute('SELECT endpoint,model,input_tokens,output_tokens FROM ai_usage').fetchall()
+        self.assertEqual(linhas,[('quick_brief','gpt-6-luna',1200,300)])
+
+    def gasto(self,model,tokens_in,tokens_out,quando=None):
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            if quando:
+                conn.execute('INSERT INTO ai_usage(campaign_id,endpoint,model,input_tokens,output_tokens,created_at) '
+                             'VALUES(NULL,?,?,?,?,?)',('teste',model,tokens_in,tokens_out,quando))
+            else:
+                conn.execute('INSERT INTO ai_usage(campaign_id,endpoint,model,input_tokens,output_tokens) '
+                             'VALUES(NULL,?,?,?,?)',('teste',model,tokens_in,tokens_out))
+            conn.commit()
+
+    def test_ai_spend_cap_blocks_calls_and_writing_falls_back_to_local_text(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        # Sem preco cadastrado o modelo conta pelo preco de seguranca (alto): 100 mil tokens de saida = US$ 2.
+        self.gasto('gpt-6.1-sol',0,100_000)
+        w=self.client.get('/api/writer',headers=self.headers).json
+        self.assertEqual(w['budget']['unpriced_models'],['gpt-6.1-sol'])
+        self.assertIn('teto de gasto da IA de hoje',w['budget']['blocked'])
+        with patch('services.copywriter._post_json') as chamada:
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),'niche':'praia'})
+        chamada.assert_not_called()
+        self.assertNotEqual(r.status_code,200)
+        self.assertIn('teto de gasto',r.json['error'])
+        # Escrita do roteiro: nenhuma chamada sai, o texto local entra e o motivo fica gravado para a tela.
+        self.client.post(f'/api/campaigns/{self.cid}/assets',headers=self.headers,
+                         data={'kind':'reference','file':(io.BytesIO(image_bytes()),'ref.png')})
+        v=self.client.get(f'/api/campaigns/{self.cid}',headers=self.headers).json['version']
+        with patch('services.copywriter._post_json') as chamada:
+            g=self.client.post(f'/api/campaigns/{self.cid}/generate',json={'version':v},headers=self.headers)
+        chamada.assert_not_called()
+        self.assertEqual(g.status_code,200,g.json)
+        writer=(g.json.get('checklist') or {}).get('writer') or {}
+        self.assertEqual(writer.get('by'),'local')
+        self.assertIn('teto de gasto',writer.get('reason',''))
+        # Com o preco real cadastrado (barato), o mesmo uso cabe no teto e a IA volta.
+        r=self.client.patch('/api/writer',json={'prices':{'gpt-6.1-sol':[1,4]}},headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(r.json['budget']['blocked'],'')
+        self.assertAlmostEqual(r.json['budget']['today_usd'],0.4)
+
+    def test_missing_usage_table_never_breaks_the_writer_panel_or_ai_routes(self):
+        # Se a criacao da tabela falhar na nuvem, conferir o teto nao pode derrubar a tela nem a chamada.
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            conn.execute('DROP TABLE ai_usage'); conn.commit()
+        w=self.client.get('/api/writer',headers=self.headers)
+        self.assertEqual(w.status_code,200,w.json)
+        self.assertIsNone(w.json['budget'])
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        conteudo=json.dumps({'product':'Biquíni','colors':['Preto'],'niche':'praia','details':'bojo, forro'})
+        with patch('services.copywriter._call_with_deadline',return_value=conteudo):
+            r=self.client.post('/api/quick-brief',headers=self.headers,data={
+                'product':(io.BytesIO(image_bytes()),'produto.png'),'niche':'praia'})
+        self.assertEqual(r.status_code,200,r.json)
+
+    def test_ai_spend_cap_settings_are_validated_and_zero_price_counts_as_unpriced(self):
+        from services import ai_budget
+        self.assertEqual(self.client.patch('/api/writer',json={'cap_daily_usd':-1},headers=self.headers).status_code,400)
+        self.assertEqual(self.client.patch('/api/writer',json={'prices':{'gpt-6.1-sol':[1]}},headers=self.headers).status_code,400)
+        r=self.client.patch('/api/writer',json={'cap_daily_usd':5,'cap_monthly_usd':0,'prices':{'gpt-6.1-sol':[0,0]}},
+                            headers=self.headers)
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual((r.json['budget']['cap_daily_usd'],r.json['budget']['cap_monthly_usd']),(5,0))
+        # Preco zero faria o teto nunca disparar: conta como sem preco.
+        self.gasto('gpt-6.1-sol',0,300_000)
+        b=self.client.get('/api/writer',headers=self.headers).json['budget']
+        self.assertEqual(b['unpriced_models'],['gpt-6.1-sol'])
+        self.assertIn('de hoje',b['blocked'])
+        # Uso de ontem conta no mes e nao no dia; teto mensal 0 = desligado.
+        from datetime import datetime, timezone, timedelta
+        dia,mes=ai_budget.period_starts(datetime(2026,10,15,12,tzinfo=timezone.utc))
+        self.assertEqual((dia,mes),('2026-10-15 03:00:00','2026-10-01 03:00:00'))
+        self.assertEqual(ai_budget.period_starts(datetime(2026,10,1,2,tzinfo=timezone.utc))[0],'2026-09-30 03:00:00')
+
     def test_quick_brief_reads_the_optional_colors_photo(self):
         # Cores dificeis de descrever (laranja com floral branco): a foto das
         # cores vai identificada, antes do print, e cada cor volta com detalhe.
@@ -2180,6 +2317,67 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,facts=['capuz'])).status_code,400)
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,facts='x'*501)).status_code,400)
 
+    ARC_AI_LINES=[["Gente, três motivos pra esse casaco morar no teu guarda-roupa, olha só.",
+                   "O primeiro é o capuz. Olha que charme quando eu ajeito ele assim do lado, sério, mudou o look inteiro e eu fiquei apaixonada.",
+                   "E o segundo motivo eu te conto no próximo vídeo, fica aqui comigo."],
+                  ["O segundo motivo é o zíper frontal, e olha como ele deixa tudo mais arrumadinho quando eu fecho.",
+                   "E o terceiro são os bolsos laterais, onde eu coloco a mão assim e pronto, virou meu casaco preferido.",
+                   "Corre pro carrinho laranja e garante o teu antes de esfriar."]]
+
+    def puffer_campaign(self):
+        puffer=dict(product='Casaco Puffer',outfit='Casaco Puffer',color='preto',niche='casual',
+                    details='capuz, zíper frontal, bolsos laterais',video_mode='espelho')
+        self.cid=self.client.post('/api/campaigns',json={**self.brief,**puffer},headers=self.headers).json['id']
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+
+    def test_story_arc_lines_written_by_ai_are_checked_saved_and_reused(self):
+        # As falas por regras saiam engessadas ("O primeiro motivo? Capuz. Repara bem aqui"): a IA escreve, a
+        # mesma regua do rascunho confere, e o resultado fica guardado para nao gastar de novo.
+        self.puffer_campaign()
+        antes=self.client.get(f'/api/campaigns/{self.cid}').json
+        resposta=json.dumps({'clips':self.ARC_AI_LINES})
+        with patch('services.copywriter._call_with_deadline',return_value=resposta) as chamada:
+            r=self.post('/story-arc',dict(arc='motivos',clips=2,ai=True))
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(chamada.call_count,1)
+        self.assertEqual(r.json['written_by'],'ai')
+        self.assertEqual([c['lines'] for c in r.json['clips']],self.ARC_AI_LINES)
+        self.assertEqual([c['problems'] for c in r.json['clips']],[[],[]])
+        sistema=chamada.call_args.args[2]
+        self.assertIn('1) capuz; 2) zíper frontal; 3) bolsos laterais',sistema)
+        self.assertIn('Não existe oferta',sistema)
+        depois=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual((depois['details'],depois['status']),(antes['details'],antes['status']))
+        # Reabrir a etapa de video (montagem normal) reaproveita sem chamar a IA.
+        with patch('services.copywriter._call_with_deadline') as chamada:
+            de_novo=self.post('/story-arc',dict(arc='motivos',clips=2))
+        chamada.assert_not_called()
+        self.assertEqual(de_novo.json['written_by'],'ai_saved')
+        self.assertEqual([c['lines'] for c in de_novo.json['clips']],self.ARC_AI_LINES)
+        # Com outros fatos (so para esta sequencia), as falas guardadas nao valem.
+        outro=self.post('/story-arc',dict(arc='motivos',clips=2,facts='forro de pelúcia, punho canelado, gola alta'))
+        self.assertNotIn('written_by',outro.json)
+        # Outro arco nao usa as falas guardadas do Motivos.
+        self.assertEqual(self.post('/story-arc',dict(arc='questionada',clips=3)).json.get('written_by'),None)
+
+    def test_story_arc_ai_lines_that_fail_the_check_fall_back_to_the_draft(self):
+        self.puffer_campaign()
+        ruim=json.loads(json.dumps(self.ARC_AI_LINES))
+        ruim[0][2]='Corre pro carrinho laranja agora.'      # pede a compra antes do ultimo clipe
+        ruim[1][1]=ruim[1][1].replace('bolsos laterais','bolsos')   # fato nao citado
+        with patch('services.copywriter._call_with_deadline',return_value=json.dumps({'clips':ruim})) as chamada:
+            r=self.post('/story-arc',dict(arc='motivos',clips=2,ai=True))
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(chamada.call_count,2)    # segunda tentativa recebe os pontos recusados
+        self.assertIn('A tentativa anterior foi recusada',chamada.call_args.args[3])
+        self.assertIn('só o último clipe pode pedir a compra',r.json['ai_error'])
+        self.assertIn('"bolsos laterais" não foi citado',r.json['ai_error'])
+        self.assertNotEqual([c['lines'] for c in r.json['clips']],ruim)
+        self.assertNotIn('written_by',r.json)
+        # Sem a escrita por IA ligada, o botao explica o que fazer.
+        self.client.patch('/api/writer',json={'enabled':False},headers=self.headers)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,ai=True)).status_code,409)
+
     def test_story_arc_ignores_the_niche_default_text_in_details(self):
         # Teste real: "Destacar textura e modelagem" (texto padrao da moda casual) virava motivo da sequencia.
         import json as _json
@@ -2453,7 +2651,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(f'de {low} a {high} palavras',copywriter.SYSTEM_PROMPT)
         self.assertNotIn('@',copywriter.SYSTEM_PROMPT)
         from services.story_arcs import WORD_CEILING,WORD_FLOOR
-        self.assertEqual((WORD_FLOOR,WORD_CEILING),script_budget.FILL)
+        self.assertEqual((WORD_FLOOR,WORD_CEILING),(script_budget.FILL[0],script_budget.CEILING))
 
     def test_generator_adapters_hold_limit_and_resolution(self):
         from services import generators

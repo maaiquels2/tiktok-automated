@@ -226,7 +226,7 @@ export async function shrinkImage(file, max = 1600, quality = 0.85) {
 }
 
 // Criar com IA: fotos do produto + print da descricao -> briefing sugerido.
-export async function quickBrief(products, description, niche = '', colorsPhoto = null) {
+export async function quickBrief(products, description, niche = '', colorsPhoto = null, hint = '') {
   const form = new FormData();
   // Reduz todas as fotos ao mesmo tempo; a ordem no formulario continua a mesma.
   const [shrunk, desc, colors] = await Promise.all([
@@ -237,12 +237,17 @@ export async function quickBrief(products, description, niche = '', colorsPhoto 
   for (const file of shrunk) form.append('product', file);
   if (desc) form.set('description', desc);
   if (colors) form.set('colors', colors);
+  if (hint.trim()) form.set('hint', hint.trim());
   if (niche) form.set('niche', niche);
   return api('/quick-brief', {method: 'POST', body: form, timeoutMs: 90000});
 }
 
 export const persuasionPreview = body => api('/persuasion/preview', {method: 'POST', body});
 export const speechBank = (query = '') => api('/speech-bank' + (query ? '?' + query : ''));
+// Biblioteca de prompts aprovados (imagem e video que deram certo nos testes).
+export const promptLibrary = (kind = '') => api('/prompt-library' + (kind ? '?kind=' + encodeURIComponent(kind) : ''));
+export const savePromptToLibrary = body => api('/prompt-library', {method: 'POST', body});
+export const deletePromptFromLibrary = key => api(`/prompt-library/${encodeURIComponent(key)}`, {method: 'DELETE'});
 export const saveToSpeechBank = body => api('/speech-bank', {method: 'POST', body});
 export const deleteFromSpeechBank = id => api(`/speech-bank/${encodeURIComponent(id)}`, {method: 'DELETE'});
 export const saveWriterSettings = (body) => api('/writer',{method:'PATCH',body}).finally(() => { writerCache = null; });

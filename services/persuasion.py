@@ -218,10 +218,17 @@ def social_reactions(s: dict, forms: dict) -> list[tuple[str, str]]:
 
 # Agitacao: uma frase curta sobre o incomodo da dor declarada. Fala de
 # sentimento comum, nunca de fato do produto.
+# Varredura de 144 roteiros: com 3 frases, "quem ja passou por isso sabe
+# como e chato" saia em 15% deles. Oito frases, escolhidas pelo indice.
 AGITATION = (
     'E quem já passou por isso sabe como é chato.',
     'Ninguém merece ficar pensando nisso o dia inteiro.',
     'E é horrível perceber isso na hora errada, né?',
+    'Sério, isso tira a vontade de usar a peça.',
+    'E aí você passa o dia todo se ajeitando.',
+    'Eu já deixei de usar peça por causa disso.',
+    'E a gente só descobre quando já está na rua.',
+    'Dá até preguiça de arriscar, né?',
 )
 
 

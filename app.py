@@ -27,7 +27,7 @@ from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import copywriter, formats, generators, speech_bank, stages
+from services import ai_budget, copywriter, formats, generators, prompt_library, speech_bank, stages
 from services import variants as variacao
 from services.prompts import with_article
 
@@ -43,7 +43,7 @@ AI_LIMIT, AI_WINDOW = 20, 60
 # Rotas que chamam a OpenAI (cada chamada gasta a chave do estudio).
 AI_ENDPOINTS = {'analyze_product_photo', 'analyze_product_photo_confirm', 'quick_brief', 'save_writer_settings',
                 'test_writer', 'generate_prompts', 'generate_prompt_variants', 'refresh_single_script',
-                'refresh_variant_script', 'refresh_all_variant_scripts'}
+                'refresh_variant_script', 'refresh_all_variant_scripts', 'story_arc'}
 FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style','sequence_clips','sequence_arc']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
@@ -281,6 +281,17 @@ def create_app(config=None):
                         conn.execute(RATE_LIMITS_SQL)
                         conn.execute('ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY')
                         conn.commit()
+                    # Biblioteca de prompts aprovados e uso da IA por campanha.
+                    for tabela, sql in (('prompt_library', prompt_library.LIBRARY_SQL),
+                                        ('ai_usage', prompt_library.USAGE_SQL)):
+                        if not conn.execute(
+                                "SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() "
+                                "AND table_name=?", (tabela,)).fetchone():
+                            conn.execute(sql)
+                            conn.execute(f'ALTER TABLE {tabela} ENABLE ROW LEVEL SECURITY')
+                            if tabela == 'prompt_library':
+                                prompt_library.seed(conn)
+                            conn.commit()
             except Exception as exc:
                 # Sem permissao de DDL (ou banco fora do ar) o app continua
                 # subindo: quem usa colunas antigas segue trabalhando, e o log
@@ -348,6 +359,9 @@ def create_app(config=None):
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
             conn.execute(RATE_LIMITS_SQL)
+            conn.execute(prompt_library.LIBRARY_SQL)
+            conn.execute(prompt_library.USAGE_SQL)
+            prompt_library.seed(conn)
             if version<1:
                 conn.execute("UPDATE campaigns SET migration_note='Campanha importada do protótipo (estado anterior: ' || status || '). Reanexe as mídias e revise as etapas.',status='briefing' WHERE status!='briefing'")
                 conn.execute('PRAGMA user_version=1')
@@ -524,6 +538,28 @@ def create_app(config=None):
             if espera:
                 raise Invalid(f'Muitas chamadas à IA em sequência. Espere {espera} s e tente de novo.',429)
             rate_hit(chave,AI_LIMIT,AI_WINDOW,AI_WINDOW)
+            # Teto de gasto: atingido, toda chamada a IA desta requisicao e recusada com o motivo (a escrita volta
+            # para o texto local; a leitura de fotos avisa). Salvar o teto nunca e bloqueado.
+            motivo=''
+            if request.endpoint!='save_writer_settings':
+                try:
+                    motivo=ai_budget.status(db(),writer_settings_cached())['blocked']
+                except Exception as exc:  # conferir o teto nunca derruba a requisicao
+                    app.logger.warning('Nao foi possivel conferir o teto de gasto da IA: %s', exc)
+                    # No Postgres uma consulta que falha trava a transacao: sem isto a propria rota falhava depois.
+                    db().rollback()
+            g.ai_usage=copywriter.usage_start(block=motivo)
+
+    # Configuracao da escrita por IA guardada por 60 s: na nuvem cada leitura e uma ida ao Storage, e o teto e os
+    # precos sao conferidos em toda chamada a IA e em toda tela de campanha. Salvar pela tela renova na hora.
+    _writer_cache={'t':0.0,'v':None}
+
+    def writer_settings_cached(max_age=60):
+        agora=time.monotonic()
+        if _writer_cache['v'] is None or agora-_writer_cache['t']>max_age:
+            _writer_cache['v']=copywriter.load_settings(app.config['DATA_DIR'],storage_get=(_storage_get if cloud_mode else None))
+            _writer_cache['t']=agora
+        return _writer_cache['v']
 
     def client_ip():
         # Na Vercel o IP real vem no X-Forwarded-For (o primeiro e o cliente).
@@ -582,6 +618,22 @@ def create_app(config=None):
     ])
 
     @app.after_request
+    def record_ai_usage(response):
+        # Grava os tokens das chamadas a IA desta requisicao, por campanha.
+        usos=getattr(g,'ai_usage',None)
+        if usos:
+            try:
+                cid=(request.view_args or {}).get('cid')
+                for uso in usos:
+                    db().execute('INSERT INTO ai_usage(campaign_id,endpoint,model,input_tokens,output_tokens) '
+                                 'VALUES(?,?,?,?,?)',(cid,request.endpoint or '',uso['model'],
+                                                     uso['input_tokens'],uso['output_tokens']))
+                db().commit()
+            except Exception as exc:  # registrar uso nunca derruba a resposta
+                app.logger.warning('Nao foi possivel registrar o uso da IA: %s', exc)
+        return response
+
+    @app.after_request
     def headers(response):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['Referrer-Policy']='no-referrer'
@@ -595,6 +647,10 @@ def create_app(config=None):
             # celular nao baixa de novo o bundle inteiro (~480KB) a cada
             # visita/recarregada, so quando sai um deploy novo (nome novo).
             response.headers['Cache-Control']='public, max-age=31536000, immutable'
+            # Sem isto a Vercel nao guardava os arquivos na borda (X-Vercel-Cache:
+            # MISS) e cada primeira visita do Brasil ia buscar no servidor em Oregon.
+            response.headers['CDN-Cache-Control']='public, max-age=31536000, immutable'
+            response.headers['Vercel-CDN-Cache-Control']='public, max-age=31536000, immutable'
         elif request.path.startswith('/api/') or request.path == '/':
             # A pagina (index.html) e a maioria das respostas da API mudam
             # com frequencia - continuam sempre revalidando, sem cache. Uma
@@ -1036,6 +1092,13 @@ def create_app(config=None):
         c['generator_info']=generators.of(c).info()
         # Dica de edicao do formato (juntar as cores, responder comentario...).
         c['edit_tip']=formats.edit_tip(c)
+        try:
+            precos=ai_budget.price_table(writer_settings_cached())
+        except Exception:
+            precos=None
+        c['ai_usage']=prompt_library.usage_summary(
+            db().execute('SELECT model,input_tokens,output_tokens FROM ai_usage WHERE campaign_id=?',(cid,)).fetchall(),
+            precos)
         c['product_assets']=[]
         for row in db().execute('SELECT * FROM product_assets WHERE campaign_id=? AND active=1 ORDER BY id',(cid,)):
             a=dict(row)
@@ -1291,7 +1354,11 @@ def create_app(config=None):
                          CASE WHEN a.approved_at IS NULL THEN 1 ELSE 0 END,
                          a.id DESC
                 LIMIT 1
-            ) AS cover_asset_id
+            ) AS cover_asset_id,
+            -- Proximo passo concreto no cartao do Inicio (referencia, prompts, cores).
+            (SELECT COUNT(*) FROM assets r WHERE r.campaign_id=c.id AND r.active=1 AND r.kind='reference') AS has_reference,
+            (SELECT COUNT(*) FROM prompts p WHERE p.campaign_id=c.id AND p.kind='image' AND p.content<>'') AS has_prompts,
+            (SELECT COUNT(*) FROM assets i WHERE i.campaign_id=c.id AND i.active=1 AND i.kind='image') AS images
             FROM campaigns c ORDER BY c.updated_at DESC, c.id DESC''')
         # colors: a mesma lista de cores do servidor, para a tela nao re-interpretar o texto.
         return jsonify([{**dict(r),'colors':variacao.colors(r['color'])} for r in rows])
@@ -1820,10 +1887,40 @@ def create_app(config=None):
         if not settings.get('provider') or not settings.get('api_key'):
             raise Invalid('Configure a escrita por IA antes de criar com IA.',409)
         niche=(request.form.get('niche') or '').strip()
-        campos,motivo=copywriter.quick_brief(images,settings,NICHE_IDS,niche=niche)
+        # Qual peca e o produto quando a foto mostra o look inteiro (opcional).
+        hint=(request.form.get('hint') or '').strip()[:80]
+        campos,motivo=copywriter.quick_brief(images,settings,NICHE_IDS,niche=niche,hint=hint)
         if campos is None:
             raise Invalid(f'Não foi possível ler as fotos: {motivo}',502)
         return jsonify(brief=campos)
+
+    @app.get('/api/prompt-library')
+    def list_prompt_library():
+        kind=(request.args.get('kind') or '').strip()
+        sql='SELECT key,kind,product,format,version,note,prompt,created_at FROM prompt_library'
+        rows=db().execute(sql+(' WHERE kind=? ORDER BY created_at DESC' if kind in prompt_library.KINDS
+                               else ' ORDER BY created_at DESC'),((kind,) if kind in prompt_library.KINDS else ())).fetchall()
+        return jsonify([dict(r) for r in rows])
+
+    @app.post('/api/prompt-library')
+    def add_prompt_library():
+        campos,erro=prompt_library.clean(body())
+        if erro:
+            raise Invalid(erro)
+        key=uuid.uuid4().hex
+        db().execute('INSERT INTO prompt_library(key,kind,product,format,version,note,prompt) VALUES(?,?,?,?,?,?,?)',
+                     (key,campos['kind'],campos['product'],campos['format'],campos['version'],campos['note'],
+                      campos['prompt']))
+        db().commit()
+        return jsonify(key=key,**campos),201
+
+    @app.delete('/api/prompt-library/<key>')
+    def delete_prompt_library(key):
+        if not re.fullmatch(r'[0-9a-f]{32}',key or ''):
+            raise Invalid('Prompt não encontrado.',404)
+        db().execute('DELETE FROM prompt_library WHERE key=?',(key,))
+        db().commit()
+        return jsonify(ok=True)
 
     @app.post('/api/persuasion/preview')
     def persuasion_preview():
@@ -1954,8 +2051,12 @@ def create_app(config=None):
         if not settings.get('enabled') or not campaigns:
             return [None]*len(campaigns)
         from concurrent.futures import ThreadPoolExecutor
+        import contextvars
         with ThreadPoolExecutor(max_workers=min(8, len(campaigns))) as pool:
-            return list(pool.map(lambda item: copywriter.write_script(item, settings), campaigns))
+            # Cada cor leva o contexto da requisicao (registro de uso da IA).
+            tarefas=[pool.submit(contextvars.copy_context().run, copywriter.write_script, item, settings)
+                     for item in campaigns]
+            return [t.result() for t in tarefas]
 
     def write_with_llm(campaign, pack, cid=None, required=False, precomputed=None, index=0):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
@@ -1999,9 +2100,19 @@ def create_app(config=None):
         registrar(settings.get('provider') or 'ia')
         return merged, ''
 
+    def writer_public():
+        dados=copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
+        try:
+            dados['budget']=ai_budget.status(db(),writer_settings_cached())
+        except Exception as exc:  # sem a tabela ai_usage (migracao falhou) o painel abre sem o teto
+            app.logger.warning('Nao foi possivel ler o gasto da IA: %s', exc)
+            db().rollback()
+            dados['budget']=None
+        return dados
+
     @app.get('/api/writer')
     def writer_settings():
-        return jsonify(copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
+        return jsonify(writer_public())
 
     @app.patch('/api/writer')
     def save_writer_settings():
@@ -2013,6 +2124,9 @@ def create_app(config=None):
             valor = data.get(campo)
             if valor is not None and (not isinstance(valor, str) or len(valor) > 400):
                 raise Invalid(f'Campo {campo} invalido.')
+        _limites, erro_teto = ai_budget.clean(data)
+        if erro_teto:
+            raise Invalid(erro_teto)
         # A chave so e gravada e ligada depois de conferida no provedor.
         current = copywriter.load_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
         new_key = (data.get('api_key') or '').strip()
@@ -2032,7 +2146,8 @@ def create_app(config=None):
             storage_get=(_storage_get if cloud_mode else None),
             storage_put=(_storage_put if cloud_mode else None),
         )
-        return jsonify(copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None)))
+        _writer_cache['v']=None
+        return jsonify(writer_public())
 
     @app.post('/api/writer/test')
     def test_writer():
@@ -3085,7 +3200,7 @@ def create_app(config=None):
     # operador pode mandar as falas que editou para gerar os prompts de novo.
     @app.post('/api/campaigns/<int:cid>/story-arc')
     def story_arc(cid):
-        from services.story_arcs import ArcError, build_story_arc
+        from services.story_arcs import ArcError, arc_facts, build_story_arc, write_lines_with_ai
         data=body()
         c=detail(cid)
         color,base_image=c.get('color') or '',False
@@ -3114,8 +3229,34 @@ def create_app(config=None):
                     raise Invalid('Fatos inválidos: escreva até 500 caracteres, separados por vírgula.')
                 if extra.strip():
                     c={**c,'details':', '.join(p for p in (extra.strip(),c.get('details') or '') if p)}
-            return jsonify(build_story_arc(c,color,str(data.get('arc') or ''),clips,data.get('lines'),
-                                           base_image=base_image))
+            arc=str(data.get('arc') or '')
+            # Falas escritas pela IA ficam guardadas no checklist, por arco, clipes e cor, junto com os fatos usados:
+            # reabrir a etapa de video reaproveita sem gastar de novo, e nada do briefing, da imagem ou do status muda.
+            chave=f'{arc}|{clips}|{color}'
+            guardadas=((json.loads(c.get('checklist') or '{}') if isinstance(c.get('checklist'),str)
+                        else (c.get('checklist') or {})) or {}).get('story_arc_ai') or {}
+            lines,extra_resposta=data.get('lines'),{}
+            if data.get('ai'):
+                settings=writer_settings_cached()
+                if not settings.get('enabled'):
+                    raise Invalid('Ligue a escrita por IA em Identidade → Escrita das falas para a IA escrever as falas.',409)
+                falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings)
+                if falas:
+                    lines,extra_resposta=falas,{'written_by':'ai'}
+                    linha=db().execute('SELECT checklist FROM campaigns WHERE id=?',(cid,)).fetchone()
+                    checklist=json.loads((linha['checklist'] if linha else '') or '{}')
+                    if not isinstance(checklist,dict):
+                        checklist={}
+                    checklist.setdefault('story_arc_ai',{})[chave]={'facts':fatos,'lines':falas}
+                    db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
+                    db().commit()
+                else:
+                    extra_resposta={'ai_error':motivo or 'a IA não respondeu'}
+            elif lines is None and isinstance(guardadas.get(chave),dict):
+                salvo=guardadas[chave]
+                if salvo.get('facts')==[f['text'] for f in arc_facts(c)[:3]] and salvo.get('lines'):
+                    lines,extra_resposta=salvo['lines'],{'written_by':'ai_saved'}
+            return jsonify({**build_story_arc(c,color,arc,clips,lines,base_image=base_image),**extra_resposta})
         except ArcError as error:
             raise Invalid(str(error),error.status)
 

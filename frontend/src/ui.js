@@ -29,6 +29,19 @@ export function statusInfo(status) {
   return STATUS_INFO[status] || STATUS_INFO.briefing;
 }
 
+// Proximo passo concreto do cartao "Continue de onde parou". Em preparacao,
+// "continuar" nao dizia nada: aqui sai a referencia, os prompts ou as cores.
+export function nextStepLabel(c) {
+  if (!c) return '';
+  if (c.status !== 'briefing') return statusInfo(c.status).action.toLowerCase();
+  if (!Number(c.has_reference)) return 'enviar a foto de referência da modelo';
+  if (!Number(c.has_prompts)) return 'gerar os prompts em Definir look';
+  const total = (c.colors || []).length || 1;
+  const feitas = Math.min(Number(c.images || 0), total);
+  if (total === 1) return 'criar a imagem no gerador';
+  return feitas ? `criar as imagens (${feitas} de ${total} cores prontas)` : `criar as imagens das ${total} cores`;
+}
+
 // Fase atual (0-3) ou 4 quando publicada; a cor da etiqueta segue a fase.
 export function phaseTone(status) {
   const {phase} = statusInfo(status);

@@ -18,6 +18,7 @@ configurada, ou sem internet, o app continua funcionando exatamente como antes.
 """
 from __future__ import annotations
 
+import contextvars
 import difflib
 import json
 import math
@@ -30,6 +31,32 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from services import formats, persuasion, script_budget, speech_bank
+
+# Uso da IA por requisicao: cada chamada ao provedor anota os tokens aqui e o
+# app grava por campanha (o que a OpenAI cobra).
+_USAGE = contextvars.ContextVar('fabrica_ai_usage', default=None)
+# Teto de gasto atingido (services/ai_budget.py): o motivo vira a recusa de toda chamada desta requisicao.
+_BLOCK = contextvars.ContextVar('fabrica_ai_block', default='')
+
+
+def usage_start(block: str = '') -> list:
+    lista: list = []
+    _USAGE.set(lista)
+    _BLOCK.set(block or '')
+    return lista
+
+
+def _check_budget():
+    motivo = _BLOCK.get()
+    if motivo:
+        raise ProviderError(motivo)
+
+
+def _record_usage(model, tokens_in, tokens_out):
+    lista = _USAGE.get()
+    if lista is not None:
+        lista.append({'model': str(model or ''), 'input_tokens': int(tokens_in or 0),
+                      'output_tokens': int(tokens_out or 0)})
 from services.prompts import without_niche_defaults
 from services.prompts import (
     objection_parts, offer_text, product_features,
@@ -281,6 +308,7 @@ def load_settings(data_dir, storage_get=None) -> dict:
         'enabled': enabled and bool(provider) and bool(api_key),
         'key_source': source,
         'disabled_by_user': bool(raw.get('disabled_by_user')),
+        **{k: raw[k] for k in ('cap_daily_usd', 'cap_monthly_usd', 'prices') if k in raw},
     }
 
 
@@ -356,6 +384,9 @@ def save_settings(data_dir, values: dict, storage_get=None, storage_put=None) ->
     if 'enabled' in values:
         current['enabled'] = bool(values['enabled'])
         current['disabled_by_user'] = not current['enabled']
+    from services import ai_budget
+    limites, _erro = ai_budget.clean(values)
+    current.update(limites)
     current['enabled'] = bool(current['enabled'] and current['provider'] and current['api_key'])
     # A chave que veio do ambiente nunca e copiada para o arquivo salvo.
     from_env = current.pop('key_source', '') == 'env' and not (isinstance(key, str) and key.strip())
@@ -382,6 +413,7 @@ def public_settings(data_dir, storage_get=None) -> dict:
         'key_source': s.get('key_source', ''),
         'providers': list(PROVIDERS),
         'default_models': DEFAULT_MODELS,
+        'vision_models': VISION_MODELS,
     }
 
 
@@ -663,6 +695,7 @@ def _image_data_url(image_bytes: bytes, mime: str) -> str:
 
 
 def call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+    _check_budget()
     if images:
         content = [{'type': 'text', 'text': user}]
         for image_bytes, mime in images:
@@ -694,6 +727,8 @@ def call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes
                 # Mantém a assinatura de três argumentos usada também pelas
                 # integrações e testes antigos; _post_json aplica TIMEOUT.
                 out = _post_json(*post_args)
+            uso = out.get('usage') or {}
+            _record_usage(body.get('model'), uso.get('prompt_tokens'), uso.get('completion_tokens'))
             return out['choices'][0]['message']['content']
         except ProviderError as exc:
             alvo = exc.param if exc.param in body else next(
@@ -707,6 +742,7 @@ def call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes
 
 
 def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+    _check_budget()
     import base64
     model = settings['model'] or DEFAULT_MODELS['gemini']
     url = (f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
@@ -726,6 +762,8 @@ def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[byte
                     url, body, {}, timeout=int(settings['_request_timeout']))
             else:
                 out = _post_json(url, body, {})
+            uso = out.get('usageMetadata') or {}
+            _record_usage(settings.get('model'), uso.get('promptTokenCount'), uso.get('candidatesTokenCount'))
             return out['candidates'][0]['content']['parts'][0]['text']
         except ProviderError as exc:
             baixo = (exc.message or '').casefold()
@@ -967,6 +1005,44 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
         user = (build_brief(c) + '\n\nA tentativa anterior foi recusada pela auditoria:\n- '
                 + '\n- '.join(unique[:8]) + '\nReescreva as três opções corrigindo exatamente esses pontos.')
     return None, ultimo or 'o texto nao passou na auditoria'
+
+
+def ask_json(settings: dict, system: str, user: str, validate, attempts: int = 2,
+             orcamento_s: float = BUDGET_SECONDS) -> tuple[object | None, str]:
+    """Pede um JSON ao modelo e confere com ``validate(dados) -> (resultado, problemas)``.
+
+    Mesmo molde de write_script: teto de tempo TOTAL, e a segunda tentativa recebe os pontos que a conferencia
+    recusou. Devolve (resultado, motivo_da_falha); o motivo vai para a tela quando o app fica com o texto local.
+    """
+    caller = CALLERS.get(settings.get('provider'))
+    if not caller or not settings.get('api_key'):
+        return None, 'sem provedor configurado'
+    pedido, ultimo, comeco = user, '', time.monotonic()
+    for tentativa in range(max(1, attempts)):
+        if tentativa and (time.monotonic() - comeco) + TIMEOUT > orcamento_s:
+            return None, (ultimo or 'sem tempo para uma nova tentativa')
+        restante = max(1.0, orcamento_s - (time.monotonic() - comeco)) if tentativa else orcamento_s
+        try:
+            bruto = _call_with_deadline(lambda st, sy, u, _imgs: caller(st, sy, u),
+                                        settings, system, pedido, None, orcamento_s=restante)
+            dados = json.loads(bruto)
+        except ProviderError as exc:
+            if exc.status:
+                return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
+            return None, exc.message[:400]
+        except urllib.error.URLError as exc:
+            return None, f'nao foi possivel falar com o provedor ({exc.reason})'
+        except (ValueError, TypeError) as exc:
+            ultimo = f'resposta ilegivel ({exc})'
+            continue
+        resultado, problemas = validate(dados)
+        if resultado is not None and not problemas:
+            return resultado, ''
+        unicos = list(dict.fromkeys(problemas or ['formato de resposta inesperado']))[:8]
+        ultimo = '; '.join(unicos)
+        pedido = (user + '\n\nA tentativa anterior foi recusada pela conferência do app:\n- ' + '\n- '.join(unicos)
+                  + '\nReescreva corrigindo exatamente esses pontos.')
+    return None, ultimo or 'o texto nao passou na conferencia'
 
 
 def write_scripts(campaigns: list[dict], settings: dict,
@@ -1236,7 +1312,8 @@ def _call_with_deadline(caller, settings: dict, system: str, user: str, images, 
         except BaseException as exc:  # repassado para quem chamou
             resultado['erro'] = exc
 
-    tarefa = threading.Thread(target=alvo, daemon=True)
+    # O contexto vai junto para a thread: sem isso o uso da IA se perdia.
+    tarefa = threading.Thread(target=contextvars.copy_context().run, args=(alvo,), daemon=True)
     tarefa.start()
     tarefa.join(orcamento_s)
     if tarefa.is_alive():
@@ -1295,6 +1372,10 @@ Você recebe, nesta ordem: uma a três fotos do produto/roupa; se houver, a foto
 seletor de cores da loja ou as variações lado a lado); e, por último (se houver), o print da página do
 produto no TikTok Shop ou na loja (título, especificações, preço, avaliações).
 Cada foto vem identificada na mensagem do usuário.
+
+Se a foto mostra um look com várias peças, o produto é a peça indicada pela pessoa ou citada no print.
+Sem essa indicação, escolha a peça mais destacada e descreva SÓ ela: nunca misture peças diferentes
+(teste real: a IA descreveu a blusa quando o produto era a calça).
 
 Olhe SOMENTE o que está visível ou escrito nas fotos e devolva um JSON com estes campos, em
 português do Brasil:
@@ -1367,7 +1448,7 @@ def vision_settings(settings: dict) -> dict:
 
 
 def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches,
-                niche: str = '') -> tuple[dict | None, str]:
+                niche: str = '', hint: str = '') -> tuple[dict | None, str]:
     """Briefing inteiro a partir das fotos do produto e do print da pagina
     ("Criar com IA"). Devolve (campos, motivo_da_falha). Nada e gravado aqui:
     a tela mostra o resultado para a pessoa conferir antes de criar."""
@@ -1380,6 +1461,10 @@ def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches,
     user = f'Monte o briefing com as fotos anexadas.\n\nIdentificação de cada foto, na ordem: {identificacao}.'
     if niche in niches:
         user += f'\n\nNicho escolhido pela pessoa (use este): {niche}.'
+    hint = ' '.join((hint or '').split())[:80]
+    if hint:
+        user += (f'\n\nA PEÇA À VENDA é: {hint}. Descreva SOMENTE essa peça (nome, cores, detalhes, movimentos e '
+                 'objeção); ignore as outras roupas e acessórios da foto.')
     fotos = [_shrink_for_vision(dados, mime) for dados, mime, _ in images]
     settings = vision_settings(settings)
     try:

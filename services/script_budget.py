@@ -6,13 +6,15 @@ auditoria, sequencia, tela) e eles discordavam. Todos leem daqui. A tela le
 """
 
 CLIP_SECONDS = 15
-# Ritmo de quem vende no TikTok. 46 a 57 palavras em 15 s da ~3 por segundo.
+# Ritmo de quem vende no TikTok. 45 a 56 palavras em 15 s da ~3 por segundo.
 WORDS_PER_SECOND = 3
 # Faixa-alvo de cada trecho: o que se pede a IA e o que a tela mostra.
 TARGET = {'hook': (10, 18), 'development': (20, 40), 'cta': (7, 14)}
 # Total que ocupa o clipe inteiro. Teste real: com 33 a 46 palavras sobraram
-# 2 a 3 s de silencio no fim; com ~57 ja saiu um pouco acelerado.
-FILL = (46, 57)
+# 2 a 3 s de silencio no fim; com ~57 ja saiu um pouco acelerado. Acima de
+# CEILING o gerador local encurta o desenvolvimento pelo fim.
+FILL = (45, 56)
+CEILING = 57
 # Tolerancia antes de a tela avisar (WARN) e de a nota do prompt cair mais (HARD).
 WARN = (44, 58)
 HARD = (40, 64)
@@ -34,6 +36,6 @@ def count_words(text):
 
 def rules():
     """O que a tela precisa para os chips do roteiro e a nota do prompt."""
-    return dict(target={k: list(v) for k, v in TARGET.items()}, fill=list(FILL), warn=list(WARN),
+    return dict(target={k: list(v) for k, v in TARGET.items()}, fill=list(FILL), ceiling=CEILING, warn=list(WARN),
                 hard=list(HARD), hook_max=HOOK_MAX, words_per_second=WORDS_PER_SECOND,
                 clip_seconds=CLIP_SECONDS)
