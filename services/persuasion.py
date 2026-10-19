@@ -30,6 +30,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from services import script_budget
+
 _WEEKDAYS = r'(?:segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)(?:-feira)?'
 
 
@@ -382,11 +384,12 @@ def timeline(hook: str, development: str, cta: str, total: int = 15) -> tuple[in
     sempre; com um meio mais longo, o meio ganha tempo em vez de a fala
     correr dentro de uma janela fixa.
     """
-    # Ritmo de fala animada de TikTok: ~3 palavras por segundo, mais meio
-    # segundo de respiro. O meio fica com o resto da janela.
+    # Ritmo de script_budget.WORDS_PER_SECOND, mais meio segundo de respiro.
+    # O meio fica com o resto da janela.
+    rate = script_budget.WORDS_PER_SECOND
     words = [len(str(x or '').split()) for x in (hook, development, cta)]
     if not sum(words):
         return 4, 12
-    end_hook = min(max(3, round(words[0] / 3 + 0.5)), 6)
-    cta_len = min(max(3, round(words[2] / 3 + 0.5)), 5)
+    end_hook = min(max(3, round(words[0] / rate + 0.5)), 6)
+    cta_len = min(max(3, round(words[2] / rate + 0.5)), 5)
     return end_hook, max(end_hook + 5, total - cta_len)

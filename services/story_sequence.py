@@ -19,12 +19,12 @@ import re
 from services.prompt_improve import (
     _clean, _quote, _touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
-from services import persuasion
+from services import persuasion, script_budget
 from services.prompts import _count_words, _dominant_motor, _focus_parts, _video_mode, _with_em
 
-# Fala natural em portugues: cerca de 2,5 palavras por segundo, mais um
-# respiro para a acao antes e depois da frase.
-_WORDS_PER_SECOND = 2.5
+# Ritmo de fala do orcamento do roteiro, mais um respiro para a acao antes e
+# depois da frase.
+_WORDS_PER_SECOND = script_budget.WORDS_PER_SECOND
 
 _ROLES = (
     ('Gancho', 'Prende o dedo: a dúvida ou descoberta que faz a pessoa ficar.'),

@@ -9,6 +9,8 @@ import { PHASES, statusInfo, phaseTone, swatchFor } from './ui';
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
+// Orcamento do roteiro: o mesmo do servidor (services/script_budget.py; um teste confere).
+import SCRIPT_RULES from './scriptRules.json';
 // Resultados num pedaco separado do bundle: so baixa quando a aba abre.
 const ResultsQuickTools=lazy(()=>import('./results').then(m=>({default:m.ResultsQuickTools})));
 const PerformancePanel=lazy(()=>import('./results').then(m=>({default:m.PerformancePanel})));
@@ -1049,7 +1051,7 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
       .flatMap(([color,list])=>list.map(item=>color?`${color}: ${item}`:item));
     // Fala longa nao barra: so avisa que passa de um clipe de 15 s.
     const longScripts=(c.variants?.length?c.variants.map(v=>[v.color,spokenWords(v.prompts)]):[['',spokenWords(c.prompts)]])
-      .filter(([,total])=>total>58).map(([color,total])=>color?`${color}: ${total} palavras`:`${total} palavras`);
+      .filter(([,total])=>total>SCRIPT_RULES.warn[1]).map(([color,total])=>color?`${color}: ${total} palavras`:`${total} palavras`);
     return <>{(c.variants?.length>0||c.prompts.hook)?<>{c.variants?.length>0?<><WriterBadge c={c}/><VariantList variants={c.variants} onError={onError} focus="script" onSaveVariant={onSaveVariant} onSaveToBank={immutable?null:(vid,texts)=>onSaveToBank?.(texts,vid)} onOpenBank={vid=>onOpenBank?.(item=>onSaveVariant(vid,{hook:item.hook,development:item.development,cta:item.cta}))} onRefreshVariant={onRefreshVariant} onRefreshAllVariants={onRefreshAllVariants} onConfigureWriter={onConfigureWriter} busy={busy} immutable={immutable}/></>:<ScriptEditor c={c} busy={busy} onDirty={onDirty} onError={onError} onSave={onSaveTexts} onRefresh={onRefreshScript} onConfigureWriter={onConfigureWriter} onSaveToBank={onSaveToBank} onOpenBank={onOpenBank}/>}<div className="notice">Leia em voz alta. Em campanhas com várias cores, você pode gerar <strong>todas em uma única solicitação</strong> ou somente a cor aberta. A legenda continua na etapa Studio.</div>{index>=3?<p className="approved-label"><Check size={16}/>Roteiro revisado</p>:<>{scriptIssues.length>0&&<div className="rd-alert" role="alert"><strong>Falta completar o roteiro.</strong><ul>{scriptIssues.map(item=><li key={item}>{item}</li>)}</ul></div>}{longScripts.length>0&&<div className="notice">Fala longa ({longScripts.join(' · ')}): passa de ~15 s num clipe só. Tudo bem — no Grok, use a <strong>sequência de clipes</strong> na etapa Criar vídeo para a fala não sair acelerada.</div>}{check('script','Revisei as falas de cada cor, o benefício e a duração de 15 segundos.')}<button className="primary full" disabled={busy||c.status!=='image_approved'||!checks.script||scriptIssues.length>0} onClick={()=>onTransition('script_ready')}>Concluir roteiros <ArrowRight size={16}/></button>{index<2&&<small className="help">Aprove as imagens para concluir o roteiro.</small>}</>}</>:<div className="notice">Gere os textos na etapa Definir look.</div>}</>;
   }
   if(selected==='video'){
@@ -1100,9 +1102,6 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
   return <>{index<5?<div className="notice">Aprove o vídeo antes de preparar a publicação.</div>:<>{c.status==='video_approved'&&<button className="primary full" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Preparar publicação <ArrowRight size={17}/></button>}{index>=6&&<PublishQueue c={c} busy={busy} immutable={immutable} onError={onError} onOpen={onOpen} onPublishSlot={onPublishSlot} onRefreshVariant={onRefreshVariant} onRefreshCaption={onRefreshScript} onSaveCaption={(prompts)=>prompts?._variantId?onSaveVariant?.(prompts._variantId,{caption:prompts.caption}):onSaveTexts(prompts)}/>}{index>=6&&<div className="notice">Métricas e Crítico: abra <strong>Resultados</strong> no topo da página.</div>}{c.status==='video_approved'&&<div className="notice">Depois de preparar, você escolhe cada cor/produto para subir no Studio.</div>}</>}</>;
 }
 
-// Portugues falado rende ~2,8 palavras por segundo. O total sozinho nao diz
-// onde esta o excesso: um hook de 16 palavras estoura os 4 segundos mesmo num
-// roteiro de 44 palavras.
 // O que o servidor exige para gerar os prompts (o mesmo /generate).
 function briefMissing(c){
   return [['outfit','roupa'],['color','cores'],['product','produto'],['audience','público'],['benefit','benefício']]
@@ -1129,24 +1128,25 @@ function scriptProblems(prompts){
   }
   return out;
 }
-const SCRIPT_BUDGET={hook:[10,18,'abertura'],development:[20,40,'meio'],cta:[7,14,'fechamento']};
+const SCRIPT_PART_LABELS={hook:'abertura',development:'meio',cta:'fechamento'};
 function countWords(value){const clean=String(value||'').trim();return clean?clean.split(/\s+/).length:0}
 function ScriptBudget({draft}){
-  const rows=Object.entries(SCRIPT_BUDGET).map(([key,[low,high,time]])=>{
+  const rows=Object.entries(SCRIPT_RULES.target).map(([key,[low,high]])=>{
+    const time=SCRIPT_PART_LABELS[key];
     const words=countWords(draft[key]);
     // Acima do alvo nao e erro: fica neutro. Vazio ou curto demais e que pede atencao.
     const state=words>=low?'ok':(words>=low-2?'near':'off');
     return {key,words,low,high,time,state};
   });
   const total=rows.reduce((sum,row)=>sum+row.words,0);
-  // 45 a 56 palavras ocupam os 15 s; menos que isso deixa silencio no fim.
-  const totalState=total<44||total>58?'near':'ok';
+  const [fillLow,fillHigh]=SCRIPT_RULES.fill,[warnLow,warnHigh]=SCRIPT_RULES.warn;
+  const totalState=total<warnLow||total>warnHigh?'near':'ok';
   return <div className="script-budget">
     {rows.map(row=><span key={row.key} className={'budget-chip is-'+row.state} title={`${row.time}: alvo ${row.low} a ${row.high} palavras`}>
       <em>{row.time}</em>{row.words}<small>/{row.low}–{row.high}</small>
     </span>)}
-    <span className={'budget-chip is-total is-'+totalState} title="De 45 a 56 palavras ocupam os 15 s sem silêncio; acima de 58, use a sequência de clipes">
-      <em>total</em>{total}<small>{total>58?' · sequência':total<44?' · vai sobrar silêncio':' palavras'}</small>
+    <span className={'budget-chip is-total is-'+totalState} title={`De ${fillLow} a ${fillHigh} palavras ocupam os 15 s sem silêncio; acima de ${warnHigh}, use a sequência de clipes`}>
+      <em>total</em>{total}<small>{total>warnHigh?' · sequência':total<warnLow?' · vai sobrar silêncio':' palavras'}</small>
     </span>
   </div>;
 }

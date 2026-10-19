@@ -1,0 +1,31 @@
+{
+  "target": {
+    "hook": [
+      10,
+      18
+    ],
+    "development": [
+      20,
+      40
+    ],
+    "cta": [
+      7,
+      14
+    ]
+  },
+  "fill": [
+    46,
+    57
+  ],
+  "warn": [
+    44,
+    58
+  ],
+  "hard": [
+    40,
+    64
+  ],
+  "hook_max": 20,
+  "words_per_second": 3,
+  "clip_seconds": 15
+}

@@ -27,7 +27,7 @@ So le a campanha: nada e gravado. As falas sao um RASCUNHO que o operador pode e
 import re
 import unicodedata
 
-from services import speech_bank
+from services import script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
@@ -44,7 +44,7 @@ ARCS = {
 CLIP_COUNTS = (2, 3)
 MIN_FACTS = 3            # os dois arcos usam 3 motivos
 MAX_FACTS = 4
-WORD_FLOOR, WORD_CEILING = 46, 57   # abaixo sobra silencio no fim; acima a fala fica corrida
+WORD_FLOOR, WORD_CEILING = script_budget.FILL   # abaixo sobra silencio no fim; acima a fala fica corrida
 GROK_LIMIT = 3940        # o Grok corta em 4000 caracteres sem avisar; margem para o nome e a cor
 SECONDS_PER_CLIP = 15
 

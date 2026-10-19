@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image
 from app import create_app
-from services.prompts import build_caption, generate, refresh_script_fields, script_budget, _movement_plan
+from services.prompts import build_caption, generate, refresh_script_fields, _movement_plan
+from services import script_budget
 from services.copywriter import audit as copywriter_audit
 
 
@@ -2442,6 +2443,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('imagem aprovada desta campanha',second['prompts']['video'])
         self.assertNotIn('ambiente mostrado na foto de referência',second['prompts']['video'])
 
+    def test_script_budget_is_one_source_for_server_and_screen(self):
+        # A tela le scriptRules.json; ele precisa ser o mesmo orcamento do servidor.
+        tela=json.loads((Path(__file__).resolve().parents[1]/'frontend'/'src'/'scriptRules.json').read_text(encoding='utf-8'))
+        self.assertEqual(tela,script_budget.rules())
+        from services import copywriter
+        low,high=script_budget.FILL
+        self.assertIn(f'de {low} a {high} palavras',copywriter.SYSTEM_PROMPT)
+        self.assertNotIn('@',copywriter.SYSTEM_PROMPT)
+        from services.story_arcs import WORD_CEILING,WORD_FLOOR
+        self.assertEqual((WORD_FLOOR,WORD_CEILING),script_budget.FILL)
+
     def test_color_list_is_the_same_everywhere(self):
         from services import variants
         self.assertEqual(variants.colors('Azul, azul; Preto.\nBranco'),['Azul','Preto','Branco'])
@@ -3133,7 +3145,7 @@ class WorkflowTests(unittest.TestCase):
             'cta':'Veja no carrinho qual versão combina com você.',
         }
         self.assertEqual(cw._count_words(azul['development']),17)
-        piso=cw.BUDGET['development'][0]
+        piso=script_budget.AUDIT_FLOOR['development']
         curto={**azul,'development':'Ficou lindo no corpo.'}
         self.assertTrue(any(f'pelo menos {piso}' in item for item in
                             cw.audit(curto,campaigns[0],require_caption=False)))
@@ -3577,9 +3589,9 @@ class WorkflowTests(unittest.TestCase):
         # o produto e consome segundos. O desenvolvimento carrega fato + prova.
         self.assertNotIn('mulheres que treinam', prompts['development'])
         self.assertIn('cós', prompts['development'].lower())
-        budget=script_budget(prompts['hook'],prompts['development'],prompts['cta'])
-        self.assertLessEqual(budget["development"]["words"],40)
-        self.assertGreaterEqual(budget['development']['words'],8)
+        words=script_budget.count_words(prompts['development'])
+        self.assertLessEqual(words,script_budget.TARGET['development'][1])
+        self.assertGreaterEqual(words,8)
 
     def test_negative_attributes_are_not_presented_as_features(self):
         campaign=dict(model_name='Micaela',product='legging sem bolso lateral e sem compressão',

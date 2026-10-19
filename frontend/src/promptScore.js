@@ -1,6 +1,8 @@
 // Nota do prompt de video. Nao chama IA: sao checagens rapidas do texto que
 // explicam por que um gerador (Grok ou Flow) costuma se perder. A nota e um
 // alerta, nao uma garantia de que o video vai sair bom.
+// Numeros de fala: os mesmos do servidor (services/script_budget.py).
+import RULES from './scriptRules.json';
 
 const ACTIONS = [
   ['aproxima', 'aproximar da câmera'],
@@ -51,14 +53,14 @@ export function scorePrompt(text) {
   const speech = speechLines(prompt);
   const outsideSpeech = speech.reduce((acc, line) => acc.split(line.toLowerCase()).join(' '), low);
   const totalWords = speech.reduce((n, line) => n + words(line), 0);
-  // Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio. Quem vende
-  // fala o clipe inteiro: 45 a 56 palavras ocupam os 15 s (acima de ~57 o
-  // segundo teste real ja saiu um pouco acelerado).
-  if (speech.length && totalWords < 40) hit(4, `Fala curta: ${totalWords} palavras. Vão sobrar segundos de silêncio no fim dos 15 s; o ideal é de 45 a 56.`);
-  else if (speech.length && totalWords < 44) hit(2, `Fala um pouco curta: ${totalWords} palavras. Pode sobrar silêncio no fim; o ideal é de 45 a 56.`);
-  else if (totalWords > 64) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada.`);
-  else if (totalWords > 58) hit(1, `Fala um pouco acelerada: ${totalWords} palavras em 15s; o ideal é até 56.`);
-  if (speech.length > 1 && words(speech[0]) > 20) hit(1, `O gancho tem ${words(speech[0])} palavras. Acima de 20 ele demora a prender.`);
+  // Quem vende fala o clipe inteiro: RULES.fill ocupa os 15 s; RULES.warn e
+  // RULES.hard sao a folga antes de a nota cair um pouco ou bastante.
+  const ideal = `${RULES.fill[0]} a ${RULES.fill[1]}`;
+  if (speech.length && totalWords < RULES.hard[0]) hit(4, `Fala curta: ${totalWords} palavras. Vão sobrar segundos de silêncio no fim dos 15 s; o ideal é de ${ideal}.`);
+  else if (speech.length && totalWords < RULES.warn[0]) hit(2, `Fala um pouco curta: ${totalWords} palavras. Pode sobrar silêncio no fim; o ideal é de ${ideal}.`);
+  else if (totalWords > RULES.hard[1]) hit(2, `Fala longa demais: ${totalWords} palavras em 15s. A voz corre ou é cortada.`);
+  else if (totalWords > RULES.warn[1]) hit(1, `Fala um pouco acelerada: ${totalWords} palavras em 15s; o ideal é até ${RULES.fill[1]}.`);
+  if (speech.length > 1 && words(speech[0]) > RULES.hook_max) hit(1, `O gancho tem ${words(speech[0])} palavras. Acima de ${RULES.hook_max} ele demora a prender.`);
 
   const actions = ACTIONS.filter(([needle]) => outsideSpeech.includes(needle)).map(([, label]) => label);
   if (actions.length >= 6) hit(3, `Ações e ângulos demais para 15s (${actions.length}): ${actions.join(', ')}. Escolha 2 ou 3.`);

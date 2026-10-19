@@ -3,7 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from services import formats, persuasion, speech_bank
+from services import formats, persuasion, script_budget, speech_bank
 
 
 def _phrase(value):
@@ -1295,8 +1295,7 @@ def _video_mode(c):
     return _VIDEO_MODE_ALIASES.get(_phrase(c.get('video_mode')).casefold(), '')
 
 
-def _count_words(text):
-    return len([w for w in _phrase(text).split() if w])
+_count_words = script_budget.count_words
 
 
 def _line_key(text):
@@ -1846,21 +1845,20 @@ def _script_variation(c, color, index=0):
     selected_development = (formats.script_development(c, forms, [_with_article(f) for f in features[:2]])
                             or selected_development)
 
-    # Teto absoluto de 45 palavras faladas (~15s). Se estourar, encurta o
+    # Teto de script_budget.FILL (o clipe de 15 s). Se estourar, encurta o
     # desenvolvimento pela ultima batida, nunca pela prova.
     def total():
         return _count_words(' '.join((selected_hook, selected_development, selected_cta)))
     # Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio no fim
-    # dos 15 s. Fala de quem vende ocupa o clipe inteiro: abaixo de 46
-    # palavras entra uma frase de imaginacao de uso (sem afirmar nada novo).
+    # dos 15 s. Fala de quem vende ocupa o clipe inteiro: com o meio curto
+    # (o que deixa o total abaixo de FILL) entra uma frase de imaginacao de uso.
     if _count_words(selected_development) < 26 and formats.video_format(c) != 'tres_jeitos':
         extra = _future_line(c, forms, i)
         if extra and extra.casefold() not in selected_development.casefold():
             selected_development = f'{selected_development.rstrip(". ")}. {extra}'
-    # Segundo teste: com ~57 palavras ficou um pouco acelerado; teto de 57.
-    if total() > 57:
+    if total() > script_budget.FILL[1]:
         sentences = [p.strip() for p in re.split(r'(?<=[.!?])\s+', selected_development) if p.strip()]
-        while len(sentences) > 1 and total() > 57:
+        while len(sentences) > 1 and total() > script_budget.FILL[1]:
             sentences.pop()
             selected_development = ' '.join(sentences)
 
@@ -1875,16 +1873,6 @@ def _script_variation(c, color, index=0):
     selected_development = _clean_punct(selected_development)
     selected_cta = _clean_punct(selected_cta)
     return selected_hook, selected_development, selected_cta
-
-
-def script_budget(hook, development, cta):
-    # Orcamento falado por trecho, usado pela interface e pelo prompt de video.
-    return {
-        'hook': dict(words=_count_words(hook), low=10, high=18),
-        'development': dict(words=_count_words(development), low=20, high=40),
-        'cta': dict(words=_count_words(cta), low=7, high=14),
-        'total': dict(words=_count_words(' '.join((hook, development, cta))), low=38, high=70),
-    }
 
 
 _SPOKEN_LINE_RE = re.compile(r'Fala \(PT-BR\): "([^"]*)"')
