@@ -467,40 +467,29 @@ export default function App(){
       confirm('Gerar novos roteiros para todas as cores?','As imagens aprovadas serão mantidas. As falas e os vídeos de todas as cores precisarão de nova revisão.',action,'Gerar todas as cores');
     }else action();
   }
-  function refreshVideoPrompt(variantId=null){
+  // Recria (completo) ou melhora (enxuto) o prompt de video da campanha ou de uma cor.
+  function newVideoPrompt(variantId=null,improve=false){
     const variant=variantId?c.variants?.find(item=>item.id===variantId):null;
     const slot=variant?.color||'';
     const hasVideo=(c.assets||[]).some(a=>a.kind==='video'&&(a.slot||a.metadata?.color||'')===slot)
       ||(c.device_videos||[]).some(a=>(a.slot||'')===slot);
+    const route=improve?'improve-video':'refresh-video';
     const endpoint=variantId
-      ?`/campaigns/${c.id}/variants/${variantId}/refresh-video`
-      :`/campaigns/${c.id}/prompts/refresh-video`;
+      ?`/campaigns/${c.id}/variants/${variantId}/${route}`
+      :`/campaigns/${c.id}/prompts/${route}`;
+    const limit=c.generator_info?.max_prompt_chars;
+    const done=improve?'Prompt de vídeo melhorado: versão curta e descritiva. "Recriar prompt" volta ao completo.'
+      :limit?`Prompt de vídeo recriado dentro do limite de ${limit.toLocaleString('pt-BR')} caracteres.`:'Prompt de vídeo recriado.';
     const action=()=>run(
       ()=>api(endpoint,{method:'POST',body:{version:c.version}}),
-      c.generator_info?.max_prompt_chars?`Prompt de vídeo recriado dentro do limite de ${c.generator_info.max_prompt_chars.toLocaleString('pt-BR')} caracteres.`:'Prompt de vídeo recriado.',
+      done,
       // Ja estando na etapa de video, nao "navega" de novo: assim a rolagem
-      // fica onde estava, no prompt que acabou de ser recriado.
+      // fica onde estava, no prompt que acabou de ser refeito.
       selected==='video'?undefined:'video'
     );
+    const verb=improve?'Melhorar':'Recriar';
     if(hasVideo){
-      confirm('Recriar o prompt de vídeo?',`O vídeo${slot?` da cor ${slot}`:''} já anexado será removido porque precisará ser gerado novamente. A imagem e o roteiro serão preservados.`,action,'Recriar prompt');
-    }else action();
-  }
-  function improveVideoPrompt(variantId=null){
-    const variant=variantId?c.variants?.find(item=>item.id===variantId):null;
-    const slot=variant?.color||'';
-    const hasVideo=(c.assets||[]).some(a=>a.kind==='video'&&(a.slot||a.metadata?.color||'')===slot)
-      ||(c.device_videos||[]).some(a=>(a.slot||'')===slot);
-    const endpoint=variantId
-      ?`/campaigns/${c.id}/variants/${variantId}/improve-video`
-      :`/campaigns/${c.id}/prompts/improve-video`;
-    const action=()=>run(
-      ()=>api(endpoint,{method:'POST',body:{version:c.version}}),
-      'Prompt de vídeo melhorado: versão curta e descritiva. "Recriar prompt" volta ao completo.',
-      selected==='video'?undefined:'video'
-    );
-    if(hasVideo){
-      confirm('Melhorar o prompt de vídeo?',`O vídeo${slot?` da cor ${slot}`:''} já anexado será removido porque precisará ser gerado novamente. A imagem e o roteiro serão preservados.`,action,'Melhorar prompt');
+      confirm(`${verb} o prompt de vídeo?`,`O vídeo${slot?` da cor ${slot}`:''} já anexado será removido porque precisará ser gerado novamente. A imagem e o roteiro serão preservados.`,action,`${verb} prompt`);
     }else action();
   }
   // Troca Com fala <-> So movimento direto na etapa de video (sem refazer
@@ -850,7 +839,7 @@ export default function App(){
             onOpenBank={openSpeechBank}
             onRefreshVariant={refreshVariant}
             onRefreshAllVariants={refreshAllVariants}
-            onRefreshVideoPrompt={refreshVideoPrompt} onImproveVideoPrompt={improveVideoPrompt}
+            onRefreshVideoPrompt={id=>newVideoPrompt(id,false)} onImproveVideoPrompt={id=>newVideoPrompt(id,true)}
             onChangeVideoMode={changeVideoMode} onOpenGenerator={openGenerator}
             onRefreshScript={refreshSingleScript}
             onConfigureWriter={()=>setModal({type:'identity',title:'Configurar escrita com ChatGPT'})}

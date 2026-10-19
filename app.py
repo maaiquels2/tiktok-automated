@@ -1175,7 +1175,8 @@ def create_app(config=None):
         if slot['id'] is not None:
             db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(prompts,ensure_ascii=False),slot['id']))
         if slot['index']==0:
-            save_prompts(cid,{k:prompts[k] for k in PROMPTS+EXTRA_PROMPTS if k in prompts})
+            # variation_index tambem: sem ele o proximo "gerar outra fala" repetiria a mesma variacao.
+            save_prompts(cid,{k:prompts[k] for k in PROMPTS+EXTRA_PROMPTS+['variation_index'] if k in prompts})
 
     def fields(payload,existing=None):
         values={k:(existing or {}).get(k) or '' for k in FIELDS}
@@ -2830,14 +2831,15 @@ def create_app(config=None):
 
 
     @app.post('/api/campaigns/<int:cid>/prompts/refresh')
-    def refresh_single_script(cid):
+    @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/refresh')
+    def refresh_script(cid,vid=None):
+        """Gera outra fala (gancho, meio, chamada ou legenda) da campanha ou de uma cor."""
         data=body()
         c=start(cid,data)
         editable(c)
-        current=detail(cid)
-        if current['variants']:
-            raise Invalid('Escolha a cor do roteiro que deseja atualizar.',409)
-        if not current['prompts'].get('hook'):
+        slot=slot_for(cid,vid,'Escolha a cor do roteiro que deseja atualizar.')
+        current=slot['prompts']
+        if vid is None and not current.get('hook'):
             raise Invalid('Gere o roteiro pelo briefing primeiro.',409)
         fields=data.get('fields',['hook','caption'])
         allowed={'hook','development','cta','caption'}
@@ -2846,40 +2848,6 @@ def create_app(config=None):
         writer_mode=data.get('writer_mode','auto')
         if writer_mode not in {'auto','ai','local'}:
             raise Invalid('Modo de escrita inválido.')
-        merged=refresh_script_fields(with_learning(c),c['color'],current['prompts'],fields=fields)
-        if writer_mode=='local':
-            patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
-                                             'local_audit': copywriter.audit(merged, c)}})
-            rewritten=merged
-        else:
-            writer_campaign={**with_learning(c),'previous_script':{k:current['prompts'].get(k,'') for k in ('hook','development','cta')}}
-            rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
-        # Refresh so da legenda nao precisa reescrever as falas.
-        merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
-        if set(fields)&{'hook','development','cta'}:
-            merged['video']=rewritten.get('video',merged.get('video'))
-        save_prompts(cid,merged)
-        rewind(cid,c,fields)
-        touch(cid, c['version'])
-        db().commit()
-        return jsonify(detail(cid))
-
-    @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/refresh')
-    def refresh_variant_script(cid,vid):
-        data=body()
-        c=start(cid,data)
-        editable(c)
-        slot=slot_for(cid,vid,'')
-        fields=data.get('fields') or ['hook','caption']
-        if not isinstance(fields,list) or any(not isinstance(f,str) for f in fields):
-            raise Invalid('Campos inválidos para refresh.')
-        allowed={'hook','development','cta','caption'}
-        if not fields or any(f not in allowed for f in fields):
-            raise Invalid('Escolha hook, desenvolvimento, CTA ou legenda para atualizar.')
-        writer_mode=data.get('writer_mode','auto')
-        if writer_mode not in {'auto','ai','local'}:
-            raise Invalid('Modo de escrita inválido.')
-        current=slot['prompts']
         try:
             merged=refresh_script_fields(with_learning(c),slot['color'],current,fields=fields,bump=1,
                                          slot_index=slot['index'])
@@ -2889,7 +2857,8 @@ def create_app(config=None):
         if current.get('image'):
             merged['image']=current['image']
         if writer_mode=='local':
-            patch_checklist(cid, {'writer': {'by': 'local', 'reason': ''}})
+            patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
+                                             'local_audit': copywriter.audit(merged, c)}})
         else:
             writer_campaign={**with_learning(c),'color':slot['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
             rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai',index=slot['index'])
