@@ -552,7 +552,7 @@ function VariantScriptField({variant,field,value,busy,onSave}){
 export function VideoMixer({c, busy, immutable, onError, onMix}){
   const [openMixer,setOpenMixer]=useState(false);
   const videos=(c.assets||[]).filter(a=>a.kind==='video');
-  const colorSlots=((c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean));
+  const colorSlots=c.colors||[];
   const slotOptions=[...colorSlots, 'Mix'].filter((v,i,arr)=>arr.indexOf(v)===i);
   const [order,setOrder]=useState(()=>videos.map(v=>v.id));
   const [seconds,setSeconds]=useState({});

@@ -5,7 +5,7 @@ import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, C
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
 import {Landing, BackToLanding} from './Landing';
-import { PHASES, statusInfo, phaseTone, colorList, swatchFor } from './ui';
+import { PHASES, statusInfo, phaseTone, swatchFor } from './ui';
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
@@ -617,7 +617,7 @@ export default function App(){
   const homeCard=item=>{
     const info=statusInfo(item.status);
     const done=item.status==='published';
-    const colors=colorList(item.color);
+    const colors=item.colors||[];
     return <article className={'rd-campaign'+(c?.id===item.id?' is-active':'')} key={item.id}>
       <div className="rd-campaign-cover">
         {item.cover_asset_id&&<img src={`/api/assets/${item.cover_asset_id}/file`} alt="" loading="lazy" onError={hideBrokenImage}/>}
@@ -816,7 +816,7 @@ export default function App(){
             ):(
               <h1>{c.name}<button type="button" className="icon-button" title="Renomear" aria-label="Renomear campanha" disabled={busy} onClick={beginRename}><Pencil size={15}/></button></h1>
             )}
-            <span className="rd-produce-meta">#{String(c.id).padStart(4,'0')} · {c.model_name} · {c.generator==='flow'?'Flow':'Grok'} · {colorList(c.color).length>1?`${colorList(c.color).length} cores`:(c.color||'1 cor')}</span>
+            <span className="rd-produce-meta">#{String(c.id).padStart(4,'0')} · {c.model_name} · {c.generator==='flow'?'Flow':'Grok'} · {(c.colors||[]).length>1?`${c.colors.length} cores`:(c.color||'1 cor')}</span>
             <LookReminder c={c}/>
           </div>
           <div className="rd-produce-actions">
@@ -1033,7 +1033,7 @@ function LookReminder({c}){
 function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto,onSaveToBank,onOpenBank}){
   const reference=c.assets.find(a=>a.kind==='reference'),image=c.assets.find(a=>a.kind==='image'),video=c.assets.find(a=>a.kind==='video');
   const [reuse,setReuse]=useState(''),[checks,setChecks]=useState(c.checklist||{}),[publishedUrl,setPublishedUrl]=useState(c.published_url||'');
-  const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean).length;
+  const immutable=c.status==='published',index=states.indexOf(c.status),colorCount=(c.colors||[]).length;
   const check=(key,label)=><label className="check-row" key={key}><input type="checkbox" checked={!!checks[key]} disabled={busy||immutable} onChange={e=>setChecks(old=>({...old,[key]:e.target.checked}))}/><span>{label}</span></label>;
   const editor=(field,title,rows=7)=><TextEditor title={title} field={field} value={c.prompts[field]} onSave={onSaveTexts} onDirty={onDirty} onError={onError} busy={busy} readOnly={immutable} rows={rows}/>;
   const service=stage=><div className={'service-box service-box-gen '+(c.generator==='flow'?'is-flow':'is-grok')}><div className="service-box-head"><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={26} tone={c.generator==='flow'?'auto':'auto'}/><div><strong>{c.generator==='flow'?'Google Flow · Labs':'Grok Imagine'}</strong><small>{isMobileDevice()?'Conta conectada no celular':'Perfil: '}{!isMobileDevice()&&(c.generator==='flow'?(identity?.flow_account_hint||'conta Flow'):(identity?.grok_account_hint||'conta Grok'))}</small></div></div><ServiceLaunch service={c.generator} disabled={busy||immutable} onClick={event=>onOpen(c.generator,stage,event)}><BrandMark kind={c.generator==='flow'?'labs':'grok'} size={18} tone={c.generator==='flow'?'auto':'white'}/> <span>{isMobileDevice()?(c.generator==='grok'?'Abrir Grok no celular':'Abrir Flow no navegador'):`Abrir ${c.generator==='flow'?'Flow':'Grok'} para ${stage==='image'?'imagem':'vídeo'}`}</span> <ExternalLink size={15}/></ServiceLaunch><p>{isMobileDevice()?(c.generator==='grok'?'Copie o prompt e anexe as referências no Grok.':'Cole o prompt e anexe as referências no Flow.'):c.generator==='grok'?'Mesma janela do Flow (abas). Interação manual no Grok.':'Mesma janela do Grok (abas). Cole o prompt e anexe os arquivos.'}</p></div>;
@@ -1067,7 +1067,7 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
     </>;
   }
   if(selected==='video_approval'){
-    const colorSlots=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
+    const colorSlots=c.colors||[];
     const slots=colorSlots.length?colorSlots:[''];
     const uploadedVids=c.assets.filter(a=>a.kind==='video');
     const deviceVids=c.device_videos||[];
@@ -1110,7 +1110,7 @@ function briefMissing(c){
 }
 // Cores sem imagem anexada (aprovar exige uma imagem por cor).
 function missingImageColors(c){
-  const colors=(c?.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
+  const colors=c?.colors||[];
   if(colors.length<2)return [];
   const have=new Set((c.assets||[]).filter(a=>a.kind==='image').map(a=>a.slot||a.metadata?.color||''));
   return colors.filter(color=>!have.has(color));

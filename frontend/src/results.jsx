@@ -13,7 +13,7 @@ export function PerformancePanel({c,busy,immutable,onError,onSavePerformance,onS
   // como uma aba so com as tres cores juntas. Agora vira uma aba por cor. Se
   // ja existir metrica salva com o nome junto (versao antiga), mantem a aba
   // antiga para nao esconder o que foi lancado.
-  const colorList=(c.color||'').split(/[,;|\n]+/).map(v=>v.trim()).filter(Boolean);
+  const colorList=c.colors||[];
   const variants=c.variants?.length?c.variants
     :(colorList.length>1&&!perfMap[c.color]&&!(c.checklist?.insights||{})[c.color])
       ?colorList.map(color=>({color,prompts:c.prompts,id:'main-'+color}))

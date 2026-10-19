@@ -35,10 +35,6 @@ export function phaseTone(status) {
   return phase >= 4 ? 'done' : PHASES[phase].id;
 }
 
-export function colorList(value) {
-  return String(value || '').split(/[,;|\n]+/).map(v => v.trim()).filter(Boolean);
-}
-
 const SWATCHES = [
   [/off.?white|gelo|creme|marfim|natural|cru/, '#F1ECE2'],
   [/branc/, '#FFFFFF'],

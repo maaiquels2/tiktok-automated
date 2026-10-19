@@ -2422,6 +2422,35 @@ class WorkflowTests(unittest.TestCase):
         # O prompt de video precisa ser reconstruido com a fala nova.
         self.assertIn(aprovado['cta'].rstrip('.'),prompts['video'])
 
+    def test_llm_copy_keeps_each_color_scene_lock(self):
+        # Regressao: com a escrita por IA, a 2a cor era refeita sem a trava de cena
+        # e pedia o ambiente da foto de referencia em vez do da imagem aprovada.
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
+        self.cid=other['id']
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        aprovado={'hook':'Você já deixou de comprar vestido com medo de ficar apertado demais?',
+                  'development':'Esse tecido leve acompanha o passo. Eu sentei e levantei e ele não marcou. Uso no trabalho e depois na rua.',
+                  'cta':'Tá no produto marcado aqui embaixo.',
+                  'caption':'O vestido que eu uso o dia todo. #vestido #modafeminina #tiktokshop'}
+        self.upload('reference')
+        with patch('services.copywriter.write_script',return_value=(aprovado,'')):
+            response=self.post('/generate')
+        self.assertEqual(response.status_code,200,response.json)
+        first,second=response.json['variants']
+        self.assertEqual(second['prompts']['hook'],aprovado['hook'])
+        self.assertIn('foto de referência da modelo',first['prompts']['video'])
+        self.assertIn('imagem aprovada desta campanha',second['prompts']['video'])
+        self.assertNotIn('ambiente mostrado na foto de referência',second['prompts']['video'])
+
+    def test_color_list_is_the_same_everywhere(self):
+        from services import variants
+        self.assertEqual(variants.colors('Azul, azul; Preto.\nBranco'),['Azul','Preto','Branco'])
+        self.assertEqual(variants.slots(''),[''])
+        self.assertFalse(variants.uses_approved_base(0))
+        self.assertTrue(variants.uses_approved_base(1))
+        detail=self.client.get(f'/api/campaigns/{self.cid}').json
+        self.assertEqual(detail['colors'],['Azul'])
+
     def test_llm_failure_falls_back_to_the_local_text(self):
         self.client.patch('/api/writer',json={'provider':'gemini','api_key':'k','enabled':True},headers=self.headers)
         self.upload('reference')

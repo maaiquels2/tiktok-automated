@@ -1926,15 +1926,20 @@ def sync_video_spoken_lines(video_text, hook, development, cta):
     return _replace_spoken_lines(video_text, hook, development, cta)
 
 
-def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
-    """Cycle script variation for selected fields (hook/caption/etc.)."""
+def refresh_script_fields(c, color, current_prompts, fields=None, bump=1, slot_index=0):
+    """Cycle script variation for selected fields (hook/caption/etc.).
+
+    ``slot_index`` e a posicao da cor na campanha: da 2a cor em diante a cena
+    vem da imagem aprovada, como em ``generate_variants``.
+    """
     fields = fields or ['hook', 'development', 'cta', 'caption']
     allowed = {'hook', 'development', 'cta', 'caption'}
     fields = [f for f in fields if f in allowed]
     if not fields:
         raise ValueError('Nenhum campo de fala para atualizar.')
     index = int((current_prompts or {}).get('variation_index') or 0) + int(bump)
-    fresh = generate({**c, 'color': color}, variant_index=index)
+    base_image = slot_index > 0
+    fresh = generate({**c, 'color': color}, variant_index=index, base_image=base_image)
     merged = dict(current_prompts or {})
     for f in fields:
         merged[f] = fresh[f]
@@ -1952,7 +1957,8 @@ def refresh_script_fields(c, color, current_prompts, fields=None, bump=1):
         if patched is not None:
             merged['video'] = patched
         else:
-            merged['video'] = generate({**c, 'color': color}, script=merged, variant_index=index)['video']
+            merged['video'] = generate({**c, 'color': color}, script=merged, variant_index=index,
+                                       base_image=base_image)['video']
     if 'image' not in merged and fresh.get('image'):
         merged['image'] = fresh['image']
     merged['variation_index'] = index

@@ -24,10 +24,11 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
 from services.media import inspect_media
-from services.prompts import (color_variants, generate, generate_variants,
+from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
 from services import copywriter, formats, speech_bank
+from services import variants as variacao
 from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
@@ -793,8 +794,7 @@ def create_app(config=None):
         return rows
 
     def image_slots_for(c):
-        colors=color_variants(c.get('color'))
-        return colors if colors else ['']
+        return variacao.slots(c.get('color'))
 
     def _storage_check():
         if not storage_url or not storage_key:
@@ -1064,6 +1064,7 @@ def create_app(config=None):
                 a['local_path']=str(app.config['MEDIA_DIR']/a['path'])
             c['assets'].append(a)
         c['device_videos']=device_videos_of(cid)
+        c['colors']=variacao.colors(c.get('color'))
         # Dica de edicao do formato (juntar as cores, responder comentario...).
         c['edit_tip']=formats.edit_tip(c)
         c['product_assets']=[]
@@ -1131,6 +1132,40 @@ def create_app(config=None):
     def save_prompts(cid,values):
         for kind,content in values.items():
             db().execute('INSERT INTO prompts(campaign_id,kind,content) VALUES(?,?,?) ON CONFLICT(campaign_id,kind) DO UPDATE SET content=excluded.content,updated_at=CURRENT_TIMESTAMP',(cid,kind,content))
+
+    def slots(cid):
+        """Cores da campanha na ordem (regras em services/variants.py).
+
+        Campanha sem variacoes e uma cor so: o slot 0 sem ``id``, com os
+        prompts da propria campanha. Assim as rotas tratam os dois casos igual.
+        """
+        rows=db().execute('SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)).fetchall()
+        if rows:
+            return [dict(index=i,id=r['id'],color=r['color'],prompts=json.loads(r['prompts'])) for i,r in enumerate(rows)]
+        return [main_slot(cid)]
+
+    def main_slot(cid):
+        main={r['kind']:r['content'] for r in db().execute('SELECT kind,content FROM prompts WHERE campaign_id=?',(cid,))}
+        return dict(index=0,id=None,color=campaign(cid).get('color') or '',prompts=main)
+
+    def slot_for(cid,vid,choose_message):
+        """A cor ``vid``; sem ``vid``, so vale para campanha de uma cor."""
+        found=slots(cid)
+        if vid is None:
+            if found[0]['id'] is not None:
+                raise Invalid(choose_message,409)
+            return found[0]
+        hit=next((s for s in found if s['id']==vid),None)
+        if hit is None:
+            raise Invalid('Variação de cor não encontrada.',404)
+        return hit
+
+    def save_slot(cid,slot,prompts):
+        """Grava os prompts de uma cor; a 1a cor espelha a campanha principal."""
+        if slot['id'] is not None:
+            db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(prompts,ensure_ascii=False),slot['id']))
+        if slot['index']==0:
+            save_prompts(cid,{k:prompts[k] for k in PROMPTS+EXTRA_PROMPTS if k in prompts})
 
     def fields(payload,existing=None):
         values={k:(existing or {}).get(k) or '' for k in FIELDS}
@@ -1280,7 +1315,8 @@ def create_app(config=None):
                 LIMIT 1
             ) AS cover_asset_id
             FROM campaigns c ORDER BY c.updated_at DESC, c.id DESC''')
-        return jsonify([dict(r) for r in rows])
+        # colors: a mesma lista de cores do servidor, para a tela nao re-interpretar o texto.
+        return jsonify([{**dict(r),'colors':variacao.colors(r['color'])} for r in rows])
 
     @app.post('/api/campaigns')
     def create_campaign():
@@ -1943,11 +1979,12 @@ def create_app(config=None):
         with ThreadPoolExecutor(max_workers=min(8, len(campaigns))) as pool:
             return list(pool.map(lambda item: copywriter.write_script(item, settings), campaigns))
 
-    def write_with_llm(campaign, pack, cid=None, required=False, precomputed=None):
+    def write_with_llm(campaign, pack, cid=None, required=False, precomputed=None, index=0):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
 
         A auditoria local decide se o texto entra. Reprovado duas vezes, fica o
-        deterministico -- o app nunca para por causa do provedor.
+        deterministico -- o app nunca para por causa do provedor. ``index`` e a
+        posicao da cor: o prompt de video refeito mantem a trava de cena dela.
         """
         def registrar(origem, motivo=''):
             # Fica no checklist (que agora sobrevive as transicoes) para a tela
@@ -1980,7 +2017,7 @@ def create_app(config=None):
             return pack, motivo
         merged = dict(pack)
         merged.update({k: written[k] for k in ('hook', 'development', 'cta', 'caption')})
-        merged['video'] = generate(campaign, script=merged)['video']
+        merged['video'] = variacao.video_prompt(campaign, campaign.get('color') or '', index, merged)
         registrar(settings.get('provider') or 'ia')
         return merged, ''
 
@@ -2046,14 +2083,14 @@ def create_app(config=None):
         current=with_learning(detail(cid))
         for photo in current['product_assets']:
             path_for(photo)
-        colors=color_variants(current['color'])
+        colors=variacao.colors(current['color'])
         variants=[]
         if len(colors)>=2:
             variants=generate_variants(current,audit=copywriter.audit)
             briefs=[{**current,'color':variant['color']} for variant in variants]
             results=write_scripts_parallel(briefs)
-            for variant,brief,result in zip(variants,briefs,results):
-                variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result)
+            for index,(variant,brief,result) in enumerate(zip(variants,briefs,results)):
+                variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result,index=index)
         else:
             pack,_=write_with_llm(current,generate(current,audit=copywriter.audit),cid)
         # Só reivindica a versão e grava depois de terminar toda a geração.
@@ -2081,7 +2118,7 @@ def create_app(config=None):
         missing=[label for key,label in [('outfit','roupa'),('color','cor'),('product','produto'),('audience','público'),('benefit','benefício')] if not c[key]]
         if missing:
             raise Invalid('Complete o briefing: '+', '.join(missing)+'.')
-        colors=color_variants(c['color'])
+        colors=variacao.colors(c['color'])
         if len(colors)<2:
             raise Invalid('Informe pelo menos duas cores separadas por vírgulas para gerar variações.',409)
         need_asset(cid,'reference')
@@ -2092,8 +2129,8 @@ def create_app(config=None):
             path_for(photo)
         variants=generate_variants(current,audit=copywriter.audit)
         briefs=[{**current,'color':variant['color']} for variant in variants]
-        for variant,brief,result in zip(variants,briefs,write_scripts_parallel(briefs)):
-            variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result)
+        for index,(variant,brief,result) in enumerate(zip(variants,briefs,write_scripts_parallel(briefs))):
+            variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result,index=index)
         touch(cid, c['version'])
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         for variant in variants:
@@ -2106,33 +2143,37 @@ def create_app(config=None):
         return jsonify(detail(cid))
 
     @app.patch('/api/campaigns/<int:cid>/prompts')
-    def edit_prompts(cid):
+    @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
+    def edit_prompts(cid,vid=None):
         data=body()
         c=start(cid,data)
         editable(c)
+        # Sem vid edita a campanha principal (que e a 1a cor quando ha varias).
+        slot=main_slot(cid) if vid is None else slot_for(cid,vid,'')
         values=data.get('prompts')
         if not isinstance(values,dict) or not values or set(values)-set(PROMPTS)-set(EXTRA_PROMPTS):
             raise Invalid('Prompts inválidos.')
         if any(not isinstance(v,str) or not v.strip() or len(v)>12000 for v in values.values()):
             raise Invalid('Cada texto deve conter de 1 a 12.000 caracteres.')
-        old=detail(cid)['prompts']
-        if not old:
+        current=slot['prompts']
+        if vid is None and not current:
             raise Invalid('Gere os textos pelo briefing primeiro.',409)
-        changed={k:v.strip() for k,v in values.items() if v.strip()!=old.get(k)}
+        changed={k:v.strip() for k,v in values.items() if v.strip()!=current.get(k)}
+        if not changed:
+            return jsonify(detail(cid))
+        merged={**current,**changed}
         if set(changed)&{'hook','development','cta'}:
-            changed['video']=generate(c,script={**old,**changed})['video']
+            merged['video']=variacao.video_prompt(c,slot['color'],slot['index'],merged)
+            changed['video']=merged['video']
         if 'image' in changed:
             state(cid,'briefing')
             clear_after(cid,['image','video'])
         elif set(changed)&{'hook','development','cta','video'} and STATES.index(c['status'])>=2:
             state(cid,'image_approved')
             clear_after(cid,['video'])
-        # Editing caption alone should not rewind ready_to_publish → video_approved.
-        elif set(changed) == {'caption'}:
-            pass
-        save_prompts(cid,changed)
-        if changed:
-            touch(cid, c['version'])
+        # Editar so a legenda nao volta etapa.
+        save_slot(cid,slot,merged)
+        touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
 
@@ -2831,9 +2872,7 @@ def create_app(config=None):
         data=body()
         c=start(cid,data)
         editable(c)
-        row=db().execute('SELECT * FROM campaign_variants WHERE id=? AND campaign_id=?',(vid,cid)).fetchone()
-        if not row:
-            raise Invalid('Variação de cor não encontrada.',404)
+        slot=slot_for(cid,vid,'')
         fields=data.get('fields') or ['hook','caption']
         if not isinstance(fields,list) or any(not isinstance(f,str) for f in fields):
             raise Invalid('Campos inválidos para refresh.')
@@ -2843,9 +2882,10 @@ def create_app(config=None):
         writer_mode=data.get('writer_mode','auto')
         if writer_mode not in {'auto','ai','local'}:
             raise Invalid('Modo de escrita inválido.')
-        current=json.loads(row['prompts'])
+        current=slot['prompts']
         try:
-            merged=refresh_script_fields(with_learning(c),row['color'],current,fields=fields,bump=1)
+            merged=refresh_script_fields(with_learning(c),slot['color'],current,fields=fields,bump=1,
+                                         slot_index=slot['index'])
         except ValueError as exc:
             raise Invalid(str(exc)) from exc
         # keep existing image prompt if present
@@ -2854,8 +2894,8 @@ def create_app(config=None):
         if writer_mode=='local':
             patch_checklist(cid, {'writer': {'by': 'local', 'reason': ''}})
         else:
-            writer_campaign={**with_learning(c),'color':row['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
-            rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai')
+            writer_campaign={**with_learning(c),'color':slot['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
+            rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai',index=slot['index'])
             merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
             if set(fields)&{'hook','development','cta'}:
                 # A IA escreve as falas; direcao de camera/coreografia que o
@@ -2864,10 +2904,7 @@ def create_app(config=None):
                     current.get('video'), merged.get('hook',''),
                     merged.get('development',''), merged.get('cta',''))
                 merged['video']=patched or rewritten.get('video',merged.get('video'))
-        db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(merged,ensure_ascii=False),vid))
-        variants=detail(cid)['variants']
-        if variants and variants[0]['id']==vid:
-            save_prompts(cid,{k:merged[k] for k in PROMPTS+EXTRA_PROMPTS if k in merged})
+        save_slot(cid,slot,merged)
         only_caption = set(fields) == {'caption'}
         if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:
             # editing falas after images: keep images, invalidate videos
@@ -2899,9 +2936,7 @@ def create_app(config=None):
             raise Invalid('Escolha hook, desenvolvimento e/ou CTA para atualizar em todas as cores.')
         if data.get('writer_mode','ai')!='ai':
             raise Invalid('A geração de todas as cores usa o modo de escrita por IA.')
-        rows=db().execute(
-            'SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)
-        ).fetchall()
+        rows=slots(cid)
         if len(rows)<2:
             raise Invalid('Esta campanha não possui várias cores para gerar em lote.',409)
 
@@ -2914,10 +2949,10 @@ def create_app(config=None):
         prepared=[]
         briefs=[]
         for row in rows:
-            current=json.loads(row['prompts'])
+            current=row['prompts']
             try:
                 merged=refresh_script_fields(
-                    campaign,row['color'],current,fields=fields,bump=1)
+                    campaign,row['color'],current,fields=fields,bump=1,slot_index=row['index'])
             except ValueError as exc:
                 raise Invalid(str(exc)) from exc
             if current.get('image'):
@@ -2967,16 +3002,10 @@ def create_app(config=None):
             if patched is not None:
                 merged['video']=patched
             else:
-                merged['video']=generate(
-                    {**campaign,'color':row['color']}, script=merged,
-                    variant_index=int(merged.get('variation_index') or 0))['video']
-            db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
-                         (json.dumps(merged,ensure_ascii=False),row['id']))
+                merged['video']=variacao.video_prompt(campaign,row['color'],row['index'],merged)
+            save_slot(cid,row,merged)
             saved.append((row,merged))
 
-        # A campanha principal espelha a primeira cor, como nas demais rotas.
-        first=saved[0][1]
-        save_prompts(cid,{k:first[k] for k in PROMPTS+EXTRA_PROMPTS if k in first})
         patch_checklist(cid,{'writer':{
             'by':settings.get('provider') or 'ia',
             'reason':'',
@@ -2993,7 +3022,7 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
-    def rebuild_video_prompt(cid,c,prompts,color,base_image=False):
+    def rebuild_video_prompt(cid,c,prompts,color,index=0):
         """Rebuild only the video prompt from the saved briefing and speech.
 
         This is also the migration path for campaigns created before Grok's
@@ -3002,11 +3031,7 @@ def create_app(config=None):
         """
         if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de recriar o prompt de vídeo.',409)
-        source={**detail(cid),'color':color}
-        rebuilt=generate(
-            source,script=prompts,
-            variant_index=int(prompts.get('variation_index') or 0),
-            base_image=base_image)['video']
+        rebuilt=variacao.video_prompt(detail(cid),color,index,prompts)
         if (c.get('generator') or '').casefold()=='grok' and len(rebuilt)>4000:
             raise Invalid('O prompt recriado ainda ultrapassou o limite de 4.000 caracteres do Grok.',500)
         return rebuilt
@@ -3037,47 +3062,29 @@ def create_app(config=None):
             # outra vez com o novo prompt.
             state(cid,'script_ready')
 
-    @app.post('/api/campaigns/<int:cid>/prompts/refresh-video')
-    def refresh_single_video_prompt(cid):
+    def new_video_prompt(cid,vid,improve):
+        """Recria (completo) ou melhora (enxuto) o prompt de video de uma cor."""
         data=body()
         c=start(cid,data)
         editable(c)
-        current=detail(cid)
-        if current['variants']:
-            raise Invalid('Escolha a cor cujo prompt de vídeo deseja recriar.',409)
-        prompts=current['prompts']
-        if not prompts.get('video'):
+        verb='melhorar' if improve else 'recriar'
+        slot=slot_for(cid,vid,f'Escolha a cor cujo prompt de vídeo deseja {verb}.')
+        prompts=dict(slot['prompts'])
+        if slot['id'] is None and not prompts.get('video'):
             raise Invalid('Gere os textos pelo briefing primeiro.',409)
-        video=rebuild_video_prompt(cid,c,prompts,c.get('color') or '',base_image=False)
-        invalidate_video_slot(cid,c)
-        save_prompts(cid,{'video':video})
+        prompts['video']=(compact_video_prompt(cid,prompts,slot['color']) if improve
+                          else rebuild_video_prompt(cid,c,prompts,slot['color'],slot['index']))
+        # Campanha de uma cor: o video dela nao tem slot de cor.
+        invalidate_video_slot(cid,c,slot['color'] if slot['id'] is not None else None)
+        save_slot(cid,slot,prompts)
         touch(cid,c['version'])
         db().commit()
         return jsonify(detail(cid))
 
+    @app.post('/api/campaigns/<int:cid>/prompts/refresh-video')
     @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/refresh-video')
-    def refresh_variant_video_prompt(cid,vid):
-        data=body()
-        c=start(cid,data)
-        editable(c)
-        rows=db().execute(
-            'SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)
-        ).fetchall()
-        selected=next(((index,row) for index,row in enumerate(rows) if row['id']==vid),None)
-        if selected is None:
-            raise Invalid('Variação de cor não encontrada.',404)
-        index,row=selected
-        prompts=json.loads(row['prompts'])
-        prompts['video']=rebuild_video_prompt(
-            cid,c,prompts,row['color'],base_image=index>0)
-        invalidate_video_slot(cid,c,row['color'])
-        db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
-                     (json.dumps(prompts,ensure_ascii=False),vid))
-        if index==0:
-            save_prompts(cid,{'video':prompts['video']})
-        touch(cid,c['version'])
-        db().commit()
-        return jsonify(detail(cid))
+    def refresh_video_prompt(cid,vid=None):
+        return new_video_prompt(cid,vid,improve=False)
 
     # "Melhorar prompt": troca o prompt de video pela versao enxuta e
     # descritiva (services/prompt_improve.py). "Recriar prompt" volta ao
@@ -3089,45 +3096,9 @@ def create_app(config=None):
         return build_compact_video_prompt(detail(cid),prompts,color)
 
     @app.post('/api/campaigns/<int:cid>/prompts/improve-video')
-    def improve_single_video_prompt(cid):
-        data=body()
-        c=start(cid,data)
-        editable(c)
-        current=detail(cid)
-        if current['variants']:
-            raise Invalid('Escolha a cor cujo prompt de vídeo deseja melhorar.',409)
-        prompts=current['prompts']
-        if not prompts.get('video'):
-            raise Invalid('Gere os textos pelo briefing primeiro.',409)
-        video=compact_video_prompt(cid,prompts,c.get('color') or '')
-        invalidate_video_slot(cid,c)
-        save_prompts(cid,{'video':video})
-        touch(cid,c['version'])
-        db().commit()
-        return jsonify(detail(cid))
-
     @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/improve-video')
-    def improve_variant_video_prompt(cid,vid):
-        data=body()
-        c=start(cid,data)
-        editable(c)
-        rows=db().execute(
-            'SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)
-        ).fetchall()
-        selected=next(((index,row) for index,row in enumerate(rows) if row['id']==vid),None)
-        if selected is None:
-            raise Invalid('Variação de cor não encontrada.',404)
-        index,row=selected
-        prompts=json.loads(row['prompts'])
-        prompts['video']=compact_video_prompt(cid,prompts,row['color'])
-        invalidate_video_slot(cid,c,row['color'])
-        db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
-                     (json.dumps(prompts,ensure_ascii=False),vid))
-        if index==0:
-            save_prompts(cid,{'video':prompts['video']})
-        touch(cid,c['version'])
-        db().commit()
-        return jsonify(detail(cid))
+    def improve_video_prompt(cid,vid=None):
+        return new_video_prompt(cid,vid,improve=True)
 
     # Troca "Com fala" <-> "So movimento" direto na etapa de video. Pelo
     # briefing (PATCH) qualquer campo muda a campanha inteira e apaga imagens
@@ -3150,25 +3121,13 @@ def create_app(config=None):
         guia=data.get('prompt_style')=='guia'
         db().execute('UPDATE campaigns SET video_mode=? WHERE id=?',(mode,cid))
         c={**c,'video_mode':mode}
-        def rebuilt(prompts,color,index):
-            if guia:
-                return compact_video_prompt(cid,prompts,color)
-            return rebuild_video_prompt(cid,c,prompts,color,base_image=index>0)
-        rows=db().execute('SELECT * FROM campaign_variants WHERE campaign_id=? ORDER BY id',(cid,)).fetchall()
-        if rows:
-            for index,row in enumerate(rows):
-                prompts=json.loads(row['prompts'])
-                if not prompts.get('video'):
-                    continue
-                prompts['video']=rebuilt(prompts,row['color'],index)
-                db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',
-                             (json.dumps(prompts,ensure_ascii=False),row['id']))
-                if index==0:
-                    save_prompts(cid,{'video':prompts['video']})
-        else:
-            prompts=detail(cid)['prompts']
-            if prompts.get('video'):
-                save_prompts(cid,{'video':rebuilt(prompts,c.get('color') or '',0)})
+        for slot in slots(cid):
+            prompts=dict(slot['prompts'])
+            if not prompts.get('video'):
+                continue
+            prompts['video']=(compact_video_prompt(cid,prompts,slot['color']) if guia
+                              else rebuild_video_prompt(cid,c,prompts,slot['color'],slot['index']))
+            save_slot(cid,slot,prompts)
         invalidate_video_slot(cid,c)
         touch(cid,c['version'])
         db().commit()
@@ -3212,7 +3171,7 @@ def create_app(config=None):
             index=next((i for i,v in enumerate(c['variants']) if v['id']==vid),None)
             if index is None:
                 raise Invalid('Variação de cor não encontrada.',404)
-            color,base_image=c['variants'][index]['color'],index>0
+            color,base_image=c['variants'][index]['color'],variacao.uses_approved_base(index)
         elif c['variants']:
             color=c['variants'][0]['color']
         try:
@@ -3232,39 +3191,6 @@ def create_app(config=None):
                                            base_image=base_image))
         except ArcError as error:
             raise Invalid(str(error),error.status)
-
-    @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
-    def edit_variant_prompts(cid,vid):
-        data=body()
-        c=start(cid,data)
-        editable(c)
-        row=db().execute('SELECT * FROM campaign_variants WHERE id=? AND campaign_id=?',(vid,cid)).fetchone()
-        if not row:
-            raise Invalid('Variação de cor não encontrada.',404)
-        values=data.get('prompts')
-        if not isinstance(values,dict) or not values or set(values)-set(PROMPTS)-set(EXTRA_PROMPTS):
-            raise Invalid('Prompts inválidos.')
-        if any(not isinstance(v,str) or not v.strip() or len(v)>12000 for v in values.values()):
-            raise Invalid('Cada texto deve conter de 1 a 12.000 caracteres.')
-        current=json.loads(row['prompts'])
-        changed={k:v.strip() for k,v in values.items() if v.strip()!=current.get(k)}
-        if not changed:
-            return jsonify(detail(cid))
-        merged={**current,**changed}
-        if set(changed)&{'hook','development','cta'}:
-            merged['video']=generate({**c,'color':row['color']},script=merged)['video']
-        db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(merged,ensure_ascii=False),vid))
-        # keep main prompts aligned with first variant when edited
-        variants=detail(cid)['variants']
-        if variants and variants[0]['id']==vid:
-            save_prompts(cid,{k:merged[k] for k in PROMPTS+EXTRA_PROMPTS if k in merged})
-        if STATES.index(c['status'])>=2 and set(changed)&{'hook','development','cta','video'}:
-            state(cid,'image_approved')
-            clear_after(cid,['video'])
-        touch(cid, c['version'])
-        db().commit()
-        return jsonify(detail(cid))
-
 
 
     def _revenue_per_1k(entry):
