@@ -1,6 +1,6 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors, BookOpen, BookmarkPlus } from 'lucide-react';
 import Canvas from './Canvas';
 import { api, health, openBrowserFree, reached, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
@@ -21,6 +21,9 @@ const WriterSettingsPanel=lazy(()=>import('./modals').then(m=>({default:m.Writer
 const SpeechBankPanel=lazy(()=>import('./modals').then(m=>({default:m.SpeechBankPanel})));
 const AutoCreatePanel=lazy(()=>import('./modals').then(m=>({default:m.AutoCreatePanel})));
 
+
+// Acoes de producao da campanha aberta (salvar, gerar, aprovar...), entregues a Panel pelo App.
+const CampaignActions=createContext({});
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
   // Os logos ficam em public/brand (os mesmos arquivos que antes vinham
@@ -831,27 +834,42 @@ export default function App(){
         </div>}
         <section className="inspector rd-stage" aria-label={stage?.title||'Etapa'}>
           <div className="rd-stage-head"><h2>{stage?.title||'Etapa'}</h2><span className={'rd-status is-'+phaseTone(c.status)}>{statusLabels[c.status]}</span></div>
-          <Panel key={`${c.id}-${c.version}-${selected}-${writerRevision}`} c={c} identity={identity} selected={selected} busy={busy} references={references} deviceFiles={deviceFiles[c.id]||{}} onDirty={setDirty} onError={setError} onSaveBrief={saveBrief} onSaveTexts={saveTexts} onUpload={upload} onDeviceVideo={registerDeviceVideo} onTransition={transition} onOpen={openService}
-            onGenerate={()=>{if(dirty){setError('Salve o briefing antes de gerar os textos.');return}run(()=>post('/generate'),'Prompts, roteiro e legenda gerados localmente.','image')}}
-            onGenerateVariants={generateVariants}
-            onSaveVariant={saveVariantPrompts}
-            onSaveToBank={saveScriptToBank}
-            onOpenBank={openSpeechBank}
-            onRefreshVariant={refreshVariant}
-            onRefreshAllVariants={refreshAllVariants}
-            onRefreshVideoPrompt={id=>newVideoPrompt(id,false)} onImproveVideoPrompt={id=>newVideoPrompt(id,true)}
-            onChangeVideoMode={changeVideoMode} onOpenGenerator={openGenerator}
-            onRefreshScript={refreshSingleScript}
-            onConfigureWriter={()=>setModal({type:'identity',title:'Configurar escrita com ChatGPT'})}
-            onPublishSlot={publishSlot}
-            onMixVideos={mixVideos}
-            onSavePerformance={savePerformance}
-            onGenerateInsights={generateInsights}
-            onGotoScript={gotoScript}
-            onOpenStudio={event=>openService('studio','publish',event)}
-            onFetchStudioMetrics={fetchStudioMetrics} onAuditStudioPosts={auditStudioPosts} studioAuditReport={studioAuditReport}
-            onApplyLibraryReference={applyLibraryReference} onSaveNichePhoto={saveNichePhoto}
-            onReuse={id=>confirm('Reutilizar esta referência?','A mesma imagem será copiada para esta campanha. Esta ação reinicia a produção e as aprovações seguintes.',()=>run(()=>post('/reference',{asset_id:Number(id)}),'Referência reutilizada.','look'),'Usar referência')}/>
+          <CampaignActions.Provider value={{
+            onDirty:setDirty,
+            onError:setError,
+            onSaveBrief:saveBrief,
+            onSaveTexts:saveTexts,
+            onUpload:upload,
+            onDeviceVideo:registerDeviceVideo,
+            onTransition:transition,
+            onOpen:openService,
+            onGenerate:()=>{if(dirty){setError('Salve o briefing antes de gerar os textos.');return}run(()=>post('/generate'),'Prompts, roteiro e legenda gerados localmente.','image')},
+            onGenerateVariants:generateVariants,
+            onSaveVariant:saveVariantPrompts,
+            onSaveToBank:saveScriptToBank,
+            onOpenBank:openSpeechBank,
+            onRefreshVariant:refreshVariant,
+            onRefreshAllVariants:refreshAllVariants,
+            onRefreshVideoPrompt:id=>newVideoPrompt(id,false),
+            onImproveVideoPrompt:id=>newVideoPrompt(id,true),
+            onChangeVideoMode:changeVideoMode,
+            onOpenGenerator:openGenerator,
+            onRefreshScript:refreshSingleScript,
+            onConfigureWriter:()=>setModal({type:'identity',title:'Configurar escrita com ChatGPT'}),
+            onPublishSlot:publishSlot,
+            onMixVideos:mixVideos,
+            onSavePerformance:savePerformance,
+            onGenerateInsights:generateInsights,
+            onGotoScript:gotoScript,
+            onOpenStudio:event=>openService('studio','publish',event),
+            onFetchStudioMetrics:fetchStudioMetrics,
+            onAuditStudioPosts:auditStudioPosts,
+            onApplyLibraryReference:applyLibraryReference,
+            onSaveNichePhoto:saveNichePhoto,
+            onReuse:id=>confirm('Reutilizar esta referência?','A mesma imagem será copiada para esta campanha. Esta ação reinicia a produção e as aprovações seguintes.',()=>run(()=>post('/reference',{asset_id:Number(id)}),'Referência reutilizada.','look'),'Usar referência'),
+          }}>
+          <Panel key={`${c.id}-${c.version}-${selected}-${writerRevision}`} c={c} identity={identity} selected={selected} busy={busy} references={references} deviceFiles={deviceFiles[c.id]||{}} studioAuditReport={studioAuditReport}/>
+          </CampaignActions.Provider>
         </section>
       </>:<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><span className="eyebrow">PRODUÇÃO</span><h1>Crie sua primeira campanha</h1><p>Defina o produto e o look, anexe a modelo e acompanhe cada aprovação até o TikTok.</p><button className="primary" onClick={newCampaign}><Plus size={17}/> Nova campanha</button></div>}
     </main>
@@ -1022,7 +1040,9 @@ function LookReminder({c}){
     <span><small>Roupa da modelo</small><strong>{outfit||'Veja na foto de referência'}</strong></span>
   </div>;
 }
-function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onReuse,onAuditStudioPosts,studioAuditReport,onApplyLibraryReference,onSaveNichePhoto,onSaveToBank,onOpenBank}){
+function Panel({c,identity,selected,busy,references,deviceFiles,studioAuditReport}){
+  // Acoes da campanha chegam por contexto: a interface da Panel e so o que ela mostra.
+  const {onDirty,onError,onSaveBrief,onSaveTexts,onUpload,onDeviceVideo,onTransition,onOpen,onGenerate,onGenerateVariants,onSaveVariant,onSaveToBank,onOpenBank,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,onRefreshScript,onConfigureWriter,onPublishSlot,onMixVideos,onSavePerformance,onGenerateInsights,onGotoScript,onOpenStudio,onFetchStudioMetrics,onAuditStudioPosts,onApplyLibraryReference,onSaveNichePhoto,onReuse}=useContext(CampaignActions);
   const reference=c.assets.find(a=>a.kind==='reference'),image=c.assets.find(a=>a.kind==='image'),video=c.assets.find(a=>a.kind==='video');
   const [reuse,setReuse]=useState(''),[checks,setChecks]=useState(c.checklist||{}),[publishedUrl,setPublishedUrl]=useState(c.published_url||'');
   const immutable=c.status==='published',colorCount=(c.colors||[]).length;
