@@ -1217,9 +1217,8 @@ def create_app(config=None):
             if problema:
                 raise Invalid(problema)
         values['sequence_clips'],values['sequence_arc']=seq_clips,(seq_arc if seq_clips else '')
-        from services.prompts import _VIDEO_MODE_ALIASES
         mode=(values.get('video_mode') or '').strip()
-        if mode and mode.casefold() not in set(_VIDEO_MODE_ALIASES)|set(formats.FORMATS):
+        if mode and mode.casefold() not in set(formats.VIDEO_MODE_ALIASES)|set(formats.FORMATS):
             raise Invalid('Formato de vídeo inválido.')
         from services.model_library import NICHE_IDS
         niche = (values.get('niche') or '').strip()
@@ -3107,8 +3106,7 @@ def create_app(config=None):
             raise Invalid('Aqui dá para alternar entre os formatos com a modelo de frente. POV, Espelho e Abrindo o pacote mudam a imagem-base: troque em Definir look.',409)
         c=start(cid,data)
         editable(c)
-        from services.prompts import _video_mode
-        if _video_mode(c)=='pov':
+        if formats.video_mode(c)=='pov':
             raise Invalid('Esta campanha é POV: a imagem-base é em primeira pessoa. Para mudar o formato, use Definir look.',409)
         guia=data.get('prompt_style')=='guia'
         db().execute('UPDATE campaigns SET video_mode=? WHERE id=?',(mode,cid))

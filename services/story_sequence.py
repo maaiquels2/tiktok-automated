@@ -20,7 +20,9 @@ from services.prompt_improve import (
     _clean, _quote, _touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
 from services import persuasion, script_budget
-from services.prompts import _count_words, _dominant_motor, _focus_parts, _video_mode, _with_em
+from services.formats import video_mode as _video_mode
+from services.prompts import _dominant_motor, _focus_parts, _with_em
+from services.script_budget import count_words as _count_words
 
 # Ritmo de fala do orcamento do roteiro, mais um respiro para a acao antes e
 # depois da frase.

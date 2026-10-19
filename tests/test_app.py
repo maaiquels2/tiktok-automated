@@ -2482,6 +2482,18 @@ class WorkflowTests(unittest.TestCase):
     def test_detail_says_what_blocks_each_approval(self):
         self.assertEqual(self.get()['readiness']['image_approved'],['foto da modelo','imagem de Azul'])
 
+    def test_format_and_piece_have_one_home(self):
+        from services import formats, piece, prompts
+        tela=json.loads((Path(__file__).resolve().parents[1]/'frontend'/'src'/'formatRules.json').read_text(encoding='utf-8'))
+        self.assertEqual(tela,formats.rules())
+        self.assertEqual(piece.NICHES,tuple(prompts._VIDEO_NICHE))
+        self.assertEqual(formats.video_mode({'video_mode':'unboxing'}),'pov')
+        self.assertEqual(formats.video_mode({'video_mode':'Celular no espelho.'}),'espelho')
+        self.assertEqual(piece.product_family({'product':'Brinco dourado'}),'acessorio')
+        # prompts usa os modulos, nao copias.
+        self.assertIs(prompts._video_mode,formats.video_mode)
+        self.assertIs(prompts._product_family,piece.product_family)
+
     def test_color_list_is_the_same_everywhere(self):
         from services import variants
         self.assertEqual(variants.colors('Azul, azul; Preto.\nBranco'),['Azul','Preto','Branco'])

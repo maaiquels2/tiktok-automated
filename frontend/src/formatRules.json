@@ -1,0 +1,16 @@
+{
+  "max_techniques": 2,
+  "arc_formats": [
+    "espelho",
+    "",
+    "comentario",
+    "teste",
+    "troca_cor",
+    "tres_jeitos"
+  ],
+  "new_base_formats": [
+    "pov",
+    "espelho",
+    "unboxing"
+  ]
+}

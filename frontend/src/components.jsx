@@ -2,6 +2,8 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from 
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
+// Regras de formato do servidor (services/formats.py; um teste confere).
+import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
 import { isFewFacts, pointToFacts } from './sequenceText';
 import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, storyArc, persuasionPreview } from './api';
@@ -195,7 +197,7 @@ const ARC_OPTIONS=[
 const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];
 // Espelho (validado no Grok) e os formatos com a modelo de frente falando (services/story_arcs.py). POV e so
 // movimento nao tem fala de frente; Na mesa nao e roupa.
-const ARC_FORMATS=['espelho','','comentario','teste','troca_cor','tres_jeitos'];
+const ARC_FORMATS=FORMAT_RULES.arc_formats;
 const wordCount=text=>(text||'').trim().split(/\s+/).filter(Boolean).length;
 // Tipo de video escolhido na CRIACAO: a sequencia envolve prompts novos e 3 fatos da peca, entao a escolha
 // fica no inicio (pedido real: o painel no fim da etapa de video passava despercebido).
@@ -326,7 +328,7 @@ const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
 const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
 const TECHNIQUE_OPTIONS=[['acao','Começar em movimento'],['aproxima','Aproximação rápida'],['revela','Mão revelando'],['loop','Loop'],['estica','Esticar o tecido']];
 const STYLE_ORDER=['closes','ousado','acao','aproxima','revela','loop','estica'];
-const MAX_TECHNIQUES=2;
+const MAX_TECHNIQUES=FORMAT_RULES.max_techniques;
 // Camera e tecnicas de retencao. Mais de duas tecnicas no mesmo video de 15 s
 // viram lista de tarefas para o Grok: a terceira fica bloqueada.
 export function StyleChips({value,onChange,labelledBy}){

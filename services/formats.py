@@ -16,6 +16,8 @@ movimento, nao diz que "passou"; o "abrindo o pacote" nao diz que comprou.
 """
 import re
 
+from services.piece import product_family
+
 FORMATS = {
     'comentario': {'label': 'Respondendo comentário', 'base': ''},
     'teste': {'label': 'Teste de prova', 'base': ''},
@@ -41,9 +43,40 @@ STYLE_TOKENS = ('closes', 'ousado') + TECHNIQUES
 
 
 def _sem_corpo(c):
-    # Import tardio: prompts importa este modulo no topo.
-    from services.prompts import _product_family
-    return _product_family(c) in MESA_FAMILIES
+    return product_family(c) in MESA_FAMILIES
+
+
+VIDEO_MODE_ALIASES = {
+    'pov': 'pov', 'pov_produto': 'pov', 'pov-produto': 'pov', 'pov produto': 'pov',
+    'produto': 'pov',
+    'movimento': 'movimento', 'movimentos': 'movimento', 'so_movimento': 'movimento',
+    'so-movimento': 'movimento', 'só movimento': 'movimento', 'so movimento': 'movimento',
+    'fit': 'movimento', 'fit_check': 'movimento', 'fit check': 'movimento',
+    'espelho': 'espelho', 'celular': 'espelho', 'selfie': 'espelho', 'selfie_espelho': 'espelho',
+    'celular no espelho': 'espelho',
+    # Formatos que rodam sobre outra base (unboxing, asmr) vem de FORMATS.
+    **{k: v['base'] for k, v in FORMATS.items() if v['base']},
+}
+
+
+def video_mode(c):
+    """Base do video escolhida pelo operador (pov, movimento, espelho), ou ''."""
+    value = ' '.join(str(c.get('video_mode') or '').strip().rstrip('.').split()).casefold()
+    return VIDEO_MODE_ALIASES.get(value, '')
+
+
+# Formatos com a modelo de frente falando para a lente: onde cabe a sequencia storytelling.
+SPEAKING_FRONT = ('', 'comentario', 'teste', 'troca_cor', 'tres_jeitos')
+ARC_FORMATS = ('espelho',) + SPEAKING_FRONT
+# Formatos que usam outra imagem-base (primeira pessoa ou selfie no espelho):
+# trocar para eles ou sair deles passa por Definir look.
+NEW_BASE_FORMATS = ('pov', 'espelho') + tuple(k for k, v in FORMATS.items() if v['base'] in ('pov', 'espelho'))
+
+
+def rules():
+    """O que a tela precisa (frontend/src/formatRules.json; um teste confere)."""
+    return dict(max_techniques=MAX_TECHNIQUES, arc_formats=list(ARC_FORMATS),
+                new_base_formats=list(NEW_BASE_FORMATS))
 
 
 def video_format(c):

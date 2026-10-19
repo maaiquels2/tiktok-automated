@@ -32,9 +32,10 @@ from pathlib import Path
 from services import formats, persuasion, script_budget, speech_bank
 from services.prompts import without_niche_defaults
 from services.prompts import (
-    _count_words, _objection_parts, _offer_text, _product_features,
+    _objection_parts, _offer_text, _product_features,
     _dominant_motor, _chosen_motor, color_variants,
 )
+from services.script_budget import count_words as _count_words
 
 SETTINGS_FILE = 'llm.json'
 PROVIDERS = ('openai', 'gemini')

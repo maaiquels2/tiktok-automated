@@ -3,7 +3,8 @@ import difflib
 import re
 import unicodedata
 
-from services import formats, generators, persuasion, script_budget, speech_bank
+from services import formats, generators, persuasion, piece, script_budget, speech_bank
+from services.framing import mood, push_target, speech_framing
 
 
 def _phrase(value):
@@ -1118,16 +1119,6 @@ def color_variants(value):
 # nao afirma nada alem do que esta no briefing.
 # ---------------------------------------------------------------------------
 
-_FAMILY_WORDS = (
-    ('beleza', ('batom', 'base', 'sérum', 'serum', 'creme', 'hidratante', 'protetor solar',
-                'máscara de cílios', 'maquiagem', 'skincare', 'shampoo', 'perfume', 'esmalte', 'gloss')),
-    ('casa', ('organizador', 'cesto', 'pote', 'suporte de parede', 'luminária', 'luminaria',
-              'tapete', 'cortina', 'panela', 'utensílio', 'utensilio', 'almofada', 'edredom')),
-    ('gadget', ('fone', 'carregador', 'cabo usb', 'smartwatch', 'caixa de som', 'teclado', 'mouse', 'power bank')),
-    ('pet', ('coleira', 'comedouro', 'arranhador', 'caminha para', 'brinquedo para cachorro', 'brinquedo para gato')),
-    ('infantil', ('infantil', 'bebê', 'bebe', 'criança', 'crianca', 'kids')),
-)
-
 _FAMILY_VOCAB = {
     'moda': dict(noun='peça', gender='f', on='no corpo', quality='caimento'),
     'beleza': dict(noun='produto', gender='m', on='na pele', quality='textura'),
@@ -1137,13 +1128,6 @@ _FAMILY_VOCAB = {
     'infantil': dict(noun='peça', gender='f', on='na criança', quality='caimento'),
     'acessorio': dict(noun='peça', gender='f', on='na mão', quality='brilho'),
 }
-
-# Acessorios (joia, bijuteria, bolsa, oculos). Palavra inteira e so no nome do
-# produto: "anel" por substring casaria com "canelada", "colar" com "colarinho".
-_ACCESSORY_RE = re.compile(
-    r'(?<!\w)(?:brincos?|colar(?:es)?|gargantilhas?|pulseiras?|braceletes?|an[eé]is|anel|alian[cç]as?|'
-    r'rel[oó]gios?|[oó]culos|bolsas?|mochilas?|necessaires?|carteiras?|tiaras?|presilhas?|piercings?)(?!\w)',
-    re.I)
 
 _PIECE_GENDER = {
     'legging': 'f', 'calça': 'f', 'saia': 'f', 'blusa': 'f', 'camiseta': 'f', 'camisa': 'f',
@@ -1184,16 +1168,6 @@ _NICHE_OCCASION = {
     'intima': 'no dia a dia',
     'fantasia': 'na festa',
 }
-
-
-def _product_family(c):
-    if _ACCESSORY_RE.search(' '.join(_phrase(c.get(k)) for k in ('product', 'outfit'))):
-        return 'acessorio'
-    blob = ' '.join(_phrase(c.get(k)).casefold() for k in ('product', 'outfit', 'details', 'audience'))
-    for family, needles in _FAMILY_WORDS:
-        if any(n in blob for n in needles):
-            return family
-    return 'moda'
 
 
 def _piece_noun(c):
@@ -1277,25 +1251,11 @@ def _dominant_motor(c):
     return 'desejo'
 
 
-_VIDEO_MODE_ALIASES = {
-    'pov': 'pov', 'pov_produto': 'pov', 'pov-produto': 'pov', 'pov produto': 'pov',
-    'produto': 'pov',
-    'movimento': 'movimento', 'movimentos': 'movimento', 'so_movimento': 'movimento',
-    'so-movimento': 'movimento', 'só movimento': 'movimento', 'so movimento': 'movimento',
-    'fit': 'movimento', 'fit_check': 'movimento', 'fit check': 'movimento',
-    'espelho': 'espelho', 'celular': 'espelho', 'selfie': 'espelho', 'selfie_espelho': 'espelho',
-    'celular no espelho': 'espelho',
-    # Formatos que rodam sobre outra base (services/formats.py).
-    'unboxing': 'pov', 'asmr': 'movimento',
-}
-
-
-def _video_mode(c):
-    """Formato de video escolhido explicitamente pelo operador, se houver."""
-    return _VIDEO_MODE_ALIASES.get(_phrase(c.get('video_mode')).casefold(), '')
-
-
 _count_words = script_budget.count_words
+# Peca, nicho e formato moram nos proprios modulos; os nomes antigos seguem valendo aqui dentro.
+_product_family = piece.product_family
+_niche_key = piece.niche_key
+_video_mode = formats.video_mode
 
 
 def _line_key(text):
@@ -1995,23 +1955,7 @@ _VIDEO_NICHE = {
 }
 
 
-def _niche_key(c):
-    niche = (c.get("niche") or "").strip()
-    if niche in _VIDEO_NICHE:
-        return niche
-    # fallback from style/outfit keywords
-    blob = f"{c.get('style','')} {c.get('outfit','')} {c.get('angle','')}".casefold()
-    for key, words in (
-        ("praia", ("praia", "beach", "biquini", "verao")),
-        ("academia", ("academia", "fitness", "legging", "treino", "active")),
-        ("intima", ("intima", "íntima", "lingerie", "sensual")),
-        ("fantasia", ("fantasia", "cosplay", "halloween", "personagem")),
-        ("dia-a-dia", ("rotina", "dia a dia", "lounge", "casa")),
-        ("casual", ("casual", "street")),
-    ):
-        if any(w in blob for w in words):
-            return key
-    return "casual"
+
 
 
 # Limite de caracteres do campo de prompt em cada gerador. O Grok corta em
@@ -2590,7 +2534,6 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     Grok trouxe de melhor no teste seguinte (clima por referencia, plano do
     joelho para cima com o rosto grande, maos que gesticulam, acoes emendadas
     sem parar, arco de expressao e ritmo natural, sem camera lenta)."""
-    from services.prompt_improve import mood, push_target, speech_framing
     dirn = _VIDEO_NICHE.get(_niche_key(c)) or _VIDEO_NICHE["casual"]
     outfit = _visual_outfit(c, product)
     angle = _pt_br(c.get("angle")) or "mostrar o produto em uso"

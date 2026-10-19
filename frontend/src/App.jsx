@@ -11,6 +11,7 @@ import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
 // Orcamento do roteiro: o mesmo do servidor (services/script_budget.py; um teste confere).
 import SCRIPT_RULES from './scriptRules.json';
+import FORMAT_RULES from './formatRules.json';
 // Resultados num pedaco separado do bundle: so baixa quando a aba abre.
 const ResultsQuickTools=lazy(()=>import('./results').then(m=>({default:m.ResultsQuickTools})));
 const PerformancePanel=lazy(()=>import('./results').then(m=>({default:m.PerformancePanel})));
@@ -506,7 +507,7 @@ export default function App(){
   // imagens nem roteiro). POV muda a imagem-base: vai para Definir look.
   function changeVideoMode(mode,guia){
     // POV e Espelho mudam a imagem-base (primeira pessoa / selfie no espelho).
-    const novaBase=m=>m==='pov'||m==='espelho'||m==='unboxing';
+    const novaBase=m=>FORMAT_RULES.new_base_formats.includes(m||'');
     if(novaBase(mode)||novaBase(c.video_mode)){
       const nome=m=>m==='pov'?'POV':m==='unboxing'?'Abrindo o pacote':'Espelho';
       confirm(novaBase(mode)?`Trocar para ${nome(mode)}?`:`Sair do ${nome(c.video_mode)}?`,

@@ -31,10 +31,13 @@ from services import generators, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
-    _PRODUCT_FEATURES, _SPOKEN_OCCASION, _body_turns, _count_words, _cta_pool, _pick_in_budget, _piece_forms,
-    _product_family, _product_features, _proof_gestures, _video_details, _video_mode, generate,
+    _PRODUCT_FEATURES, _SPOKEN_OCCASION, _body_turns, _cta_pool, _pick_in_budget, _piece_forms,
+    _product_features, _proof_gestures, _video_details, generate,
     without_niche_defaults,
 )
+from services.formats import SPEAKING_FRONT as FRONT_FORMATS, video_mode as _video_mode
+from services.piece import product_family as _product_family
+from services.script_budget import count_words as _count_words
 
 ARCS = {
     'motivos': dict(label='Motivos', hint='"Três motivos pra essa peça estar no seu guarda-roupa", um fato por motivo'),
@@ -68,7 +71,6 @@ FINAL_END_FRENTE = 'no final, de frente para a lente, uma das mãos aponta uma v
 
 
 # Formatos com a modelo de frente falando para a lente (frontend: ARC_FORMATS, sem o espelho).
-FRONT_FORMATS = ('', 'comentario', 'teste', 'troca_cor', 'tres_jeitos')
 
 
 def _wording(espelho):
