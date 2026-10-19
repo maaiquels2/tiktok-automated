@@ -2464,6 +2464,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(generators.FLOW.fits('x'*9000))
         self.assertEqual(self.get()['generator_info']['max_prompt_chars'],None)  # campanha de teste e Flow
 
+    def test_stages_rules_without_http(self):
+        from services import stages
+        # Roteiro de uma cor: a legenda tambem e exigida (a tela antes so olhava as falas).
+        c={'color':'Azul','prompts':{'image':'i','video':'v','hook':'h','development':'d','cta':'c'},
+           'variants':[],'assets':[],'device_videos':[]}
+        self.assertEqual(stages.script_gaps(c),[('','caption')])
+        self.assertIn('falta legenda',stages.readiness(c)['script_ready'])
+        self.assertIn('imagem de Azul',stages.readiness(c)['image_approved'])
+        c['assets']=[{'kind':'image','slot':'Azul','approved_at':'x'},{'kind':'reference'}]
+        self.assertEqual(stages.readiness(c)['image_approved'],[])
+        self.assertEqual(stages.rewind_after_edit('video_ready',['caption']),(None,[]))
+        self.assertEqual(stages.rewind_after_edit('video_ready',['hook']),('image_approved',['video']))
+        self.assertEqual(stages.rewind_after_edit('image_ready',['hook']),(None,[]))
+        self.assertEqual(stages.rewind_after_edit('published',['image']),('briefing',['image','video']))
+
+    def test_detail_says_what_blocks_each_approval(self):
+        self.assertEqual(self.get()['readiness']['image_approved'],['foto da modelo','imagem de Azul'])
+
     def test_color_list_is_the_same_everywhere(self):
         from services import variants
         self.assertEqual(variants.colors('Azul, azul; Preto.\nBranco'),['Azul','Preto','Branco'])

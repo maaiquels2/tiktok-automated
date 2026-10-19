@@ -1045,10 +1045,10 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
     <Uploader kind="reference" exists={!!reference} busy={busy} disabled={immutable} onUpload={onUpload}/><div className="notice">Preserve rosto, cabelo, corpo e tom de pele. Mude apenas roupa e cor.</div>{!immutable&&<section className="reuse-section"><h3>Reutilizar referência</h3><label>Referências de {c.model_name}<select value={reuse} onChange={e=>setReuse(e.target.value)}><option value="">Escolha uma imagem salva</option>{references.filter(r=>r.model_name.toLocaleLowerCase()===c.model_name.toLocaleLowerCase()&&r.id!==reference?.id).map(r=><option key={r.id} value={r.id}>{r.campaign_name} · {r.original_name}</option>)}</select></label><button disabled={!reuse||busy} onClick={()=>onReuse(reuse)}>Usar a mesma imagem</button></section>}</>;
   if(selected==='look')return <><BriefForm campaign={c} onSave={onSaveBrief} onDirty={onDirty} busy={busy}/>{!immutable&&<section className="generate-section"><h3>Prompts e roteiro</h3><p>Preencha roupa, cor, produto, público e benefício. Com várias cores, o app gera um pacote separado por cor (a IA não recebe todas juntas).</p>{briefMissing(c).length>0&&<p className="rd-alert" role="alert">Para gerar, complete e salve o briefing: {briefMissing(c).join(', ')}.</p>}{!reference&&<p className="rd-alert" role="alert">Anexe a foto da modelo na etapa Modelo fixa antes de gerar.</p>}<button className="primary full" disabled={busy||!reference||c.status!=='briefing'||briefMissing(c).length>0} onClick={onGenerate}>{c.prompts.image?'Gerar textos novamente':'Gerar prompts e roteiro'}</button>{colorCount>=2&&<small className="help">Detectamos {colorCount} cores: cada uma terá prompt de imagem, vídeo, roteiro e legenda próprios.</small>}{colorCount<2&&<small className="help">Separe as cores por vírgulas (ex.: Branco, Preto, Azul Marinho) para gerar uma variação de cada.</small>}{!reference&&<small className="help">Anexe a referência na etapa Modelo fixa.</small>}</section>}{c.variants?.length>0&&<VariantList variants={c.variants} onError={onError}/>}</>;
   if(selected==='image')return <>{(c.variants?.length>0||c.prompts.image)?<><div className="notice"><strong>Uma imagem por cor.</strong> Anexe todas aqui. Só avance para aprovação quando cada cor tiver arquivo.</div><div className="notice"><strong>Confira a fotografia-base antes de gerar.</strong> Ela precisa mostrar toda a peça que você quer apresentar. Se a roupa estiver cortada, escolha outra referência na etapa Modelo fixa antes de gerar os prompts. A edição preserva o enquadramento, a pose, o cenário e a iluminação. Siga a ordem dos anexos indicada no prompt de cada cor.</div>{c.variants?.length>0?<VariantList variants={c.variants} images={c.assets} onError={onError} focus="image" onUpload={onUpload} busy={busy} disabled={immutable} immutable={immutable}/>:<>{editor('image','Prompt de imagem')}{image&&<AssetView asset={image} title="Imagem gerada" compact/>}<Uploader kind="image" exists={!!image} busy={busy} disabled={immutable} onUpload={onUpload}/></>}<AssetView asset={reference} title="Referência fixa da modelo para anexar" compact/><ProductGallery photos={c.product_assets}/>{service('image')}</>:<div className="notice">Anexe a referência e gere os prompts na etapa Definir look.</div>}</>;
-  if(selected==='image_approval')return <>{c.assets.filter(a=>a.kind==='image').length?<><div className="notice">Confira cada cor. A aprovação libera os roteiros de 15s personalizados por imagem.</div><div className="comparison-grid">{c.assets.filter(a=>a.kind==='image').map(img=><div key={img.id} className="comparison-card"><span>{img.slot||img.metadata?.color||'Imagem'}</span><AssetView asset={img} title={img.slot||'Imagem'} compact/>{img.approved_at&&<p className="approved-label"><Check size={14}/>Aprovada</p>}</div>)}</div><div className="comparison"><div><span>Referência</span><AssetView asset={reference} title="Modelo fixa" compact/></div></div>{c.assets.filter(a=>a.kind==='image').every(a=>a.approved_at)?<div className="notice success"><Check size={17}/> Todas as imagens aprovadas.</div>:<><h3>Confira antes de aprovar</h3>{check('identity','Rosto, cabelo, corpo e tom de pele correspondem à referência em todas as cores.')}{check('look','Roupa, cor, produto e mãos estão corretos em cada imagem.')}{missingImageColors(c).length>0&&<p className="rd-alert" role="alert">Falta a imagem de: {missingImageColors(c).join(', ')}. Anexe em Criar imagem.</p>}<button className="primary full" disabled={busy||c.status!=='image_ready'||!checks.identity||!checks.look||missingImageColors(c).length>0} onClick={()=>onTransition('image_approved')}><Check size={17}/> Aprovar todas as imagens</button>{c.status!=='image_ready'&&<small className="help">Anexe a imagem de cada cor na etapa Criar imagem.</small>}</>}</>:<div className="notice">Anexe o resultado de cada cor na etapa Criar imagem.</div>}</>;
+  if(selected==='image_approval')return <>{c.assets.filter(a=>a.kind==='image').length?<><div className="notice">Confira cada cor. A aprovação libera os roteiros de 15s personalizados por imagem.</div><div className="comparison-grid">{c.assets.filter(a=>a.kind==='image').map(img=><div key={img.id} className="comparison-card"><span>{img.slot||img.metadata?.color||'Imagem'}</span><AssetView asset={img} title={img.slot||'Imagem'} compact/>{img.approved_at&&<p className="approved-label"><Check size={14}/>Aprovada</p>}</div>)}</div><div className="comparison"><div><span>Referência</span><AssetView asset={reference} title="Modelo fixa" compact/></div></div>{c.assets.filter(a=>a.kind==='image').every(a=>a.approved_at)?<div className="notice success"><Check size={17}/> Todas as imagens aprovadas.</div>:<><h3>Confira antes de aprovar</h3>{check('identity','Rosto, cabelo, corpo e tom de pele correspondem à referência em todas as cores.')}{check('look','Roupa, cor, produto e mãos estão corretos em cada imagem.')}{missingImageColors(c).length>0&&<p className="rd-alert" role="alert">Falta: {missingImageColors(c).join(', ')}. Anexe em Criar imagem.</p>}<button className="primary full" disabled={busy||c.status!=='image_ready'||!checks.identity||!checks.look||missingImageColors(c).length>0} onClick={()=>onTransition('image_approved')}><Check size={17}/> Aprovar todas as imagens</button>{c.status!=='image_ready'&&<small className="help">Anexe a imagem de cada cor na etapa Criar imagem.</small>}</>}</>:<div className="notice">Anexe o resultado de cada cor na etapa Criar imagem.</div>}</>;
   if(selected==='script'){
-    const scriptIssues=(c.variants?.length?c.variants.map(v=>[v.color,scriptProblems(v.prompts)]):[['',scriptProblems(c.prompts)]])
-      .flatMap(([color,list])=>list.map(item=>color?`${color}: ${item}`:item));
+    // O que o servidor ainda exige para concluir (services/stages.py).
+    const scriptIssues=c.readiness?.script_ready||[];
     // Fala longa nao barra: so avisa que passa de um clipe de 15 s.
     const longScripts=(c.variants?.length?c.variants.map(v=>[v.color,spokenWords(v.prompts)]):[['',spokenWords(c.prompts)]])
       .filter(([,total])=>total>SCRIPT_RULES.warn[1]).map(([color,total])=>color?`${color}: ${total} palavras`:`${total} palavras`);
@@ -1075,8 +1075,8 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
     const deviceVids=c.device_videos||[];
     const vids=[...uploadedVids,...deviceVids];
     const bySlot=Object.fromEntries(vids.map(v=>[(v.slot||v.metadata?.color||''),v]));
-    const missing=slots.filter(s=>s && !bySlot[s]);
-    const allPresent=slots.length===1 && !slots[0] ? vids.length>0 : (slots.length?slots.every(s=>!!bySlot[s]):vids.length>0);
+    const missing=c.readiness?.video_approved||[];
+    const allPresent=!missing.length;
     const statusOk=c.status==='video_ready';
     const alreadyAdvanced=['video_approved','ready_to_publish','published'].includes(c.status);
     const needsLegacyRepair=alreadyAdvanced&&allPresent&&vids.some(a=>!a.approved_at);
@@ -1090,7 +1090,7 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
       {check('visual','Assisti a todos os vídeos. Identidade, look, produto e movimentos estão corretos em cada cor.')}
       {check('audio','Revisei áudio, falas, sincronização e duração em cada cor.')}
       <button className="primary full" disabled={busy||!allPresent||!statusOk||!checks.visual||!checks.audio} onClick={()=>onTransition('video_approved',{approved_by:identity?.model_name||'Usuário'})}><Check size={17}/> {approveLabel}</button>
-      {!allPresent&&<small className="help">Falta vídeo em: {missing.join(', ')||'—'}. Em <strong>Criar vídeo</strong>, anexe 1 MP4 por cor. Não misture cores diferentes no Misturar.</small>}
+      {!allPresent&&<small className="help">Falta: {missing.join(', ')}. Em <strong>Criar vídeo</strong>, anexe 1 MP4 por cor. Não misture cores diferentes no Misturar.</small>}
       {allPresent&&!statusOk&&<small className="help">Os arquivos estão aí, mas o status ainda não é video_ready (agora: {c.status}). Reanexe um dos MP4s em Criar vídeo ou recarregue.</small>}
       {allPresent&&statusOk&&(!checks.visual||!checks.audio)&&<small className="help">Marque as duas caixas acima para liberar o botão.</small>}
       </>}</>:<div className="notice">Selecione o MP4 de cada cor na etapa Criar vídeo. Você pode mantê-lo na galeria ou enviá-lo para a Fábrica.</div>}</>;
@@ -1107,27 +1107,12 @@ function briefMissing(c){
   return [['outfit','roupa'],['color','cores'],['product','produto'],['audience','público'],['benefit','benefício']]
     .filter(([key])=>!String(c?.[key]||'').trim()).map(([,label])=>label);
 }
-// Cores sem imagem anexada (aprovar exige uma imagem por cor).
-function missingImageColors(c){
-  const colors=c?.colors||[];
-  if(colors.length<2)return [];
-  const have=new Set((c.assets||[]).filter(a=>a.kind==='image').map(a=>a.slot||a.metadata?.color||''));
-  return colors.filter(color=>!have.has(color));
-}
-// Teto de 15 s: o mesmo que o servidor exige para concluir o roteiro.
-const SCRIPT_LIMITS={hook:['gancho'],development:['desenvolvimento'],cta:['chamada']};
+// O que falta para aprovar as imagens, vindo do servidor (services/stages.py).
+function missingImageColors(c){return c?.readiness?.image_approved||[]}
 function spokenWords(prompts){return ['hook','development','cta'].reduce((sum,key)=>sum+countWords(prompts?.[key]),0)}
 // Foto que nao carrega (arquivo apagado do armazenamento) some, em vez de
 // deixar o icone de imagem quebrada no cartao.
 function hideBrokenImage(event){event.currentTarget.style.visibility='hidden'}
-function scriptProblems(prompts){
-  const out=[];let total=0;
-  // So bloqueia o que falta. Comprimento e orientacao, nunca barreira.
-  for(const [key,[name]] of Object.entries(SCRIPT_LIMITS)){
-    if(!countWords(prompts?.[key]))out.push(`falta o ${name}`);
-  }
-  return out;
-}
 const SCRIPT_PART_LABELS={hook:'abertura',development:'meio',cta:'fechamento'};
 function countWords(value){const clean=String(value||'').trim();return clean?clean.split(/\s+/).length:0}
 function ScriptBudget({draft}){

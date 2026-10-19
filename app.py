@@ -27,12 +27,12 @@ from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import copywriter, formats, generators, speech_bank
+from services import copywriter, formats, generators, speech_bank, stages
 from services import variants as variacao
 from services.prompts import _with_article
 
 ROOT = Path(__file__).resolve().parent
-STATES = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published']
+STATES = stages.STATES
 # Limites de tentativas (tabela rate_limits, no banco: na Vercel cada acesso
 # pode cair numa instancia diferente, entao memoria nao serve).
 RATE_LIMITS_SQL = ('CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, hits INTEGER NOT NULL DEFAULT 0, '
@@ -1082,6 +1082,8 @@ def create_app(config=None):
             variant=dict(row)
             variant['prompts']=json.loads(variant['prompts'])
             c['variants'].append(variant)
+        # O que ainda falta em cada aprovacao: a tela mostra isto em vez de re-derivar.
+        c['readiness']=stages.readiness(c)
         return c
 
     def read_checklist(cid):
@@ -1119,10 +1121,17 @@ def create_app(config=None):
                 db().execute('UPDATE steps SET completed_at=NULL,human_review=0 WHERE campaign_id=? AND name=?',(cid,name))
         if human:
             db().execute('UPDATE steps SET human_review=1 WHERE campaign_id=? AND name=?',(cid,target))
-        if index<2:
+        if index<STATES.index('image_approved'):
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind IN ('image','video')",(cid,))
-        elif index<5:
+        elif index<STATES.index('video_approved'):
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'",(cid,))
+
+    def rewind(cid,c,fields):
+        """Volta a etapa e descarta as midias que uma edicao de ``fields`` invalida."""
+        target,kinds=stages.rewind_after_edit(c['status'],fields)
+        if target:
+            state(cid,target)
+            clear_after(cid,kinds)
 
     def clear_after(cid,kinds):
         for kind in kinds:
@@ -2166,13 +2175,7 @@ def create_app(config=None):
         if set(changed)&{'hook','development','cta'}:
             merged['video']=variacao.video_prompt(c,slot['color'],slot['index'],merged)
             changed['video']=merged['video']
-        if 'image' in changed:
-            state(cid,'briefing')
-            clear_after(cid,['image','video'])
-        elif set(changed)&{'hook','development','cta','video'} and STATES.index(c['status'])>=2:
-            state(cid,'image_approved')
-            clear_after(cid,['video'])
-        # Editar so a legenda nao volta etapa.
+        rewind(cid,c,changed)
         save_slot(cid,slot,merged)
         touch(cid, c['version'])
         db().commit()
@@ -2857,13 +2860,7 @@ def create_app(config=None):
         if set(fields)&{'hook','development','cta'}:
             merged['video']=rewritten.get('video',merged.get('video'))
         save_prompts(cid,merged)
-        only_caption = set(fields) == {'caption'}
-        if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:
-            state(cid, 'image_approved')
-            clear_after(cid, ['video'])
-        # Caption-only refresh stays on the current publish step — never kick back to roteiro/video.
-        elif only_caption:
-            pass
+        rewind(cid,c,fields)
         touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
@@ -2906,15 +2903,7 @@ def create_app(config=None):
                     merged.get('development',''), merged.get('cta',''))
                 merged['video']=patched or rewritten.get('video',merged.get('video'))
         save_slot(cid,slot,merged)
-        only_caption = set(fields) == {'caption'}
-        if (set(fields) & {'hook', 'development', 'cta'}) and STATES.index(c['status']) >= 2:
-            # editing falas after images: keep images, invalidate videos
-            if c['status'] not in {'briefing', 'image_ready'}:
-                state(cid, 'image_approved')
-                if STATES.index(c['status']) >= 3:
-                    clear_after(cid, ['video'])
-        elif only_caption:
-            pass  # caption-only: stay on publish step
+        rewind(cid,c,fields)
         touch(cid, c['version'])
         db().commit()
         return jsonify(detail(cid))
@@ -3014,11 +3003,7 @@ def create_app(config=None):
             'colors':[row['color'] for row,_ in saved],
             'local_audit':[],
         }})
-        if STATES.index(c['status'])>=2:
-            if c['status'] not in {'briefing','image_ready'}:
-                state(cid,'image_approved')
-            if STATES.index(c['status'])>=3:
-                clear_after(cid,['video'])
+        rewind(cid,c,fields)
         touch(cid,c['version'])
         db().commit()
         return jsonify(detail(cid))
@@ -3809,7 +3794,7 @@ def create_app(config=None):
         c=start(cid,data)
         editable(c)
         target=data.get('target')
-        if target not in STATES or STATES.index(target)!=STATES.index(c['status'])+1:
+        if not stages.is_next(c['status'],target):
             raise Invalid('Conclua a etapa atual antes de avançar.',409)
         soft_warnings=None
         if target in {'image_ready','video_ready'}:
@@ -3826,13 +3811,10 @@ def create_app(config=None):
                 db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(rows['id'],))
         elif target=='script_ready':
             need_asset(cid,'image',True)
-            current=detail(cid)
-            if current.get('variants'):
-                for variant in current['variants']:
-                    vp=variant.get('prompts') or {}
-                    if any(not str(vp.get(k) or '').strip() for k in ('hook','development','cta','caption','video')):
-                        raise Invalid(f"Complete o roteiro da cor {variant['color']} antes de avançar.",409)
-            elif any(not str(current['prompts'].get(k) or '').strip() for k in PROMPTS):
+            gaps=stages.script_gaps(detail(cid))
+            if gaps and gaps[0][0]:
+                raise Invalid(f"Complete o roteiro da cor {gaps[0][0]} antes de avançar.",409)
+            if gaps:
                 raise Invalid('Gere e revise todos os textos primeiro.',409)
         elif target=='video_approved':
             need_asset(cid,'image',True)
