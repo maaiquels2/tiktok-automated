@@ -3,7 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from services import formats, persuasion, script_budget, speech_bank
+from services import formats, generators, persuasion, script_budget, speech_bank
 
 
 def _phrase(value):
@@ -2018,14 +2018,9 @@ def _niche_key(c):
 # 4000 sem avisar: ate aqui todo prompt de video saia com 4600 a 6800
 # caracteres, entao o FINAL (honestidade, audio, "fale so as falas") era
 # descartado em silencio -- as travas que o projeto inteiro existe para manter.
-_LIMITE_PROMPT = {'grok': 4000}
-# Margem: nome de produto, cor e movimentos vem do briefing e variam de tamanho.
-_MARGEM_PROMPT = 60
-
-
+# O limite e a folga ficam no adapter do gerador (services/generators.py).
 def _limite_video(c):
-    limite = _LIMITE_PROMPT.get((c.get('generator') or '').strip().casefold())
-    return (limite - _MARGEM_PROMPT) if limite else None
+    return generators.of(c).prompt_target
 
 
 def _montar_video(blocos, limite=None):
@@ -3108,7 +3103,7 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
             c, product=product, color=color, piece_ref=piece_ref, photos=photos,
             product_reference=product_reference, facts=facts, materials=materials,
             notes=notes, base_image=base_image)
-    resolution = '1080 × 1920 (1080p)' if c['generator'] == 'flow' else '720 × 1280 (720p)'
+    resolution = generators.of(c).resolution_label
     build_video = {
         'pov': _build_pov_video_prompt,
         'movimento': _build_movement_video_prompt,

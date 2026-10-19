@@ -36,10 +36,14 @@ describe('scorePrompt: base', () => {
     expect(r.issues).toEqual([]);
   });
 
-  it('passa de 4.000 caracteres: -2 e avisa do corte', () => {
-    const r = scorePrompt(completo({ extra: 'x'.repeat(4000) }));
+  it('passa do limite do gerador: -2 e avisa do corte', () => {
+    const r = scorePrompt(completo({ extra: 'x'.repeat(4000) }), { maxChars: 4000 });
     expect(r.score).toBe(8);
-    expect(issues(r)).toContain('limite do Grok');
+    expect(issues(r)).toContain('limite do gerador');
+  });
+
+  it('gerador sem limite (Flow) não perde nota pelo tamanho', () => {
+    expect(scorePrompt(completo({ extra: 'x'.repeat(4000) })).score).toBe(10);
   });
 
   it('câmera e luz sem nome custam 1 ponto cada', () => {

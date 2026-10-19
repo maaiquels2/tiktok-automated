@@ -38,7 +38,8 @@ function speechLines(text) {
 
 const words = s => (s.match(/[\p{L}\p{N}]+/gu) || []).length;
 
-export function scorePrompt(text) {
+// maxChars: limite do campo de prompt do gerador (Grok 4000; Flow nao tem: null).
+export function scorePrompt(text, { maxChars = null } = {}) {
   const prompt = String(text || '');
   if (!prompt.trim()) return null;
   const low = prompt.toLowerCase();
@@ -46,9 +47,9 @@ export function scorePrompt(text) {
   let score = 10;
   const hit = (points, message) => { score -= points; issues.push(message); };
 
-  // Limite real do Grok. O prompt completo usa ~3.900 de proposito: no teste
-  // real ele gerou videos melhores que o Guia curto.
-  if (prompt.length > 4000) hit(2, `Passa do limite do Grok (${prompt.length} de 4.000 caracteres): o fim do prompt é cortado.`);
+  // O prompt completo encosta no limite de proposito: no teste real ele gerou
+  // videos melhores que o Guia curto.
+  if (maxChars && prompt.length > maxChars) hit(2, `Passa do limite do gerador (${prompt.length} de ${maxChars.toLocaleString('pt-BR')} caracteres): o fim do prompt é cortado.`);
 
   const speech = speechLines(prompt);
   const outsideSpeech = speech.reduce((acc, line) => acc.split(line.toLowerCase()).join(' '), low);

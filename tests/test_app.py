@@ -2454,6 +2454,16 @@ class WorkflowTests(unittest.TestCase):
         from services.story_arcs import WORD_CEILING,WORD_FLOOR
         self.assertEqual((WORD_FLOOR,WORD_CEILING),script_budget.FILL)
 
+    def test_generator_adapters_hold_limit_and_resolution(self):
+        from services import generators
+        self.assertIs(generators.of({'generator':'Grok'}),generators.GROK)
+        self.assertIs(generators.of({}),generators.FLOW)  # padrao do banco
+        self.assertEqual(generators.GROK.resolution_label,'720 × 1280 (720p)')
+        self.assertEqual(generators.FLOW.resolution_label,'1080 × 1920 (1080p)')
+        self.assertFalse(generators.GROK.fits('x'*4001))
+        self.assertTrue(generators.FLOW.fits('x'*9000))
+        self.assertEqual(self.get()['generator_info']['max_prompt_chars'],None)  # campanha de teste e Flow
+
     def test_color_list_is_the_same_everywhere(self):
         from services import variants
         self.assertEqual(variants.colors('Azul, azul; Preto.\nBranco'),['Azul','Preto','Branco'])

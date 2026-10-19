@@ -476,7 +476,7 @@ export default function App(){
       :`/campaigns/${c.id}/prompts/refresh-video`;
     const action=()=>run(
       ()=>api(endpoint,{method:'POST',body:{version:c.version}}),
-      c.generator==='grok'?'Prompt de vídeo recriado dentro do limite de 4.000 caracteres.':'Prompt de vídeo recriado.',
+      c.generator_info?.max_prompt_chars?`Prompt de vídeo recriado dentro do limite de ${c.generator_info.max_prompt_chars.toLocaleString('pt-BR')} caracteres.`:'Prompt de vídeo recriado.',
       // Ja estando na etapa de video, nao "navega" de novo: assim a rolagem
       // fica onde estava, no prompt que acabou de ser recriado.
       selected==='video'?undefined:'video'
@@ -1057,7 +1057,7 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
   if(selected==='video'){
     if(index<3)return <div className="notice">Aprove as imagens e conclua o roteiro antes de criar o vídeo.</div>;
     const firstVideo=c.assets.find(a=>a.kind==='video');
-    const limit=c.generator==='grok'?4000:null;
+    const limit=c.generator_info?.max_prompt_chars||null;
     return <>
       {c.variants?.length>0
         ?<VariantList variants={c.variants} images={c.assets} videos={c.assets} deviceVideos={c.device_videos} deviceFiles={deviceFiles} onError={onError} focus="video" onUpload={onUpload} onDeviceVideo={onDeviceVideo} onRefreshVideoPrompt={onRefreshVideoPrompt} onImproveVideoPrompt={onImproveVideoPrompt} videoPromptLimit={limit} busy={busy} disabled={immutable} immutable={immutable} campaign={c} onChangeVideoMode={onChangeVideoMode} onOpenGenerator={onOpenGenerator}/>
@@ -1086,7 +1086,7 @@ function Panel({c,identity,selected,busy,references,deviceFiles,onDirty,onError,
       <div className="notice">Confira <strong>cada cor</strong>. ~15s e 9:16 são recomendadas, mas não bloqueiam.</div>
       <div className="comparison-grid">{vids.map((vid,i)=><div key={vid.id||`device-${vid.slot}-${i}`} className="comparison-card"><span>{vid.slot||vid.metadata?.color||'Vídeo'}</span>{vid.device_only?<DeviceVideoCard record={vid} localFile={deviceFiles[vid.slot||'']}/>:<AssetView asset={vid} title={vid.slot||'Vídeo'} compact/>}{vid.approved_at&&<p className="approved-label"><Check size={14}/>Aprovado</p>}</div>)}</div>
       {!!slots.filter(Boolean).length && <ul className="color-checklist">{slots.filter(Boolean).map(s=><li key={s}>{bySlot[s]?`✓ ${s}: vídeo anexado`:`✗ ${s}: falta anexar`}</li>)}</ul>}
-      {vids.every(a=>a.approved_at)?<div className="notice success"><Check size={16}/>{vids.length===1?'Vídeo aprovado.':'Todos os vídeos aprovados.'}</div>:needsLegacyRepair?<div className="notice success"><Check size={16}/><div><strong>Esta aprovação já foi registrada.</strong><p>O arquivo ficou sem a marca de aprovação por uma versão anterior da fábrica. Continue para a publicação para corrigir o registro.</p>{c.status==='video_approved'&&<button type="button" className="primary" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Continuar para publicação <ArrowRight size={16}/></button>}</div></div>:<><p>Alvo: 15 segundos · {c.generator==='flow'?'1080 × 1920':'720 × 1280'} · MP4.</p>
+      {vids.every(a=>a.approved_at)?<div className="notice success"><Check size={16}/>{vids.length===1?'Vídeo aprovado.':'Todos os vídeos aprovados.'}</div>:needsLegacyRepair?<div className="notice success"><Check size={16}/><div><strong>Esta aprovação já foi registrada.</strong><p>O arquivo ficou sem a marca de aprovação por uma versão anterior da fábrica. Continue para a publicação para corrigir o registro.</p>{c.status==='video_approved'&&<button type="button" className="primary" disabled={busy} onClick={()=>onTransition('ready_to_publish')}>Continuar para publicação <ArrowRight size={16}/></button>}</div></div>:<><p>Alvo: 15 segundos · {c.generator_info?`${c.generator_info.width} × ${c.generator_info.height}`:''} · MP4.</p>
       {check('visual','Assisti a todos os vídeos. Identidade, look, produto e movimentos estão corretos em cada cor.')}
       {check('audio','Revisei áudio, falas, sincronização e duração em cada cor.')}
       <button className="primary full" disabled={busy||!allPresent||!statusOk||!checks.visual||!checks.audio} onClick={()=>onTransition('video_approved',{approved_by:identity?.model_name||'Usuário'})}><Check size={17}/> {approveLabel}</button>

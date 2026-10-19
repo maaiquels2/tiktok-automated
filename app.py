@@ -27,7 +27,7 @@ from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import copywriter, formats, speech_bank
+from services import copywriter, formats, generators, speech_bank
 from services import variants as variacao
 from services.prompts import _with_article
 
@@ -1065,6 +1065,7 @@ def create_app(config=None):
             c['assets'].append(a)
         c['device_videos']=device_videos_of(cid)
         c['colors']=variacao.colors(c.get('color'))
+        c['generator_info']=generators.of(c).info()
         # Dica de edicao do formato (juntar as cores, responder comentario...).
         c['edit_tip']=formats.edit_tip(c)
         c['product_assets']=[]
@@ -3031,10 +3032,15 @@ def create_app(config=None):
         """
         if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de recriar o prompt de vídeo.',409)
-        rebuilt=variacao.video_prompt(detail(cid),color,index,prompts)
-        if (c.get('generator') or '').casefold()=='grok' and len(rebuilt)>4000:
-            raise Invalid('O prompt recriado ainda ultrapassou o limite de 4.000 caracteres do Grok.',500)
-        return rebuilt
+        return ensure_fits(c,variacao.video_prompt(detail(cid),color,index,prompts))
+
+    def ensure_fits(c,text):
+        """O gerador da campanha aceita o prompt inteiro (o Grok corta o fim sem avisar)."""
+        gen=generators.of(c)
+        if not gen.fits(text):
+            limite=f'{gen.max_prompt_chars:,}'.replace(',','.')
+            raise Invalid(f'O prompt de vídeo ultrapassou o limite de {limite} caracteres do {gen.name.title()}.',500)
+        return text
 
     def invalidate_video_slot(cid,c,slot=None):
         """Discard a rendered video only when one already exists for the prompt."""
@@ -3093,7 +3099,8 @@ def create_app(config=None):
         from services.prompt_improve import build_compact_video_prompt
         if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de melhorar o prompt de vídeo.',409)
-        return build_compact_video_prompt(detail(cid),prompts,color)
+        current=detail(cid)
+        return ensure_fits(current,build_compact_video_prompt(current,prompts,color))
 
     @app.post('/api/campaigns/<int:cid>/prompts/improve-video')
     @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/improve-video')
@@ -3748,7 +3755,7 @@ def create_app(config=None):
         scale = target_duration / total
         resolved = [(row, max(0.2, s * scale)) for row, s in resolved]
 
-        width, height = (1080, 1920) if c['generator'] == 'flow' else (720, 1280)
+        width, height = generators.of(c).resolution
         fd, temp = tempfile.mkstemp(dir=app.config['MEDIA_DIR'], suffix='.mix.mp4')
         os.close(fd)
         temp_path = Path(temp)
@@ -3831,7 +3838,7 @@ def create_app(config=None):
             need_asset(cid,'image',True)
             rows=need_videos(cid)
             # Duration/resolution are advisory only — do not block approval.
-            expected=(1080,1920) if c['generator']=='flow' else (720,1280)
+            expected=generators.of(c).resolution
             warnings=[]
             for a in rows:
                 meta=json.loads(a['metadata']) if isinstance(a['metadata'],str) else a['metadata']

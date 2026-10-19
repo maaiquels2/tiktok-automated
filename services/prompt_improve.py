@@ -22,7 +22,7 @@ caracteres.
 import re
 import unicodedata
 
-from services import formats, persuasion
+from services import formats, generators, persuasion
 from services.prompts import (
     _NO_SPOTLIGHT, _with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
 from services.prompts import (
@@ -104,7 +104,7 @@ def mood(c: dict) -> str:
 
 
 def size(c: dict) -> str:
-    return '720 × 1280 (720p)' if _clean(c.get('generator')).casefold() == 'grok' else '1080 × 1920 (1080p)'
+    return generators.of(c).resolution_label
 
 
 _IRREGULAR = {'ir': 'vai', 'vir': 'vem', 'sair': 'sai', 'subir': 'sobe', 'pôr': 'põe', 'por': 'põe',

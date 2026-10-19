@@ -27,7 +27,7 @@ So le a campanha: nada e gravado. As falas sao um RASCUNHO que o operador pode e
 import re
 import unicodedata
 
-from services import script_budget, speech_bank
+from services import generators, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
@@ -45,7 +45,7 @@ CLIP_COUNTS = (2, 3)
 MIN_FACTS = 3            # os dois arcos usam 3 motivos
 MAX_FACTS = 4
 WORD_FLOOR, WORD_CEILING = script_budget.FILL   # abaixo sobra silencio no fim; acima a fala fica corrida
-GROK_LIMIT = 3940        # o Grok corta em 4000 caracteres sem avisar; margem para o nome e a cor
+GROK_LIMIT = generators.GROK.prompt_target   # o Grok corta sem avisar; folga para o nome e a cor
 SECONDS_PER_CLIP = 15
 
 CONTINUITY = ('CONTINUIDADE: clipe {n} de {total} da MESMA gravação: mesma modelo, mesmo espelho, mesma roupa e '
@@ -484,7 +484,8 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         elif words > WORD_CEILING:
             problems.append(f'fala longa ({words} palavras): pode ficar corrida')
         if len(full) > GROK_LIMIT:
-            problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em 4.000')
+            problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em '
+                            f'{generators.GROK.max_prompt_chars:,}'.replace(',', '.'))
         result.append(dict(
             index=i, role=role, final=i == clips, seconds=SECONDS_PER_CLIP, lines=list(trio), words=words,
             spoken=' '.join(trio), screen_text=screen, problems=problems,

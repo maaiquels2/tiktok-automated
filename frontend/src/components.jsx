@@ -108,9 +108,9 @@ export function ProductGallery({photos=[]}){
 }
 // Nota do prompt de video, ao lado do contador de caracteres. Clicar mostra
 // o que pesou na nota.
-export function PromptScore({text}){
+export function PromptScore({text,maxChars}){
   const [open,setOpen]=useState(false);
-  const result=scorePrompt(text);
+  const result=scorePrompt(text,{maxChars});
   if(!result)return null;
   return <span className="prompt-score-wrap">
     <button type="button" className={'prompt-score tone-'+result.tone} aria-expanded={open} onClick={()=>setOpen(v=>!v)} title="Ver o que pesou na nota">Nota {result.score}/10 · {result.label}</button>
@@ -371,7 +371,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <StoryArcs key={`arcs-top-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}
           initialArc={campaign.sequence_arc} initialClips={campaign.sequence_clips} autoBuild/></div>}
       <section className="rd-card" aria-label="Prompt de vídeo">
-        <div className="rd-card-head"><h3>Prompt de vídeo{color?` · ${color}`:''}</h3><PromptScore text={p.video}/></div>
+        <div className="rd-card-head"><h3>Prompt de vídeo{color?` · ${color}`:''}</h3><PromptScore text={p.video} maxChars={videoPromptLimit}/></div>
         <div className="rd-segments">
           <div><span className="rd-segmented-label">Formato</span>
             <select className="rd-format-select" aria-label="Formato do vídeo" value={mode} disabled={busy||immutable} onChange={e=>pickFormat(e.target.value)}>
