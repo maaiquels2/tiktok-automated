@@ -17,11 +17,11 @@ import math
 import re
 
 from services.prompt_improve import (
-    _clean, _quote, _touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
+    clean, quote, touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
 from services import persuasion, script_budget
 from services.formats import video_mode as _video_mode
-from services.prompts import _dominant_motor, _focus_parts, _with_em
+from services.prompts import dominant_motor, focus_parts, with_em
 from services.script_budget import count_words as _count_words
 
 # Ritmo de fala do orcamento do roteiro, mais um respiro para a acao antes e
@@ -46,21 +46,21 @@ def _short_cta(cta: str) -> str:
 
 
 def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
-    model = _clean(c.get('model_name')) or 'a modelo'
-    product = _clean(c.get('product')) or _clean(c.get('outfit')) or 'a peça'
-    color = _clean(color) or _clean(c.get('color'))
+    model = clean(c.get('model_name')) or 'a modelo'
+    product = clean(c.get('product')) or clean(c.get('outfit')) or 'a peça'
+    color = clean(color) or clean(c.get('color'))
     keeps = f'{product} na cor {color}' if color else product
-    hook, development, cta = (_quote(prompts.get(k)) for k in ('hook', 'development', 'cta'))
+    hook, development, cta = (quote(prompts.get(k)) for k in ('hook', 'development', 'cta'))
     mode = _video_mode(c)
     silent = mode == 'movimento'
-    touch = _touch_point(c)
+    touch = touch_point(c)
     touch_em = 'no cós' if touch == 'o cós' else 'na peça'
     shot = framing(c) if mode == 'movimento' else speech_framing(c)
     spoken = f'{hook} {development}'
     # Com fala, o mesmo teto do prompt resumido: 3 acoes no meio.
     steps = flow(movement_steps(c, spoken, limit=3 if not silent else 4)[:3])
     head = f'Vídeo vertical 9:16, {size(c)}. Clima: {mood(c)}.'
-    cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
+    cena = persuasion.scene_direction(persuasion.script_motor(dominant_motor(c), hook), touch)
     keep_line = 'Continuação do mesmo take, já em movimento: mesma pessoa, roupa e luz; segue o último quadro sem pausa.'
     # Emenda das partes: quem para no ultimo quadro faz o Extend recomecar
     # do zero, e o video final trava na juncao.
@@ -134,10 +134,10 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             f'E fecha, sorrindo: "{cta}"',
         ])
 
-    _focus, features = _focus_parts(c)
+    _focus, features = focus_parts(c)
     screen = [
-        _clean(prompts.get('screen_text')) or hook,
-        f'Repara {_with_em(features[0])}' if features else 'Repara no caimento',
+        clean(prompts.get('screen_text')) or hook,
+        f'Repara {with_em(features[0])}' if features else 'Repara no caimento',
         _short_cta(cta),
     ]
     lines = (hook, development, cta)
@@ -172,7 +172,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         'Se gerou as partes separadas: importe na ordem 1, 2, 3 e corte seco, sem transição. '
         'Tire cerca de 0,2s do começo da parte 2 e da 3 para não repetir o quadro de emenda.',
         *audio_steps,
-        f'Capa: "{_clean(prompts.get("cover_text")) or hook}" no primeiro quadro.',
+        f'Capa: "{clean(prompts.get("cover_text")) or hook}" no primeiro quadro.',
         'Exporte em 1080p e 30 fps. O mesmo MP4 9:16 serve para TikTok, Reels e Shopee Vídeo.',
     ]
     tips = [

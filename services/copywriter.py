@@ -32,8 +32,8 @@ from pathlib import Path
 from services import formats, persuasion, script_budget, speech_bank
 from services.prompts import without_niche_defaults
 from services.prompts import (
-    _objection_parts, _offer_text, _product_features,
-    _dominant_motor, _chosen_motor, color_variants,
+    objection_parts, offer_text, product_features,
+    dominant_motor, chosen_motor, color_variants,
 )
 from services.script_budget import count_words as _count_words
 
@@ -229,7 +229,7 @@ _BATCH_AXES = (
 def _batch_axis(index: int, campaign: dict) -> tuple[str, str]:
     """Assign a stable, safe creative lane to each color in the same request."""
     axes=list(_BATCH_AXES)
-    if _offer_text(campaign):
+    if offer_text(campaign):
         axes.insert(5,('economia real', 'use somente a oferta confirmada para explicar o valor da escolha'))
     return axes[index % len(axes)]
 
@@ -387,9 +387,9 @@ def public_settings(data_dir, storage_get=None) -> dict:
 
 # --------------------------------------------------------------------------- brief
 def build_brief(c: dict) -> str:
-    facts = _product_features(c, limit=6)
-    pain, check = _objection_parts(c)
-    offer = _offer_text(c)
+    facts = product_features(c, limit=6)
+    pain, check = objection_parts(c)
+    offer = offer_text(c)
     colors = color_variants(c.get('color'))
     linhas = [
         f"PRODUTO: {c.get('product') or '(não informado)'}",
@@ -400,10 +400,10 @@ def build_brief(c: dict) -> str:
         f"PÚBLICO: {c.get('audience') or '(geral)'}",
         f"NICHO: {c.get('niche') or 'casual'}",
         f"TOM: {c.get('tone') or 'conversacional'}",
-        f"MOTOR DOMINANTE: {_dominant_motor(c)}"
-        + (" (escolhido pelo operador -- use as formulas desse motor, nao troque)" if _chosen_motor(c) else ""),
+        f"MOTOR DOMINANTE: {dominant_motor(c)}"
+        + (" (escolhido pelo operador -- use as formulas desse motor, nao troque)" if chosen_motor(c) else ""),
     ]
-    if _dominant_motor(c) == 'escassez' and not offer:
+    if dominant_motor(c) == 'escassez' and not offer:
         linhas.append("ESCASSEZ DE CONTEXTO (sem oferta real): use só descoberta honesta "
                       "(\"achei e não esperava\", \"não sabia que tinha\"), nunca prazo, estoque ou desconto inventado.")
     if pain:
@@ -414,7 +414,7 @@ def build_brief(c: dict) -> str:
         linhas.append(f"OFERTA REAL (pode usar urgência): {c.get('offer')}")
     else:
         linhas.append("OFERTA REAL: não existe — PROIBIDO usar qualquer palavra de urgência.")
-    linhas.extend(persuasion.brief_lines(_dominant_motor(c), c.get('offer') if offer else '',
+    linhas.extend(persuasion.brief_lines(dominant_motor(c), c.get('offer') if offer else '',
                                          c.get('social_proof'), bool(pain)))
     linhas.extend(formats.brief_lines(c, pain))
     if len(colors) > 1:
@@ -528,7 +528,7 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
         if termo in falado and termo not in briefing:
             problemas.append(f'"{termo}" não está no briefing e não pode ser afirmado')
 
-    if not _offer_text(c):
+    if not offer_text(c):
         for padrao in URGENCY_PATTERNS:
             achado = re.search(padrao, falado)
             if achado:
@@ -537,7 +537,7 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
     # Com oferta, cada tipo de urgencia precisa do seu fato (prazo, estoque,
     # desconto com o numero exato...); prova social so se declarada.
     problemas.extend(persuasion.urgency_problems(
-        falado, c.get('offer') if _offer_text(c) else '', c.get('social_proof')))
+        falado, c.get('offer') if offer_text(c) else '', c.get('social_proof')))
 
     for padrao in STAGE_DIRECTION_PATTERNS:
         achado = re.search(padrao, falado)
@@ -600,7 +600,7 @@ class ProviderError(Exception):
         self.param = param
 
 
-def _describe_error(status: int, corpo: str) -> ProviderError:
+def describe_error(status: int, corpo: str) -> ProviderError:
     mensagem, param = '', ''
     try:
         dados = json.loads(corpo)
@@ -638,7 +638,7 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: int = TIMEOUT) -
             corpo = exc.read().decode('utf-8', 'ignore')
         except Exception:
             corpo = ''
-        raise _describe_error(exc.code, corpo) from exc
+        raise describe_error(exc.code, corpo) from exc
 
 
 # Parametros que um modelo pode recusar. Os modelos de raciocinio mais novos,
@@ -662,7 +662,7 @@ def _image_data_url(image_bytes: bytes, mime: str) -> str:
     return f"data:{mime or 'image/jpeg'};base64,{base64.b64encode(image_bytes).decode('ascii')}"
 
 
-def _call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
+def call_openai(settings: dict, system: str, user: str, images: list[tuple[bytes, str]] | None = None) -> str:
     if images:
         content = [{'type': 'text', 'text': user}]
         for image_bytes, mime in images:
@@ -743,7 +743,7 @@ def _call_gemini(settings: dict, system: str, user: str, images: list[tuple[byte
     raise ProviderError('o modelo recusou todos os parametros enviados', status=400)
 
 
-CALLERS = {'openai': _call_openai, 'gemini': _call_gemini}
+CALLERS = {'openai': call_openai, 'gemini': _call_gemini}
 
 
 def _tidy(text: str) -> str:
@@ -754,7 +754,7 @@ def _tidy(text: str) -> str:
     return text[:1].upper() + text[1:]
 
 
-def _clean_pack(dados: dict) -> dict:
+def clean_pack(dados: dict) -> dict:
     pack = {k: str(dados.get(k) or '').strip() for k in ('hook', 'development', 'cta', 'caption')}
     for k in ('hook', 'development', 'cta'):
         pack[k] = _tidy(pack[k])
@@ -768,7 +768,7 @@ def _weak_cta(text: str) -> bool:
 
 def _strong_cta(c: dict, index: int = 0) -> str:
     """Close with action and ethical urgency, never invented scarcity."""
-    offer=_offer_text(c).casefold()
+    offer=offer_text(c).casefold()
     if offer:
         offer_short=' '.join(offer.split()[:5]).rstrip('.,;:')
         if re.search(r'últim|ultim|estoque|esgot|peças|pecas|unidades',offer):
@@ -788,7 +788,7 @@ def _strong_cta(c: dict, index: int = 0) -> str:
     return pool[int(index or 0)%len(pool)]
 
 
-def _parse_candidates(raw: str) -> list[dict]:
+def parse_candidates(raw: str) -> list[dict]:
     texto = (raw or '').strip()
     texto = re.sub(r'^```(?:json)?|```$', '', texto, flags=re.M).strip()
     inicio, fim = texto.find('{'), texto.rfind('}')
@@ -799,12 +799,12 @@ def _parse_candidates(raw: str) -> list[dict]:
         raise ValueError('resposta não é um objeto')
     options = dados.get('options')
     if isinstance(options, list):
-        packs = [_clean_pack(item) for item in options if isinstance(item, dict)]
+        packs = [clean_pack(item) for item in options if isinstance(item, dict)]
         if packs:
             return packs[:5]
     # Compatibilidade com provedores/modelos que ainda devolvem o formato
     # antigo. A auditoria continua valendo, portanto isto nao reduz a seguranca.
-    return [_clean_pack(dados)]
+    return [clean_pack(dados)]
 
 
 def _parse_batch_candidates(raw: str) -> dict[str, list[dict]]:
@@ -826,7 +826,7 @@ def _parse_batch_candidates(raw: str) -> dict[str, list[dict]]:
         options = item.get('options')
         if not key or key in parsed or not isinstance(options, list):
             raise ValueError('chave ausente ou repetida na resposta em lote')
-        packs = [_clean_pack(option) for option in options if isinstance(option, dict)]
+        packs = [clean_pack(option) for option in options if isinstance(option, dict)]
         if not packs:
             raise ValueError(f'nenhuma opção recebida para a chave {key}')
         parsed[key] = packs[:5]
@@ -837,7 +837,7 @@ ORAL_MARKERS = (r'\bpra\b', r'\btá\b', r'\btô\b', r'\bgente\b', r'\bsério\b',
                 r'\bnuma boa\b', r'\bdemais\b', r'\bjeitinho\b', r'\baí\b')
 
 
-def _creative_score(pack: dict, c: dict) -> int:
+def creative_score(pack: dict, c: dict) -> int:
     """Desempata candidatos validos pela naturalidade e especificidade."""
     hook = (pack.get('hook') or '').casefold()
     development = (pack.get('development') or '').casefold()
@@ -847,7 +847,7 @@ def _creative_score(pack: dict, c: dict) -> int:
         score += 4
     if any(re.search(p, f'{hook} {development}') for p in FIRST_PERSON_PATTERNS):
         score += 3
-    pain, check = _objection_parts(c)
+    pain, check = objection_parts(c)
     evidence = f'{pain} {check}'.casefold()
     evidence_words = {w for w in re.findall(r'[a-záàâãéêíóôõúç]{5,}', evidence) if w not in {'mostrar', 'aparece', 'movimento'}}
     score += min(4, sum(1 for word in evidence_words if word in f'{hook} {development}'))
@@ -903,7 +903,7 @@ def batch_diversity_issues(items: list[tuple[str, dict]]) -> list[str]:
 
 def _parse(raw: str) -> dict:
     """Formato antigo usado por testes e integracoes locais."""
-    return _parse_candidates(raw)[0]
+    return parse_candidates(raw)[0]
 
 
 def write_script(c: dict, settings: dict, attempts: int = 2,
@@ -935,7 +935,7 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
             bruto = _call_with_deadline(
                 lambda s, sy, u, _imgs: caller(s, sy, u),
                 settings, SYSTEM_PROMPT, user, None, orcamento_s=restante)
-            candidates = _parse_candidates(bruto)
+            candidates = parse_candidates(bruto)
         except ProviderError as exc:
             if exc.status:
                 return None, f'o provedor respondeu {exc.status}: {exc.message[:400]}'
@@ -956,7 +956,7 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
             else:
                 approved.append(pack)
         if approved:
-            return max(approved, key=lambda item: _creative_score(item, c)), ''
+            return max(approved, key=lambda item: creative_score(item, c)), ''
         # Mantem a lista curta para nao gastar a segunda tentativa repetindo
         # dezenas de avisos equivalentes vindos de tres opcoes.
         unique = []
@@ -1056,7 +1056,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
                     approved.append(pack)
             if approved:
                 approved_by_key[key]=sorted(
-                    approved,key=lambda item:_creative_score(item,campaign),reverse=True)
+                    approved,key=lambda item:creative_score(item,campaign),reverse=True)
             else:
                 rejected.append(f'{campaign.get("color") or key}: nenhuma opção passou na auditoria')
         if len(approved_by_key) == len(expected):
@@ -1073,7 +1073,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
                            for hook,development,combined in comparisons):
                         continue
                     max_similarity=max((combined for _h,_d,combined in comparisons),default=0.0)
-                    choices.append((_creative_score(candidate,campaign)-round(max_similarity*10),candidate))
+                    choices.append((creative_score(candidate,campaign)-round(max_similarity*10),candidate))
                 if not choices:
                     rejected.append(
                         f'{campaign.get("color") or key}: as opções repetem o roteiro de outra cor')
@@ -1332,7 +1332,7 @@ QUICK_LIMITS = {'product': 120, 'colors': 300, 'niche': 20, 'details': 1500, 'be
                 'angle': 300, 'movements': 800, 'objection': 200, 'offer': 300, 'social_proof': 200}
 
 
-def _parse_quick(raw: str, niches) -> dict:
+def parse_quick(raw: str, niches) -> dict:
     texto = re.sub(r'^```(?:json)?|```$', '', (raw or '').strip(), flags=re.M).strip()
     inicio, fim = texto.find('{'), texto.rfind('}')
     if inicio >= 0 and fim > inicio:
@@ -1386,7 +1386,7 @@ def quick_brief(images: list[tuple[bytes, str, str]], settings: dict, niches,
         bruto = _call_with_deadline(
             caller, {**settings, '_request_timeout': min(TIMEOUT, VISION_BUDGET_SECONDS)},
             QUICK_VISION_PROMPT, user, fotos, orcamento_s=VISION_BUDGET_SECONDS)
-        campos = _parse_quick(bruto, niches)
+        campos = parse_quick(bruto, niches)
     except ProviderError as exc:
         if exc.status:
             return None, f'o provedor respondeu {exc.status}: {exc.message[:300]}'

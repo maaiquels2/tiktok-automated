@@ -2,7 +2,7 @@
 import unittest
 
 from services.model_library import NICHE_DEFAULTS
-from services.prompts import _image_details, generate, generate_variants
+from services.prompts import image_details, generate, generate_variants
 
 
 class LocalizedImagePromptTests(unittest.TestCase):
@@ -68,15 +68,15 @@ class LocalizedImagePromptTests(unittest.TestCase):
 
     def test_static_camera_notes_survive_extraction_but_not_base_override(self):
         notes = 'Câmera fixa na altura dos olhos; enquadramento de corpo inteiro'
-        self.assertEqual(_image_details(notes), notes.replace(';', '.'))
-        self.assertEqual(_image_details(notes, preserve_base=True), '')
+        self.assertEqual(image_details(notes), notes.replace(';', '.'))
+        self.assertEqual(image_details(notes, preserve_base=True), '')
 
     def test_video_clauses_are_removed_and_garment_notes_survive(self):
         notes = ('Alfaiataria com manga alongada; corte reto; bolso lateral; '
                  '0–4s: dizer o hook; zoom in e zoom out; gire de lado; '
                  'alongue os braços; no final acene; legenda da loja; '
                  'costura reforçada no punho')
-        clean = _image_details(notes)
+        clean = image_details(notes)
         for wanted in ('Alfaiataria com manga alongada', 'corte reto',
                        'bolso lateral', 'costura reforçada no punho'):
             self.assertIn(wanted, clean)
@@ -90,7 +90,7 @@ class LocalizedImagePromptTests(unittest.TestCase):
 
     def test_line_breaks_separate_product_notes_from_pose_and_video(self):
         notes = 'Punhos com botões\nMãos na cintura\nCostura dupla\nGire de lado'
-        self.assertEqual(_image_details(notes, preserve_base=True),
+        self.assertEqual(image_details(notes, preserve_base=True),
                          'Punhos com botões. Costura dupla')
         image = generate(self.brief(details=notes))['image']
         self.assertIn('Punhos com botões. Costura dupla', image)

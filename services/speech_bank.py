@@ -685,7 +685,7 @@ CATEGORIES.extend([
 # Combinacoes que a modelo veste junto (opiniao de estilo, nao fato da peca).
 # Vem dos exemplos de "uma peca, varias combinacoes" do material de vendas,
 # reescritos em primeira pessoa.
-_COMBOS = {
+COMBOS = {
     'short_legging': ('uma regata soltinha', 'um top de academia'),
     'legging': ('uma camiseta oversized', 'um cropped'),
     'calca_jeans': ('uma camiseta básica', 'uma camisa'),
@@ -707,7 +707,7 @@ def _enrich(cat: dict) -> None:
     cat['hooks'].append({'t': 'Antes de escolher {teu} {piece}, olha {dem} que eu achei.'})
     if cat.get('family'):
         return
-    combos = _COMBOS.get(cat['id'])
+    combos = COMBOS.get(cat['id'])
     if combos:
         cat['hooks'].append({'t': f'Vesti {{dem}} {{piece}} com {combos[0]} e olha como ficou.'})
         cat['closers'].append(f'Fica lindo com {combos[1]}.')

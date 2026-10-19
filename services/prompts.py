@@ -42,7 +42,7 @@ def _pt_br(value):
     return text
 
 
-_PRODUCT_FEATURES = (
+PRODUCT_FEATURES = (
     ('bolso lateral', ('bolso lateral', 'bolsos laterais')),
     ('bolso interno', ('bolso interno', 'bolsos internos')),
     ('bolso', ('bolso', 'bolsos')),
@@ -154,7 +154,7 @@ def _is_niche_default(value):
     return bool(v) and any(v == re.sub(r'^(tem|possui)\s+', '', d) for d in _niche_default_texts())
 
 
-def _product_features(c, limit=3):
+def product_features(c, limit=3):
     """Return only attributes literally present in the user's brief.
 
     This is deliberately conservative: a local generator is more useful when it
@@ -167,7 +167,7 @@ def _product_features(c, limit=3):
     negative_source = ' '.join(without_niche_defaults(c.get(key)) for key in
                                ('product', 'outfit', 'details', 'benefit'))
     found = []
-    for label, needles in _PRODUCT_FEATURES:
+    for label, needles in PRODUCT_FEATURES:
         # Do not report a broad feature after its more precise form ("bolso"
         # after "bolso lateral"). It wastes words and weakens the hook.
         if label == 'bolso' and any(item.startswith('bolso ') for item in found):
@@ -189,7 +189,7 @@ def _product_features(c, limit=3):
 
 def _material_facts(c):
     """Keep composition visible even when several other features fill the focus list."""
-    return [item for item in _product_features(c, limit=50) if item in _MATERIAL_LABELS]
+    return [item for item in product_features(c, limit=50) if item in _MATERIAL_LABELS]
 
 
 def _feature_present(source: str, needle: str, label: str = '') -> bool:
@@ -227,31 +227,31 @@ def _fallback_short(c):
 # Familias sem corpo a vestir: os moldes genericos do gerador ("Vesti...",
 # "como ela veste", "com uma blusinha basica") foram escritos para roupa.
 _NO_APPAREL_FAMILIES = ('beleza', 'acessorio')
-_APPAREL_RE = re.compile(
+APPAREL_RE = re.compile(
     r'caimento|vest(?:e|i|ir|indo|ida|ido)|vestid[ao]s?|blus|barra|agach|provador|fit check|'
     r'cintura|cós|jaqueta|cinto|no corpo|costura|tecido|gir(?:a|ar|o|inho)', re.I)
 
 
-def _apparel_free(c, candidates):
+def apparel_free(c, candidates):
     """Tira dos candidatos (texto ou (molde, texto)) o que fala como roupa,
     quando o produto nao e roupa. Se nada sobrar, devolve a lista inteira:
     melhor uma fala genérica que nenhuma."""
     if _product_family(c) not in _NO_APPAREL_FAMILIES:
         return candidates
     keep = [item for item in candidates
-            if not _APPAREL_RE.search(item[1] if isinstance(item, tuple) else item)]
+            if not APPAREL_RE.search(item[1] if isinstance(item, tuple) else item)]
     return keep or candidates
 
 
 # Teste real (biquini com amarracao no pescoco): "ajusta o laco da amarracao e solta" e o close "na amarracao"
 # fizeram o Grok inventar um laco no peito, onde a peca tem uma concha. Amarracao continua como FATO, mas nunca
 # vira gesto automatico, close ou detalhe principal; o close e o gesto vao para o que vende (bordados, argolas...).
-_NO_SPOTLIGHT = ('amarração',)
+NO_SPOTLIGHT = ('amarração',)
 
 
-def _focus_parts(c):
+def focus_parts(c):
     """Turn the angle and explicit product attributes into readable focus text."""
-    features = _product_features(c, limit=2)
+    features = product_features(c, limit=2)
     angle = _pt_br(c.get('angle'))
     cleaned = re.sub(r'^(mostrar|mostre|destacar|destaque|focar em)\s+', '', angle,
                      flags=re.I).strip(' .,:;')
@@ -269,7 +269,7 @@ def _focus_parts(c):
     }:
         return cleaned, features
     if features:
-        shown = [f for f in features if f not in _NO_SPOTLIGHT] or features
+        shown = [f for f in features if f not in NO_SPOTLIGHT] or features
         if len(shown) == 1:
             return shown[0], features
         if len(shown) == 2:
@@ -283,7 +283,7 @@ def _focus_is_contradictory(c, focus: str) -> bool:
     source = ' '.join(_phrase(c.get(key)).casefold() for key in
                       ('product', 'outfit', 'details', 'benefit'))
     target = _phrase(focus).casefold()
-    for label, needles in _PRODUCT_FEATURES:
+    for label, needles in PRODUCT_FEATURES:
         if label.startswith('sem '):
             continue
         negative_needles = list(needles)
@@ -327,7 +327,7 @@ def _is_unisex(c) -> bool:
     return bool(re.search(r'\bunissex\b|\bunisex\b', blob, re.I))
 
 
-def _with_article(value):
+def with_article(value):
     """Make a short attribute usable after verbs such as 'veja' or 'mostre'.
 
     Atributo em forma negativa ("sem transparencia") nao aceita artigo: "Repara
@@ -379,15 +379,15 @@ def _with_article(value):
     return f'o detalhe de {value}'
 
 
-def _with_em(value):
+def with_em(value):
     """Put a visible attribute after ``em`` with the correct contraction."""
-    value = _with_article(value)
+    value = with_article(value)
     if not value:
         return value
     return re.sub(r'^(o|a|os|as)\b', lambda m: {'o': 'no', 'a': 'na', 'os': 'nos', 'as': 'nas'}[m.group(1).casefold()], value, flags=re.I)
 
 
-def _benefit_clause(c):
+def benefit_clause(c):
     """Create a grammatical, bounded benefit clause without adding claims."""
     raw = _pt_br(c.get('benefit')).rstrip('.').strip()
     if _is_niche_default(c.get('benefit')):
@@ -477,7 +477,7 @@ _SCENE_COMPOSITION_RE = re.compile(
 )
 
 
-def _image_details(details: str, *, preserve_base=False) -> str:
+def image_details(details: str, *, preserve_base=False) -> str:
     """Keep static notes, with an extra continuity guard for localized edits.
 
     Match words rather than substrings ("alfaiataria" is not a spoken line).
@@ -531,7 +531,7 @@ def _image_angle(value: str) -> str:
     return text
 
 
-def _video_details(details: str) -> str:
+def video_details(details: str) -> str:
     """Keep useful operator notes, excluding playbook metadata, shot lists and
     scene/composition boilerplate (the video prompt's CENARIO FIXO already
     locks the environment to the approved/reference photo; a leftover niche
@@ -628,12 +628,12 @@ _PROOF_GESTURES = {
 }
 
 
-def _proof_gestures(features, limit=3, turns=()):
+def proof_gestures(features, limit=3, turns=()):
     """Converte cada fato confirmado no gesto que o demonstra na camera."""
     turns = set(turns or ())
     plan = []
     for label in features or []:
-        if label in _NO_SPOTLIGHT:
+        if label in NO_SPOTLIGHT:
             continue
         gesture = _PROOF_GESTURES.get(label)
         # Prova visual também respeita a orientação escolhida. Antes, o fato
@@ -669,10 +669,10 @@ _POV_PROOF_GESTURES = {
 }
 
 
-def _pov_proof_gestures(features, limit=3):
+def pov_proof_gestures(features, limit=3):
     plan = []
     for label in features or []:
-        if label in _NO_SPOTLIGHT:
+        if label in NO_SPOTLIGHT:
             continue
         gesture = _POV_PROOF_GESTURES.get(label) or _PROOF_GESTURES.get(label)
         if gesture and not _POV_SKIP_RE.search(gesture):
@@ -712,7 +712,7 @@ def _is_arm_action(chunk: str) -> bool:
     return any(word in chunk.casefold() for word in _ARM_ACTIONS)
 
 
-def _movement_plan(value: str, limit: int = 6) -> str:
+def movement_plan(value: str, limit: int = 6) -> str:
     """Keep the action list executable without flooding a video model.
 
     Duas regras que parecem detalhe e nao sao:
@@ -750,7 +750,7 @@ _TURN_ACTION_RE = re.compile(
 )
 
 
-def _body_turns(c: dict) -> list[str]:
+def body_turns(c: dict) -> list[str]:
     """Return only body rotations explicitly authorized in the brief."""
     raw = str(c.get('body_turns') or '')
     selected = {part.strip() for part in raw.split(',') if part.strip()}
@@ -773,7 +773,7 @@ def _movement_without_unapproved_turns(value: str) -> str:
 
 def _turn_direction(c: dict) -> tuple[str, str]:
     """Prompt rule and action for the largest rotation the operator allowed."""
-    selected = _body_turns(c)
+    selected = body_turns(c)
     if 'costas' in selected:
         return (
             'ORIENTAÇÃO CORPORAL: uma única virada contínua de costas, por no máximo 1 segundo, e retorno '
@@ -806,9 +806,9 @@ def shows_unconfirmed_feature(action: str, c: dict) -> bool:
     low = _phrase(action).casefold()
     if not re.search(r'\b(mostr|exib|destac|revel)', low):
         return False
-    confirmed = set(_product_features(c, limit=50))
+    confirmed = set(product_features(c, limit=50))
     return any(label not in confirmed and any(re.search(rf'\b{re.escape(n)}\b', low) for n in needles)
-               for label, needles in _PRODUCT_FEATURES)
+               for label, needles in PRODUCT_FEATURES)
 
 
 # Teste real (biquini com argolas nas laterais da calcinha): o movimento "mostrar a regulagem lateral da calcinha" e o
@@ -857,7 +857,7 @@ def _configured_movement_plan(value: str, c: dict, limit: int = 6) -> str:
     cleaned = _movement_without_unapproved_turns(value)
     _direction, turn_action = _turn_direction(c)
     combined = '; '.join(part for part in (cleaned, turn_action) if part)
-    return _movement_plan(combined, limit=limit)
+    return movement_plan(combined, limit=limit)
 
 
 def _slug_tag(value, limit=28):
@@ -1039,7 +1039,7 @@ def build_caption(c, color=None, cta=None, variation_index=0):
     nick = _product_nick(full_product)
     # A legenda e lida pelo cliente final: concordancia errada ("uma vestido")
     # derruba a credibilidade da peca inteira.
-    nick_gender = _PIECE_GENDER.get(nick.casefold()) or _piece_forms(c)['art'].replace('a', 'f').replace('o', 'm')
+    nick_gender = _PIECE_GENDER.get(nick.casefold()) or piece_forms(c)['art'].replace('a', 'f').replace('o', 'm')
     fem = nick_gender == 'f'
     uma, esta, essa, art = ('uma', 'esta', 'essa', 'a') if fem else ('um', 'este', 'esse', 'o')
     mesma = 'mesma' if fem else 'mesmo'
@@ -1047,11 +1047,11 @@ def build_caption(c, color=None, cta=None, variation_index=0):
     parts = color_variants(color_raw)
     color = parts[0] if parts else color_raw
     color_word = f' na versão {color}' if color else ''
-    benefit = _benefit_clause(c)
+    benefit = benefit_clause(c)
     # _benefit_clause already limits this to complete words. Avoid slicing by
     # characters, which used to produce broken endings such as "posta..".
-    focus, features = _focus_parts(c)
-    detail = _with_article(features[0] if features else focus)
+    focus, features = focus_parts(c)
+    detail = with_article(features[0] if features else focus)
     i = int(variation_index or 0)
     all_colors = color_variants(c.get('color'))
     shop_cta = _pt_br(cta) if cta else ''
@@ -1069,11 +1069,11 @@ def build_caption(c, color=None, cta=None, variation_index=0):
             f'Quer escolher {uma} {nick} pelo caimento? Olha {esta} {nick}{color_word}.',
             f'Antes de decidir {"pela" if fem else "pelo"} {nick}, veja este detalhe{color_word}: {detail}.',
             f'{uma.capitalize()} {mesma} {nick} muda muito no corpo conforme a cor. Esta é a versão {color}.',
-            f'Você usaria {esta} {nick}{color_word}? Repara {_with_em(detail)}.',
+            f'Você usaria {esta} {nick}{color_word}? Repara {with_em(detail)}.',
             f'Para quem procura {nick}{color_word}, o ponto principal é observar {detail}.',
             f'Olha {art} {nick}{color_word} em movimento e confere {detail}.',
         ] if color else [
-            f'Quer escolher {uma} {nick} pelo caimento? Repara {_with_em(detail)}.',
+            f'Quer escolher {uma} {nick} pelo caimento? Repara {with_em(detail)}.',
             f'Antes de decidir {"pela" if fem else "pelo"} {nick}, veja este detalhe: {detail}.',
             f'Você usaria {esta} {nick}? Olha como {"ela" if fem else "ele"} veste no corpo.',
             f'Para quem procura {nick}, o ponto principal é observar {detail}.',
@@ -1190,7 +1190,7 @@ def _piece_noun(c):
     return _FAMILY_VOCAB[_product_family(c)]['noun']
 
 
-def _piece_forms(c):
+def piece_forms(c):
     piece = _piece_noun(c)
     cat = speech_bank.category(speech_bank.detect(c))
     gender = (cat['gender'] if cat else '') or _PIECE_GENDER.get(piece) or _FAMILY_VOCAB[_product_family(c)]['gender']
@@ -1199,7 +1199,7 @@ def _piece_forms(c):
     return dict(piece=piece, art='o', de='do', dem='esse', prep='nesse', pron='ele')
 
 
-def _objection_parts(c):
+def objection_parts(c):
     # Retorna (dor, verificacao) a partir do campo de objecao do briefing.
     raw = _phrase(c.get('objection'))
     if not raw or _is_meta_field(raw):
@@ -1217,7 +1217,7 @@ def _objection_parts(c):
     return pain, ''
 
 
-def _offer_text(c):
+def offer_text(c):
     raw = _phrase(c.get('offer'))
     if not raw or _is_meta_field(raw):
         return ''
@@ -1232,16 +1232,16 @@ _MOTOR_ALIASES = {
 }
 
 
-def _chosen_motor(c):
+def chosen_motor(c):
     """Motor escolhido explicitamente pelo operador no formulario, se houver."""
     return _MOTOR_ALIASES.get(_phrase(c.get('motor')).casefold(), '')
 
 
-def _dominant_motor(c):
-    escolhido = _chosen_motor(c)
+def dominant_motor(c):
+    escolhido = chosen_motor(c)
     if escolhido:
         return escolhido
-    if _objection_parts(c)[0]:
+    if objection_parts(c)[0]:
         family = _product_family(c)
         if family != 'moda':
             return 'necessidade'
@@ -1305,7 +1305,7 @@ def _used_keys(c, field):
     return {k for k in (_line_key(t) for t in (data.get(field) or [])) if k}
 
 
-def _pick_in_budget(candidates, index, low, high, used_keys=(), fuzzy=True):
+def pick_in_budget(candidates, index, low, high, used_keys=(), fuzzy=True):
     """Escolhe uma fala dentro do orcamento falado, evitando molde repetido.
 
     ``candidates`` aceita texto solto ou pares (molde, texto). O molde nao muda
@@ -1353,12 +1353,12 @@ def _hook_pool(c, detail, forms):
     dem, prep, piece, art = forms['dem'], forms['prep'], forms['piece'], forms['art']
     de = forms['de']
     det = _phrase(detail)
-    det_em = _with_em(det)
+    det_em = with_em(det)
     # "foi os botoes" -> "foram os botoes"
     plural = bool(re.match(r'^(os|as)\s', det) or re.search(r'\se\s', det))
     foi, eh = ('foram', 'são') if plural else ('foi', 'é')
-    pain, _check = _objection_parts(c)
-    offer = _offer_text(c)
+    pain, _check = objection_parts(c)
+    offer = offer_text(c)
 
     # Descoberta: eu vi algo que nao esperava ver.
     descoberta = [
@@ -1417,7 +1417,7 @@ def _hook_pool(c, detail, forms):
         descoberta, contraste, decide, uso = cat_livre + descoberta, [], [], uso + decide + contraste
         cat_livre = []
 
-    motor = _dominant_motor(c)
+    motor = dominant_motor(c)
     order = {
         'necessidade': [cat_dor, necessidade, cat_fato, contraste, decide, descoberta, cat_livre, uso],
         'desejo': [cat_fato, decide, cat_livre, uso, descoberta, contraste, cat_dor, necessidade],
@@ -1459,7 +1459,7 @@ def _objection_key(c):
 
 
 # Ocasioes como se fala (as de _NICHE_OCCASION seguem no briefing da IA).
-_SPOKEN_OCCASION = {
+SPOKEN_OCCASION = {
     'academia': 'no treino e depois na rua',
     'praia': 'na praia e na piscina',
     'casual': 'no dia a dia',
@@ -1486,17 +1486,17 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     feats = list(features or [])
     hook_fact = (feats[0] if feats else '').casefold()
     dem, piece, pron = forms['dem'], forms['piece'], forms['pron']
-    pain, _check = _objection_parts(c)
+    pain, _check = objection_parts(c)
     cat_hit = speech_bank.objection(speech_bank.category(speech_bank.detect(c)), _phrase(c.get('objection')))
     spoken_check = cat_hit['proof'] if cat_hit else _SPOKEN_CHECK.get(_objection_key(c), '')
-    benefit = _benefit_clause(c)
+    benefit = benefit_clause(c)
     benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
     if benefit_text and hook_fact and hook_fact.split()[-1] in benefit_text.casefold():
         benefit_text = ''
-    second = _with_article(feats[1]) if len(feats) > 1 else ''
+    second = with_article(feats[1]) if len(feats) > 1 else ''
 
     reacoes = []
-    motor = _dominant_motor(c)
+    motor = dominant_motor(c)
     # A dor so e retomada ("por isso", agitacao) quando o gancho falou dela;
     # depois de um gancho de oferta ou de detalhe, a prova entra direta.
     dor_no_gancho = bool(pain) and pain.casefold() in (hook or '').casefold()
@@ -1538,13 +1538,13 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
              and not re.match(r'^(o tecido )?sem\b|^o caimento|^os detalhes', p, re.I)]
     fechos = []
     if novas:
-        alvo = _with_em(novas[0])
+        alvo = with_em(novas[0])
         fechos.append(('fe-repara', f'E repara {alvo}, ficou um charme.'))
     if cat:
         for n, occ in enumerate(cat['occasions'][:2]):
             fechos += _category_lines(c, 'closers', forms, occ=occ)
     occasion = ('' if _product_family(c) in _NO_APPAREL_FAMILIES
-                else _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), ''))
+                else SPOKEN_OCCASION.get((c.get('niche') or '').strip(), ''))
     if occasion and not cat:
         fechos += [
             ('fe-usar', f'Dá pra usar {occasion} numa boa.'),
@@ -1557,7 +1557,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         imagina = persuasion.future_pacing((cat['occasions'][0] if cat else occasion), forms)
         frente = 1 if fechos and fechos[0][0] == 'fe-repara' else 0
         fechos = fechos[:frente] + imagina + fechos[frente:]
-    oferta = persuasion.offer_facts(c.get('offer')) if _offer_text(c) else {}
+    oferta = persuasion.offer_facts(c.get('offer')) if offer_text(c) else {}
     if oferta:
         # Escassez real lembrada no meio: prazo, estoque, frete ou cupom.
         fechos = persuasion.scarcity_closers(oferta, forms) + fechos
@@ -1565,7 +1565,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         fechos.append(('fe-cara', 'Achei a cara do meu dia a dia.'))
 
     hook_low = (hook or '').casefold()
-    ja_ditos = [f for f in _product_features(c, limit=50) if f.casefold() in hook_low]
+    ja_ditos = [f for f in product_features(c, limit=50) if f.casefold() in hook_low]
     if ja_ditos:
         def repete(texto):
             return any(f.casefold() in texto.casefold() for f in ja_ditos)
@@ -1587,10 +1587,10 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         candidates.sort(key=lambda item: item[0])
     candidates = [item[1] for item in candidates]
     # Sem piso alto: frase natural curta vale mais que enchimento.
-    return _pick_in_budget(_apparel_free(c, candidates), index, *script_budget.LOCAL_PICK['development'], used_keys)
+    return pick_in_budget(apparel_free(c, candidates), index, *script_budget.LOCAL_PICK['development'], used_keys)
 
 
-def _cta_pool(c, forms):
+def cta_pool(c, forms):
     # Orcamento do CTA: 6 a 10 palavras.
     #
     # Vocabulario real do TikTok Shop: o botao e o carrinho laranja e o link
@@ -1599,8 +1599,8 @@ def _cta_pool(c, forms):
     piece, art = forms['piece'], forms['art']
     possessive = 'a tua' if art == 'a' else 'o teu'
     colors = color_variants(c.get('color'))
-    pain, _check = _objection_parts(c)
-    offer = _offer_text(c)
+    pain, _check = objection_parts(c)
+    offer = offer_text(c)
     direto = [
         ('cta-corre', 'Corre pro carrinho laranja e confere os detalhes agora.'),
         ('cta-abre', 'Abre o carrinho laranja e escolhe a sua versão.'),
@@ -1633,7 +1633,7 @@ def _cta_pool(c, forms):
         ('cta-achado', 'Salva esse achado agora no carrinho laranja.'),
         ('cta-detalhes', 'Toca no carrinho laranja e confere os detalhes.'),
     ]
-    motor = _dominant_motor(c)
+    motor = dominant_motor(c)
     if motor == 'escassez':
         order = [descoberta, direto, posse, condicional]
     elif motor == 'necessidade':
@@ -1651,7 +1651,7 @@ def _cta_pool(c, forms):
 
 
 def _bank_slots(c, forms):
-    pain, _check = _objection_parts(c)
+    pain, _check = objection_parts(c)
     return {**forms, 'teu': 'a tua' if forms['art'] == 'a' else 'o teu', 'pain': pain}
 
 
@@ -1660,7 +1660,7 @@ def _category_lines(c, kind, forms, det='', occ=''):
     cat = speech_bank.category(speech_bank.detect(c))
     if not cat:
         return []
-    feats = set(_product_features(c, limit=50))
+    feats = set(product_features(c, limit=50))
     slots = _bank_slots(c, forms)
     lines = []
     for i, item in enumerate(cat.get(kind, [])):
@@ -1670,7 +1670,7 @@ def _category_lines(c, kind, forms, det='', occ=''):
             continue
         if item.get('pain') and not slots['pain']:
             continue
-        values = {**slots, 'det': _with_article(req) if req else det, 'occ': occ,
+        values = {**slots, 'det': with_article(req) if req else det, 'occ': occ,
                   'feat': req or re.sub(r'^(o|a|os|as)\s+', '', det or '')}
         if '{det}' in item['t'] and not values['det']:
             continue
@@ -1705,7 +1705,7 @@ def _cover_text(c, forms, detail, index=0):
     opcoes = [
         f'{nu.capitalize()}?',
         f'{piece.capitalize()} com {nu}',
-        f'Repara {_with_em(det)}',
+        f'Repara {with_em(det)}',
         f'O detalhe é {det}',
     ]
     opcoes = [o for o in opcoes if 2 <= _count_words(o) <= 6]
@@ -1724,7 +1724,7 @@ def _screen_text(c, forms, detail, index=0):
     det = _phrase(detail)
     nu = _sem_artigo(det)
     piece = forms['piece']
-    pain, _check = _objection_parts(c)
+    pain, _check = objection_parts(c)
     opcoes = []
     if pain:
         # A objecao escrita e o que mais segura o dedo de quem tem essa duvida.
@@ -1733,7 +1733,7 @@ def _screen_text(c, forms, detail, index=0):
     opcoes.extend([
         f'{piece.capitalize()}: {nu}',
         f'Não sabia que tinha {det}',
-        f'Repara {_with_em(det)}',
+        f'Repara {with_em(det)}',
         f'{nu.capitalize()} de perto',
     ])
     opcoes = [o for o in opcoes if 3 <= _count_words(o) <= 8]
@@ -1787,22 +1787,22 @@ def _script_variation(c, color, index=0):
     # Constroi as tres falas a partir de evidencia explicita do briefing.
     # A cor NAO entra no hook: o espectador ja a ve na tela, e cada palavra do
     # hook vale ~0,36s. Ela permanece na legenda e no prompt de imagem.
-    forms = _piece_forms(c)
-    focus, features = _focus_parts(c)
-    hook_detail = _with_article(features[0] if features else (focus or _fallback_short(c)))
-    detail = _with_article(focus if focus else _fallback_short(c))
+    forms = piece_forms(c)
+    focus, features = focus_parts(c)
+    hook_detail = with_article(features[0] if features else (focus or _fallback_short(c)))
+    detail = with_article(focus if focus else _fallback_short(c))
     i = int(index or 0)
 
-    selected_hook = _pick_in_budget(_apparel_free(c, _hook_pool(c, hook_detail, forms)), i, *script_budget.LOCAL_PICK['hook'],
+    selected_hook = pick_in_budget(apparel_free(c, _hook_pool(c, hook_detail, forms)), i, *script_budget.LOCAL_PICK['hook'],
                                     _used_keys(c, 'hook'))
     selected_development = _development_line(c, detail, features, forms, i,
                                              _used_keys(c, 'development'), hook=selected_hook)
-    selected_cta = _pick_in_budget(_cta_pool(c, forms), i, *script_budget.LOCAL_PICK['cta'],
+    selected_cta = pick_in_budget(cta_pool(c, forms), i, *script_budget.LOCAL_PICK['cta'],
                                    _used_keys(c, 'cta'), fuzzy=False)
     # Formato escolhido (responder comentario, teste...): o gancho anuncia o
     # formato; no 3 jeitos o desenvolvimento lista os looks.
-    selected_hook = formats.script_hook(c, forms, _objection_parts(c)[0]) or selected_hook
-    selected_development = (formats.script_development(c, forms, [_with_article(f) for f in features[:2]])
+    selected_hook = formats.script_hook(c, forms, objection_parts(c)[0]) or selected_hook
+    selected_development = (formats.script_development(c, forms, [with_article(f) for f in features[:2]])
                             or selected_development)
 
     # Teto de script_budget.FILL (o clipe de 15 s). Se estourar, encurta o
@@ -1915,7 +1915,7 @@ def refresh_script_fields(c, color, current_prompts, fields=None, bump=1, slot_i
 
 
 # Niche-specific video direction for Flow/Grok (concrete beats, not vague adjectives).
-_VIDEO_NICHE = {
+VIDEO_NICHE = {
     "praia": {
         "setting": "praia, deck de piscina ou varanda ensolarada; fundo com luz natural e leve movimento de vento",
         "camera": "câmera na mão em estilo UGC leve; plano médio na abertura; detalhe de perto no tecido ao vento; giro curto no corpo; final em plano médio frontal",
@@ -2009,7 +2009,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     para os outros formatos), mas neste video ninguem fala.
     """
     niche = _niche_key(c)
-    dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
+    dirn = VIDEO_NICHE.get(niche) or VIDEO_NICHE["casual"]
     outfit = _pt_br(c.get("outfit")) or "visual do produto"
     style = _pt_br(c.get("style")) or "natural e realista"
     model = _phrase(c.get("model_name")) or "a modelo"
@@ -2018,20 +2018,20 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis da peça"
-    moves = _movement_plan(_filter_actions(
+    moves = movement_plan(_filter_actions(
         _movement_without_unapproved_turns(without_fastening_moves(movements, c)), _CTA_ACTION_RE))
     turn_direction, _turn_action = _turn_direction(c)
-    video_notes = _video_details(details)
+    video_notes = video_details(details)
     extras = f" Notas adicionais do operador (não são falas nem texto na tela): {video_notes}." if video_notes else ""
-    focus, features = _focus_parts(c)
+    focus, features = focus_parts(c)
     facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
-    forms = _piece_forms(c)
+    forms = piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
-    selected_turns = _body_turns(c)
+    selected_turns = body_turns(c)
     if 'costas' in selected_turns:
         rotation_motion = ('faz uma única rotação contínua e breve até mostrar as costas por no máximo 1 segundo, '
                            'e volta imediatamente de frente; ')
@@ -2050,9 +2050,9 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
     # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
     # gerador corta o final do prompt sozinho.
-    gestures = _proof_gestures(
-        _product_features(c, limit=2 if _limite_video(c) else 4),
-        turns=_body_turns(c))
+    gestures = proof_gestures(
+        product_features(c, limit=2 if _limite_video(c) else 4),
+        turns=body_turns(c))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 3s e 11s: '
         + '; '.join(gestures) + '.\n'
@@ -2125,7 +2125,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     camera, identidade e performance para o formato POV.
     """
     niche = _niche_key(c)
-    dirn = _VIDEO_NICHE.get(niche) or _VIDEO_NICHE["casual"]
+    dirn = VIDEO_NICHE.get(niche) or VIDEO_NICHE["casual"]
     outfit = _pt_br(c.get("outfit")) or "visual do produto"
     style = _pt_br(c.get("style")) or "natural e realista"
     tone = _pt_br(c.get("tone")) or "conversacional"
@@ -2135,14 +2135,14 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     benefit_l = _phrase(benefit)
     benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis do produto"
-    moves = (_movement_plan(_filter_actions(without_fastening_moves(movements, c), _POV_SKIP_RE))
+    moves = (movement_plan(_filter_actions(without_fastening_moves(movements, c), _POV_SKIP_RE))
              or "manuseio natural que mostre o produto de perto")
     pov_lead = formats.pov_lead_moves(c)
     if pov_lead:
         moves = '; '.join(pov_lead + [moves])
-    video_notes = _video_details(details)
+    video_notes = video_details(details)
     extras = f" Notas adicionais do operador (não são falas): {video_notes}." if video_notes else ""
-    focus, features = _focus_parts(c)
+    focus, features = focus_parts(c)
     facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter o produto neutro e fiel à referência.' if _is_unisex(c) else ''
@@ -2152,8 +2152,8 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     # O que se ajusta e a QUANTIDADE: onde o gerador tem limite de caracteres,
     # dois gestos bem escolhidos cabem e provam; quatro estouram o campo e o
     # gerador corta o final do prompt sozinho.
-    gestures = _pov_proof_gestures(
-        _product_features(c, limit=2 if _limite_video(c) else 4))
+    gestures = pov_proof_gestures(
+        product_features(c, limit=2 if _limite_video(c) else 4))
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 4s e 11s, sempre visto pelas mãos em primeira pessoa: '
         + '; '.join(gestures) + '.\n'
@@ -2218,7 +2218,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
 # Gestos que pedem "perto da lente" puxam a camera para um close e tiram o
 # rosto do quadro enquanto ela fala. Com a modelo em cena, a prova acontece
 # no plano (o POV e o produto sem modelo continuam usando o close).
-_STAY_IN_FRAME = {
+STAY_IN_FRAME = {
     'tecido macio': 'passa a mão no tecido, na altura da coxa',
     'costura': 'passa o dedo na costura, sem se aproximar da câmera',
     'acabamento': 'passa o dedo no acabamento, sem se aproximar da câmera',
@@ -2272,17 +2272,17 @@ def _build_mesa_video_prompt(c, *, resolution, color, product, benefit, movement
     model = _phrase(c.get('model_name')) or 'a pessoa'
     color_l = _phrase(color) or 'a cor escolhida'
     product_l = product or 'o produto'
-    _focus, features = _focus_parts(c)
+    _focus, features = focus_parts(c)
     facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     cena = formats.mesa_scene(c)
-    confirmed = ' '.join([*_product_features(c, limit=50), _phrase(c.get('benefit'))])
+    confirmed = ' '.join([*product_features(c, limit=50), _phrase(c.get('benefit'))])
     unconfirmed = formats.mesa_unconfirmed(c, confirmed) or _unconfirmed_line(c)
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
     loop = ('No último quadro, o produto e as mãos voltam à posição do primeiro, para o vídeo recomeçar sem '
             'emenda. ' if 'loop' in formats.techniques(c) else '')
-    proofs = [f'ao falar {_with_article(f)}, mostra esse detalhe bem perto da lente' for f in features[:2]]
-    video_notes = _video_details(details)
+    proofs = [f'ao falar {with_article(f)}, mostra esse detalhe bem perto da lente' for f in features[:2]]
+    video_notes = video_details(details)
     return _montar_video([
         (0, f"UGC TikTok Shop vertical 9:16, exatamente 15 segundos, {resolution}. Clima: achadinho mostrado de "
             "pertinho, gravado no celular, sentada à mesa. "
@@ -2336,12 +2336,12 @@ def _build_unboxing_video_prompt(c, *, resolution, color, product, benefit, move
     model = _phrase(c.get('model_name')) or 'a pessoa'
     color_l = _phrase(color) or 'a cor escolhida'
     product_l = product or 'o produto'
-    _focus, features = _focus_parts(c)
+    _focus, features = focus_parts(c)
     facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c))
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
-    gestures = [_unbox_gesture(f) for f in _product_features(c, limit=2)]
+    gestures = [_unbox_gesture(f) for f in product_features(c, limit=2)]
     extra = formats.pov_lead_moves(c)
     loop = ('No último quadro, a peça e as mãos voltam à posição do primeiro, para o vídeo recomeçar sem emenda. '
             if 'loop' in formats.techniques(c) else '')
@@ -2394,7 +2394,7 @@ def _tie_mentions(c, limit=2):
     source = ', '.join(_phrase(c.get(k)) for k in ('product', 'details'))
     found = []
     for chunk in re.split(r'\s*[;,.|\n]\s*', source):
-        chunk = _video_details(chunk).strip()
+        chunk = video_details(chunk).strip()
         if chunk and len(chunk.split()) <= 8 and _TIE_RE.search(chunk) and chunk.casefold() not in found:
             found.append(chunk.casefold())
     return found[:limit]
@@ -2453,7 +2453,7 @@ def _closing_hand(forms, anchor):
 def _unconfirmed_line(c):
     """Lista do que nao inventar, sem o que o briefing confirmou: com
     "tecido macio" confirmado, proibir "maciez" contradizia o proprio prompt."""
-    facts = ' '.join([*_product_features(c, limit=50), _phrase(c.get('benefit'))]).casefold()
+    facts = ' '.join([*product_features(c, limit=50), _phrase(c.get('benefit'))]).casefold()
     if _material_facts(c):
         facts += ' composição'
     banned = [name for name, keys in _UNCONFIRMED if not any(k in facts for k in keys)
@@ -2519,11 +2519,11 @@ def bold_move(c, espelho=False):
 
 def close_target(c):
     """O que a camera mostra de perto nos closes: material ou fato confirmado."""
-    feats = [f for f in _product_features(c, limit=4) if f not in _NO_SPOTLIGHT][:3]
+    feats = [f for f in product_features(c, limit=4) if f not in NO_SPOTLIGHT][:3]
     materials = [f for f in feats if f in _MATERIAL_LABELS]
     alvo = materials[0] if materials else (feats[0] if feats else '')
     # "no cetim", "nos botões": ja com a contracao de "em".
-    return _with_em(_with_article(alvo)) if alvo else 'no tecido e nos detalhes da peça'
+    return with_em(with_article(alvo)) if alvo else 'no tecido e nos detalhes da peça'
 
 
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta,
@@ -2534,7 +2534,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     Grok trouxe de melhor no teste seguinte (clima por referencia, plano do
     joelho para cima com o rosto grande, maos que gesticulam, acoes emendadas
     sem parar, arco de expressao e ritmo natural, sem camera lenta)."""
-    dirn = _VIDEO_NICHE.get(_niche_key(c)) or _VIDEO_NICHE["casual"]
+    dirn = VIDEO_NICHE.get(_niche_key(c)) or VIDEO_NICHE["casual"]
     outfit = _visual_outfit(c, product)
     angle = _pt_br(c.get("angle")) or "mostrar o produto em uso"
     angle_context = ' '.join(angle.split()[:16]) + ('…' if len(angle.split()) > 16 else '')
@@ -2549,24 +2549,24 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     moves = '; '.join(m for m in moves.split('; ') if m and not re.search(
         r'\bpose\b|\bposar\b|\bclose\b|\bcta\b', m, re.I)) or "movimentos frontais e naturais que mostrem o caimento"
     turn_direction, _turn_action = _turn_direction(c)
-    video_notes = _video_details(details)
-    focus, features = _focus_parts(c)
+    video_notes = video_details(details)
+    focus, features = focus_parts(c)
     facts = ', '.join(features) if features else 'nenhum além do que aparece na imagem aprovada'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
     gender_note = ' Modelagem unissex: manter a peça neutra e fiel à referência.' if _is_unisex(c) else ''
     scene_lock = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
                   else 'o mesmo ambiente mostrado na foto de referência da modelo')
-    forms = _piece_forms(c)
+    forms = piece_forms(c)
     anchor = 'o cós' if forms['piece'] in ('legging', 'calça', 'short', 'saia', 'bermuda') else 'a barra'
     # Cada fato confirmado ganha o gesto que o prova; onde o gerador tem
     # limite de caracteres, dois gestos bem escolhidos cabem e provam.
-    gestures = _proof_gestures(_product_features(c, limit=2 if _limite_video(c) else 4), turns=_body_turns(c))
+    gestures = proof_gestures(product_features(c, limit=2 if _limite_video(c) else 4), turns=body_turns(c))
     estilo = video_style(c)
     if 'closes' not in estilo:
         # Sem closes autorizados, a prova acontece no plano, com o rosto no quadro.
-        gestures = [f'{lab} → {_STAY_IN_FRAME.get(lab, ges)}' for lab, ges in (g.split(' → ', 1) for g in gestures)]
+        gestures = [f'{lab} → {STAY_IN_FRAME.get(lab, ges)}' for lab, ges in (g.split(' → ', 1) for g in gestures)]
     # Motor de persuasao no corpo; tempos proporcionais as falas (4s/12s no padrao).
-    cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook),
+    cena = persuasion.scene_direction(persuasion.script_motor(dominant_motor(c), hook),
                                       f"{anchor} {forms['de']} {forms['piece']}")
     t1, t2 = persuasion.timeline(hook, development, cta)
     espelho = formato == 'espelho'
@@ -2575,7 +2575,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         # O quadro e o reflexo: mostrar de perto = se aproximar do espelho.
         moves = re.sub(r'\bmostrar de perto\b', 'aproximar-se do espelho e mostrar de perto', moves)
         if 'espelho' not in moves:
-            alvo = _with_article(features[0]) if features else 'os detalhes da peça'
+            alvo = with_article(features[0]) if features else 'os detalhes da peça'
             moves = f"aproximar-se do espelho para mostrar {alvo} de perto e voltar; {moves}"
         # Celular no espelho: o quadro e o reflexo; uma mao segura o celular o
         # tempo todo e a outra faz tudo (gesto, prova, carrinho).
@@ -2603,7 +2603,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     if 'ousado' in estilo:
         ousado, giro = bold_move(c, espelho=espelho)
         moves = f"{ousado}; {moves}"
-        if giro and 'costas' not in _body_turns(c):
+        if giro and 'costas' not in body_turns(c):
             turn_direction = ('ORIENTAÇÃO CORPORAL: de frente para a ' + ('espelho' if espelho else 'lente')
                               + ', com um giro completo e rápido no meio; as costas só passam, ela nunca para de costas.')
             turn_direction = turn_direction.replace('para a espelho', 'para o espelho')
@@ -2978,7 +2978,7 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     # reinserting them here used to contradict the preserved background.
     details = _pt_br(c.get('details'))
     photos = c.get('product_assets') or []
-    forms = _piece_forms(c)
+    forms = piece_forms(c)
     piece_ref = f"{forms['art']} {forms['piece']}"
     base = ('a imagem aprovada desta campanha' if base_image
             else 'a foto de referência da modelo')
@@ -2997,12 +2997,12 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         "Não há foto de catálogo anexada: use somente os detalhes informados e os já visíveis "
         "na fotografia-base, sem inventar acabamentos, costuras ou acessórios. "
     )
-    features = _product_features(c)
+    features = product_features(c)
     facts = ', '.join(features) if features else 'somente os detalhes visíveis nas referências do produto'
     if not features and not photos:
         facts = 'somente os detalhes já visíveis na fotografia-base'
     materials = ', '.join(_material_facts(c)) or 'não especificada'
-    notes = _image_details(c.get('details'), preserve_base=True)
+    notes = image_details(c.get('details'), preserve_base=True)
     scene = ('o mesmo ambiente mostrado na imagem aprovada desta campanha' if base_image
              else 'o mesmo ambiente mostrado na foto de referência da modelo')
     image = (
@@ -3061,7 +3061,7 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
         resolution=resolution,
         color=c.get('color'),
         product=product,
-        benefit=_benefit_clause(c),
+        benefit=benefit_clause(c),
         movements=movements,
         details=details,
         hook=hook,
@@ -3073,9 +3073,9 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     # Texto de capa e texto de tela: ficam FORA do video gerado de proposito
     # (o prompt continua proibindo letra dentro do quadro) e sao colados na
     # postagem, onde a tipografia sai correta.
-    forms_txt = _piece_forms(c)
-    focus_txt, features_txt = _focus_parts(c)
-    detail_txt = _with_article(features_txt[0] if features_txt else (focus_txt or _fallback_short(c)))
+    forms_txt = piece_forms(c)
+    focus_txt, features_txt = focus_parts(c)
+    detail_txt = with_article(features_txt[0] if features_txt else (focus_txt or _fallback_short(c)))
     cover_text = _cover_text(c, forms_txt, detail_txt, variant_index)
     # Deslocado de proposito: capa e texto de tela aparecem juntos na postagem,
     # entao repetir a mesma frase nos dois desperdica o unico frame que quem
@@ -3083,7 +3083,7 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 1)
     if _line_key(screen_text) == _line_key(cover_text):
         screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 2)
-    screen_text = formats.screen_text(c, forms_txt, _objection_parts(c)[0]) or screen_text
+    screen_text = formats.screen_text(c, forms_txt, objection_parts(c)[0]) or screen_text
     return dict(image=image, video=video, hook=hook, development=development, cta=cta,
                 caption=caption, cover_text=cover_text, screen_text=screen_text,
                 variation_index=variant_index)

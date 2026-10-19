@@ -29,7 +29,7 @@ from services.prompts import (generate, generate_variants,
                               sync_video_spoken_lines)
 from services import copywriter, formats, generators, speech_bank, stages
 from services import variants as variacao
-from services.prompts import _with_article
+from services.prompts import with_article
 
 ROOT = Path(__file__).resolve().parent
 STATES = stages.STATES
@@ -1881,7 +1881,7 @@ def create_app(config=None):
             categories=[{'id': c['id'], 'label': c['label'], 'saved': counts.get(c['id'], 0)}
                         for c in speech_bank.CATEGORIES],
             category=cat_id, detail=detail_out,
-            showcase=speech_bank.showcase(cat_id, _with_article) if cat else [],
+            showcase=speech_bank.showcase(cat_id, with_article) if cat else [],
             saved=[i for i in items if not cat_id or i.get('category') == cat_id],
             total=len(items),
         )
@@ -2571,7 +2571,7 @@ def create_app(config=None):
         # caminho que ja existe ("the resource already exists"), entao um
         # nome fixo (reference.jpg) travava o "Trocar foto" e qualquer envio
         # que caisse num arquivo antigo. A foto anterior e apagada no confirm.
-        rel_path=f"model-library/{ml._safe(model_name)}/{niche}/reference-{uuid.uuid4().hex}{ext}"
+        rel_path=f"model-library/{ml.safe(model_name)}/{niche}/reference-{uuid.uuid4().hex}{ext}"
         upload_url=_storage_create_upload_url(rel_path)
         return jsonify({'upload_url':upload_url,'path':rel_path})
 
@@ -2589,7 +2589,7 @@ def create_app(config=None):
         original=(data.get('original_name') or '').strip()
         if niche not in ml.NICHE_IDS:
             raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
-        expected_prefix=f"model-library/{ml._safe(model_name)}/{niche}/"
+        expected_prefix=f"model-library/{ml.safe(model_name)}/{niche}/"
         if not rel_path.startswith(expected_prefix) or not original:
             raise Invalid('Dados de upload incompletos.')
         fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')

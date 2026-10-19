@@ -27,10 +27,10 @@ from services.framing import framing, mood, push_target, speech_framing  # noqa:
 from services.formats import video_mode as _video_mode
 from services.piece import niche_key as _niche_key, product_family as _product_family
 from services.prompts import (
-    _NO_SPOTLIGHT, _with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
+    NO_SPOTLIGHT, with_article, bold_move, close_target, fastening_move, shows_unconfirmed_feature, video_style)
 from services.prompts import (
-    piece_lock_short, _STAY_IN_FRAME, _body_turns, _dominant_motor, _piece_forms, _pov_proof_gestures,
-    _product_features, _proof_gestures,
+    piece_lock_short, STAY_IN_FRAME, body_turns, dominant_motor, piece_forms, pov_proof_gestures,
+    product_features, proof_gestures,
 )
 
 # Quantos movimentos cabem no trecho do meio (8 segundos): cerca de 2 segundos
@@ -41,15 +41,15 @@ _BOTTOM_WORDS = ('legging', 'short', 'calça', 'calca', 'saia', 'bermuda', 'biqu
 
 # Enquadramento pela peca. A ordem importa: "saia longa" e corpo inteiro,
 # "saia" sozinha cabe dos joelhos para cima.
-def _clean(value) -> str:
+def clean(value) -> str:
     return re.sub(r'\s+', ' ', str(value or '')).strip()
 
 
-def _quote(value) -> str:
-    return _clean(value).replace('"', "'")
+def quote(value) -> str:
+    return clean(value).replace('"', "'")
 
 
-def _touch_point(c: dict) -> str:
+def touch_point(c: dict) -> str:
     text = f"{c.get('product', '')} {c.get('outfit', '')}".casefold()
     return 'o cós' if any(word in text for word in _BOTTOM_WORDS) else 'a peça'
 
@@ -96,8 +96,8 @@ def _conjugate(move: str) -> str:
 _OFF_BODY_RE = re.compile(r'^(?:peg|segur|vest|tir|coloc|troc|escolh|dobr|pendur)\w*', re.I)
 
 
-def _moves(c: dict) -> list[str]:
-    raw = _clean(c.get('movements'))
+def planned_moves(c: dict) -> list[str]:
+    raw = clean(c.get('movements'))
     items = [m.strip(' .') for m in re.split(r'[;\n]|,(?![^()]*\))', raw) if m.strip(' .')]
     # Tira pedidos de camera e giros: o giro vem da orientacao corporal.
     items = [m for m in items if not re.search(r'c[âa]mera|close|zoom|costas|gir|vir', m, re.I)]
@@ -126,7 +126,7 @@ def _turn(c: dict) -> str:
         'leve_lado': 'vira o corpo uns 30 graus para o lado, sem mostrar as costas, e volta de frente',
         'lado': 'vira de perfil por um instante, sem mostrar as costas, e volta de frente',
         'costas': 'vira de costas por um instante e volta de frente',
-    }.get(_clean(c.get('body_turns')), '')
+    }.get(clean(c.get('body_turns')), '')
 
 
 def _stem(label: str) -> str:
@@ -139,7 +139,7 @@ def _stem(label: str) -> str:
 def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
     """Linha final de travas: rosto, giro nao autorizado e opacidade no
     genero da peca ("o short ... opaco")."""
-    opaque = 'opaca' if _piece_forms(c)['art'] == 'a' else 'opaco'
+    opaque = 'opaca' if piece_forms(c)['art'] == 'a' else 'opaco'
     parts = []
     estilo = video_style(c)
     if face and 'closes' in estilo:
@@ -147,7 +147,7 @@ def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
                      'ele pode sair do quadro')
     elif face:
         parts.append('mesmo rosto em todos os quadros, sempre inteiro na imagem enquanto ela fala')
-    if 'costas' not in _body_turns(c):
+    if 'costas' not in body_turns(c):
         if 'ousado' in estilo and bold_move(c)[1]:
             parts.append('ela nunca para de costas para a câmera (no giro, as costas só passam)')
         else:
@@ -167,19 +167,19 @@ def proof_gesture(c: dict, spoken: str = '') -> str:
 
     Entre varios fatos, vence o citado mais cedo nas falas: o gancho e a
     promessa, e a prova do meio tem que responder a ela."""
-    features = _product_features(c, limit=6)
+    features = product_features(c, limit=6)
     text = unicodedata.normalize('NFKD', spoken.casefold()).encode('ascii', 'ignore').decode()
     cited = [(text.find(_stem(f)), i) for i, f in enumerate(features) if _stem(f) in text]
     if cited:
         features = [features[min(cited)[1]]]
     if _video_mode(c) == 'pov':
-        plan = _pov_proof_gestures(features, limit=1)
+        plan = pov_proof_gestures(features, limit=1)
         return plan[0].split(' → ', 1)[1] if plan else ''
-    plan = _proof_gestures(features, limit=1, turns=_body_turns(c))
+    plan = proof_gestures(features, limit=1, turns=body_turns(c))
     if not plan:
         return ''
     label, gesture = plan[0].split(' → ', 1)
-    return _STAY_IN_FRAME.get(label, gesture)
+    return STAY_IN_FRAME.get(label, gesture)
 
 
 def movement_steps(c: dict, spoken: str = '',
@@ -188,7 +188,7 @@ def movement_steps(c: dict, spoken: str = '',
     """Gesto de prova, movimentos do briefing (na ordem escrita) e o giro
     autorizado -- no maximo ``limit`` acoes no total."""
     proof = proof_gesture(c, spoken) if _video_mode(c) != 'pov' else ''
-    moves = _moves(c)
+    moves = planned_moves(c)
     if proof:
         # "agacha" depois de "faz um agachamento" seria a mesma acao duas vezes.
         moves = [m for m in moves if m.split()[0][:5].casefold() not in proof.casefold()]
@@ -200,8 +200,8 @@ def movement_steps(c: dict, spoken: str = '',
 
 def mirror_approach(c: dict) -> str:
     """Passo de aproximacao do espelho para mostrar o detalhe que vende."""
-    feats = [f for f in _product_features(c, limit=4) if f not in _NO_SPOTLIGHT][:1]
-    alvo = _with_article(feats[0]) if feats else 'os detalhes da peça'
+    feats = [f for f in product_features(c, limit=4) if f not in NO_SPOTLIGHT][:1]
+    alvo = with_article(feats[0]) if feats else 'os detalhes da peça'
     return f'dá um passo em direção ao espelho para mostrar {alvo} de perto e volta'
 
 
@@ -255,7 +255,7 @@ def one_breath(*lines: str) -> str:
     uma pausa de locutor em cada emenda; numa so, a fala corre inteira.
     "...apertar demais" + "Mas essa aqui..." vira "...apertar demais, mas
     essa aqui..." -- sem ponto final onde a fala nao para."""
-    parts = [_clean(x).rstrip(' .…') if i < 2 else _clean(x) for i, x in enumerate(lines)]
+    parts = [clean(x).rstrip(' .…') if i < 2 else clean(x) for i, x in enumerate(lines)]
     text = ''
     for part in (p for p in parts if p):
         if not text:
@@ -303,13 +303,13 @@ def compact_mesa(c: dict, model: str, piece: str, res: str, fala: str, keeps: st
 
 
 def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
-    model = _clean(c.get('model_name')) or 'a modelo'
-    product = _clean(c.get('product')) or _clean(c.get('outfit')) or 'a peça'
-    color = _clean(color) or _clean(c.get('color'))
+    model = clean(c.get('model_name')) or 'a modelo'
+    product = clean(c.get('product')) or clean(c.get('outfit')) or 'a peça'
+    color = clean(color) or clean(c.get('color'))
     piece = f'{product} na cor {color}' if color else product
-    touch = _touch_point(c)
+    touch = touch_point(c)
     keeps = f'na cor {color}' if color else 'igual'
-    hook, development, cta = (_quote(prompts.get(k)) for k in ('hook', 'development', 'cta'))
+    hook, development, cta = (quote(prompts.get(k)) for k in ('hook', 'development', 'cta'))
     mode = _video_mode(c)
     shot = framing(c)
     vibe = mood(c)
@@ -349,7 +349,7 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
                   f' No meio, a câmera faz 1 ou 2 closes curtos (1 a 2 s) {alvo}, com a voz continuando, '
                   'e volta ao rosto; no gancho e no fim o rosto fica inteiro no quadro.')
     # Motor de persuasao no corpo: expressao do gancho, arco e gesto da chamada.
-    cena = persuasion.scene_direction(persuasion.script_motor(_dominant_motor(c), hook), touch)
+    cena = persuasion.scene_direction(persuasion.script_motor(dominant_motor(c), hook), touch)
     abre_fmt = formats.opening(c, cena['hook'], mode if mode in ('espelho', 'movimento') else '')
     fala = one_breath(hook, development, cta)
     if formats.mesa(c):

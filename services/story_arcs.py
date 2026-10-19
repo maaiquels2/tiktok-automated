@@ -31,8 +31,8 @@ from services import generators, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
-    _PRODUCT_FEATURES, _SPOKEN_OCCASION, _body_turns, _cta_pool, _pick_in_budget, _piece_forms,
-    _product_features, _proof_gestures, _video_details, generate,
+    PRODUCT_FEATURES, SPOKEN_OCCASION, body_turns, cta_pool, pick_in_budget, piece_forms,
+    product_features, proof_gestures, video_details, generate,
     without_niche_defaults,
 )
 from services.formats import SPEAKING_FRONT as FRONT_FORMATS, video_mode as _video_mode
@@ -140,7 +140,7 @@ def _pad(trio):
 # ------------------------------------------------------------------------------------------------ fatos
 def _feature_label(chunk):
     low = _norm(chunk)
-    for label, needles in _PRODUCT_FEATURES:
+    for label, needles in PRODUCT_FEATURES:
         if any(re.search(rf'\b{re.escape(_norm(n))}\b', low) for n in needles):
             return label
     return ''
@@ -149,7 +149,7 @@ def _feature_label(chunk):
 def arc_facts(c, limit=MAX_FACTS):
     """Os motivos: o que o briefing confirma, na ordem em que o operador escreveu (campo Detalhes), mais os
     atributos reconhecidos nos outros campos. Cada fato leva o gesto que o demonstra no espelho."""
-    turns = _body_turns(c)
+    turns = body_turns(c)
     mao = _wording(_video_mode(c) == 'espelho')['mao']
     facts, seen_text, seen_label = [], set(), set()
 
@@ -159,7 +159,7 @@ def arc_facts(c, limit=MAX_FACTS):
             return
         gesture = ''
         if label:
-            plan = _proof_gestures([label], turns=turns)
+            plan = proof_gestures([label], turns=turns)
             gesture = plan[0].split(' → ', 1)[1] if plan else ''
         facts.append(dict(
             text=text, label=label,
@@ -170,7 +170,7 @@ def arc_facts(c, limit=MAX_FACTS):
 
     # O campo Detalhes nasce com o texto padrao da moda (direcao de cena: "Destacar textura e modelagem").
     # Teste real: ele virava "motivo" da sequencia. So conta o que a pessoa escreveu.
-    details = _video_details(without_niche_defaults(c.get('details') or ''))
+    details = video_details(without_niche_defaults(c.get('details') or ''))
     for chunk in re.split(r'\s*[,;]\s*|(?<=[.!?])\s+|\n+', details):
         chunk = chunk.strip(' .;')
         if not chunk or len(chunk.split()) > 5:
@@ -179,7 +179,7 @@ def arc_facts(c, limit=MAX_FACTS):
                     _norm(chunk)):
             continue   # direcao de cena, nao fato
         add(chunk, _feature_label(chunk))
-    for label in _product_features(c, limit=50):
+    for label in product_features(c, limit=50):
         add(label, label)
     return facts[:limit]
 
@@ -193,20 +193,20 @@ def _join_pt(items):
 
 
 def _style(c):
-    forms = _piece_forms(c)
+    forms = piece_forms(c)
     cat = speech_bank.category(speech_bank.detect(c))
     occasions = list(cat['occasions']) if cat else []
     if not occasions:
-        fallback = _SPOKEN_OCCASION.get((c.get('niche') or '').strip(), '') or 'no dia a dia'
+        fallback = SPOKEN_OCCASION.get((c.get('niche') or '').strip(), '') or 'no dia a dia'
         occasions = [fallback]
     # "com tenis ou salto" nao cabe depois de "eu ja me imagino com ela ..."
     occasions = [o for o in occasions if not o.casefold().startswith('com ')][:3] or ['no dia a dia']
-    combos = speech_bank._COMBOS.get(cat['id']) if cat else None
+    combos = speech_bank.COMBOS.get(cat['id']) if cat else None
     return forms, occasions, combos
 
 
 def _cta(c, forms):
-    return _pick_in_budget(_cta_pool(c, forms), 0, *script_budget.LOCAL_PICK['cta'], fuzzy=False)
+    return pick_in_budget(cta_pool(c, forms), 0, *script_budget.LOCAL_PICK['cta'], fuzzy=False)
 
 
 def draft_lines(c, arc, clips, facts):

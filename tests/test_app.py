@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from PIL import Image
 from app import create_app
-from services.prompts import build_caption, generate, refresh_script_fields, _movement_plan
+from services.prompts import build_caption, generate, refresh_script_fields, movement_plan
 from services import script_budget
 from services.copywriter import audit as copywriter_audit
 
@@ -491,7 +491,7 @@ class WorkflowTests(unittest.TestCase):
         # O padrao de academia tem 7 acoes e termina em "pose confiante final".
         # Cortar pelo comeco apagava justamente o encerramento e deixava
         # "alongar os bracos" na janela do CTA - foi o que fez a modelo acenar.
-        plano=_movement_plan('Caminhar ate a camera; agachar leve; virar de lado; ajustar o cos; '
+        plano=movement_plan('Caminhar ate a camera; agachar leve; virar de lado; ajustar o cos; '
                              'alongar os bracos; close no tecido; pose confiante final')
         acoes=[a.strip() for a in plano.split(';')]
         self.assertEqual(acoes[-1],'pose confiante final')
@@ -1263,7 +1263,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_jeans_campaign_prompts_have_no_contradictions(self):
         # Caso real: calca jeans "dia a dia" com fala de dor escrita pela IA.
-        from services.copywriter import _clean_pack
+        from services.copywriter import clean_pack
         from services.model_library import NICHE_DEFAULTS
         from services.prompt_improve import build_compact_video_prompt
         c=dict(model_name='Micaela',product='Calça jeans',outfit=NICHE_DEFAULTS['dia-a-dia']['outfit'],
@@ -1271,7 +1271,7 @@ class WorkflowTests(unittest.TestCase):
                angle='',tone='',style='',details='tecido macio',
                movements='passar a mão no tecido; ajustar a peça; sentar e levantar mostrando conforto',
                body_turns='leve_lado',generator='grok',niche='dia-a-dia')
-        falas=_clean_pack({'hook':'Eu tinha medo de calça jeans apertar demais',
+        falas=clean_pack({'hook':'Eu tinha medo de calça jeans apertar demais',
                            'development':'Mas, essa aqui é tão macia! Olha como ela fica enquanto eu me mexo.',
                            'cta':'corre pro carrinho laranja e confere essa calça!'})
         self.assertTrue(falas['development'].startswith('Mas essa aqui'))
@@ -1309,15 +1309,15 @@ class WorkflowTests(unittest.TestCase):
         # Teste das 6 modas: "Priorizar sensacao de tecido macio" (dia a dia)
         # virava o fato "tecido macio", "renda" na intima e "alca" na praia.
         from services.model_library import NICHE_DEFAULTS
-        from services.prompts import _product_features, _benefit_clause
+        from services.prompts import product_features, benefit_clause
         for niche,d in NICHE_DEFAULTS.items():
             c={'product':'Peça','outfit':d['outfit'],'details':d['details'],'benefit':d['benefit'],'angle':d['angle']}
-            self.assertEqual(_product_features(c,limit=10),[],niche)
-            self.assertEqual(_benefit_clause(c),'',niche)
+            self.assertEqual(product_features(c,limit=10),[],niche)
+            self.assertEqual(benefit_clause(c),'',niche)
         # O que o operador escreve junto continua valendo.
         com_fatos={'product':'Peça','details':NICHE_DEFAULTS['intima']['details']+' Fatos: bojo, renda'}
-        self.assertEqual(set(_product_features(com_fatos,limit=10)),{'bojo','renda'})
-        self.assertEqual(_benefit_clause({'benefit':'tem bolso lateral'}),'A peça tem bolso lateral')
+        self.assertEqual(set(product_features(com_fatos,limit=10)),{'bojo','renda'})
+        self.assertEqual(benefit_clause({'benefit':'tem bolso lateral'}),'A peça tem bolso lateral')
 
     def test_audit_does_not_let_niche_defaults_authorize_claims(self):
         from services.model_library import NICHE_DEFAULTS
@@ -1343,10 +1343,10 @@ class WorkflowTests(unittest.TestCase):
 
     def test_compact_actions_drop_poses_and_unconfirmed_features(self):
         from services.model_library import NICHE_DEFAULTS
-        from services.prompt_improve import build_compact_video_prompt, _moves
-        acoes=_moves({'product':'Peça','movements':NICHE_DEFAULTS['intima']['movements']})
+        from services.prompt_improve import build_compact_video_prompt, planned_moves
+        acoes=planned_moves({'product':'Peça','movements':NICHE_DEFAULTS['intima']['movements']})
         self.assertFalse([a for a in acoes if 'pose' in a.casefold() or 'cta' in a.casefold()],acoes)
-        casual=_moves({'product':'Calça de courino','movements':NICHE_DEFAULTS['casual']['movements']})
+        casual=planned_moves({'product':'Calça de courino','movements':NICHE_DEFAULTS['casual']['movements']})
         self.assertFalse([a for a in casual if 'bolso' in a],casual)
         video=generate({'model_name':'Micaela','product':'Calça de courino','color':'Preto','niche':'casual','outfit':'calça',
                         'audience':'','benefit':'','angle':'','tone':'','style':'','details':'',
@@ -1407,8 +1407,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(color_variants(r.json['brief']['colors']),['Laranja com floral branco','Verde com floral branco'])
 
     def test_quick_brief_drops_vague_offer_and_unknown_niche(self):
-        from services.copywriter import _parse_quick
-        campos=_parse_quick(json.dumps({'product':'Pijama de cetim','niche':'balada','offer':'preço imperdível',
+        from services.copywriter import parse_quick
+        campos=parse_quick(json.dumps({'product':'Pijama de cetim','niche':'balada','offer':'preço imperdível',
                                         'social_proof':'muito elogiado'}),{'praia','dia-a-dia'})
         self.assertEqual(campos,{'product':'Pijama de cetim'})
 
@@ -1470,13 +1470,13 @@ class WorkflowTests(unittest.TestCase):
         curto=build_compact_video_prompt(c,g,'Preto')
         self.assertIn('fit check no espelho',curto)
         self.assertEqual(curto.count('"'),2)
-        from services.prompts import _video_mode
+        from services.formats import video_mode as _video_mode
         self.assertEqual(_video_mode({'video_mode':'celular no espelho'}),'espelho')
 
     def test_mirror_mode_moves_closer_and_turns_when_allowed(self):
         # Teste real: no espelho ela ficou estatica (sem se aproximar) e sem giro.
         from services.prompt_improve import build_compact_video_prompt
-        from services.prompts import _benefit_clause
+        from services.prompts import benefit_clause
         c=dict(model_name='Micaela',product='Vestido mini tomara que caia franzido',outfit='vestido',color='Preto',
                audience='',benefit='o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite',
                angle='',tone='',style='',details='tule franzido',movements='dar dois passos; mostrar de perto o franzido',
@@ -1490,7 +1490,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('vira o corpo uns 30 graus',curto)
         self.assertIn('dá dois passos',curto)
         self.assertNotIn('dar dois passos',curto)
-        beneficio=_benefit_clause({'benefit':'o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite'})
+        beneficio=benefit_clause({'benefit':'o tule franzido e o visual 3D criam um visual marcante para festas e saídas à noite'})
         self.assertFalse(beneficio.startswith('A peça tem'),beneficio)
         self.assertFalse(beneficio.rstrip('.').endswith(' para'),beneficio)
 
@@ -1526,7 +1526,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_video_formats_change_opening_actions_ending_and_script(self):
         from services.prompt_improve import build_compact_video_prompt
-        from services.prompts import _video_mode
+        from services.formats import video_mode as _video_mode
         base=dict(model_name='Micaela',product='Legging cintura alta',outfit='legging',color='Preto',audience='',
                   benefit='',angle='',tone='',style='',details='tecido grosso, cintura alta',movements='',
                   generator='grok',niche='academia',objection='fica transparente no agachamento')
@@ -1605,7 +1605,8 @@ class WorkflowTests(unittest.TestCase):
         # basica": os moldes eram de roupa. Agora cada produto cai na familia
         # e na categoria de fala dele, e nenhuma fala/texto de tela cita roupa.
         from services import speech_bank
-        from services.prompts import _APPAREL_RE, _product_family
+        from services.prompts import APPAREL_RE
+        from services.piece import product_family as _product_family
         base=dict(model_name='Micaela',color='Branco',audience='',benefit='',angle='',tone='',style='',details='',
                   movements='',generator='grok',niche='casual',objection='',offer='')
         cases=(('Creme hidratante facial','creme hidratante','beleza','creme'),
@@ -1627,11 +1628,11 @@ class WorkflowTests(unittest.TestCase):
             for index in range(4):
                 pack=generate(c,variant_index=index,audit=copywriter_audit)
                 spoken=' '.join(pack[k] for k in ('hook','development','cta','screen_text','cover_text'))
-                self.assertIsNone(_APPAREL_RE.search(spoken),(product,index,spoken))
+                self.assertIsNone(APPAREL_RE.search(spoken),(product,index,spoken))
                 self.assertEqual(copywriter_audit(pack,c),[],(product,index,pack['hook']))
 
     def test_accessory_family_matches_whole_words_only(self):
-        from services.prompts import _product_family
+        from services.piece import product_family as _product_family
         for product in ('Calça canelada','Vestido com bolsos','Camisa colarinho','Legging cintura alta'):
             self.assertEqual(_product_family({'product':product,'outfit':''}),'moda',product)
         for product in ('Brinco de argola','Anéis dourados','Óculos de sol','Gargantilha de pérolas'):
@@ -1711,7 +1712,7 @@ class WorkflowTests(unittest.TestCase):
     def test_clothing_objection_proofs_do_not_leak_into_other_families(self):
         # O preset de durabilidade manda "olhar a costura": num creme ou num
         # brinco isso era dito em voz alta. O filtro de familia derruba a frase.
-        from services.prompts import _APPAREL_RE
+        from services.prompts import APPAREL_RE
         base=dict(model_name='Micaela',color='Branco',audience='',benefit='',angle='',tone='',style='',details='',
                   movements='',generator='grok',niche='casual',offer='')
         for product,outfit in (('Creme hidratante facial','creme hidratante'),('Brinco de argola','brinco'),
@@ -1720,17 +1721,17 @@ class WorkflowTests(unittest.TestCase):
                 for index in range(3):
                     pack=generate({**base,'product':product,'outfit':outfit,'objection':objection},variant_index=index)
                     spoken=' '.join(pack[k] for k in ('hook','development','cta','screen_text','cover_text'))
-                    self.assertIsNone(_APPAREL_RE.search(spoken),(product,objection,index,spoken))
+                    self.assertIsNone(APPAREL_RE.search(spoken),(product,objection,index,spoken))
 
     def test_apparel_keeps_its_own_speech_after_the_family_filter(self):
-        from services.prompts import _apparel_free
+        from services.prompts import apparel_free
         candidates=[('a','Vesti essa legging e olha o caimento.'),('b','Olha o bolso lateral.')]
         legging={'product':'Legging cintura alta','outfit':'legging'}
-        self.assertEqual(_apparel_free(legging,candidates),candidates)
+        self.assertEqual(apparel_free(legging,candidates),candidates)
         creme={'product':'Creme facial','outfit':'creme'}
-        self.assertEqual(_apparel_free(creme,candidates),[('b','Olha o bolso lateral.')])
+        self.assertEqual(apparel_free(creme,candidates),[('b','Olha o bolso lateral.')])
         # Se so sobrar roupa, devolve tudo: melhor uma fala generica que nenhuma.
-        self.assertEqual(_apparel_free(creme,candidates[:1]),candidates[:1])
+        self.assertEqual(apparel_free(creme,candidates[:1]),candidates[:1])
 
     def test_table_format_speech_never_dresses_the_garment(self):
         # Na mesa a peca fica FORA do corpo. A fala de roupa dizia "olha como
@@ -2495,13 +2496,10 @@ class WorkflowTests(unittest.TestCase):
         from services import formats, piece, prompts
         tela=json.loads((Path(__file__).resolve().parents[1]/'frontend'/'src'/'formatRules.json').read_text(encoding='utf-8'))
         self.assertEqual(tela,formats.rules())
-        self.assertEqual(piece.NICHES,tuple(prompts._VIDEO_NICHE))
+        self.assertEqual(piece.NICHES,tuple(prompts.VIDEO_NICHE))
         self.assertEqual(formats.video_mode({'video_mode':'unboxing'}),'pov')
         self.assertEqual(formats.video_mode({'video_mode':'Celular no espelho.'}),'espelho')
         self.assertEqual(piece.product_family({'product':'Brinco dourado'}),'acessorio')
-        # prompts usa os modulos, nao copias.
-        self.assertIs(prompts._video_mode,formats.video_mode)
-        self.assertIs(prompts._product_family,piece.product_family)
 
     def test_color_list_is_the_same_everywhere(self):
         from services import variants
@@ -3193,7 +3191,7 @@ class WorkflowTests(unittest.TestCase):
             'development':'O branco ilumina a produção e combina com peças diferentes, criando opções práticas para momentos do dia.',
             'cta':'Veja no carrinho qual versão combina com você.',
         }
-        self.assertEqual(cw._count_words(azul['development']),17)
+        self.assertEqual(script_budget.count_words(azul['development']),17)
         piso=script_budget.AUDIT_FLOOR['development']
         curto={**azul,'development':'Ficou lindo no corpo.'}
         self.assertTrue(any(f'pelo menos {piso}' in item for item in
@@ -3296,7 +3294,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('CTA repete a cor',problemas)
 
     def test_copywriter_accepts_three_options_and_prefers_the_stronger_story(self):
-        from services.copywriter import _parse_candidates, _creative_score
+        from services.copywriter import parse_candidates, creative_score
         raw=json.dumps({'options':[
             {'hook':'Eu vi essa legging e achei bonita logo de primeira.',
              'development':'Eu vesti para treinar e gostei do caimento no corpo. O acabamento aparece bem e combina com o meu dia a dia.',
@@ -3308,13 +3306,13 @@ class WorkflowTests(unittest.TestCase):
              'development':'Eu usei no treino e vi um caimento bonito. Depois reparei na costura e no acabamento sem nenhuma pressa.',
              'cta':'Dá uma olhada no carrinho aqui embaixo.','caption':'Legenda três'},
         ]},ensure_ascii=False)
-        options=_parse_candidates(raw)
+        options=parse_candidates(raw)
         self.assertEqual(len(options),3)
         brief=dict(product='Legging grossa sem transparência',outfit='legging',color='rosa pink',
                    benefit='Caimento visível ao caminhar e agachar',angle='mostrar no treino',
                    details='',audience='mulheres que treinam',niche='academia',
                    objection='Parece barata de perto',offer='')
-        winner=max(options,key=lambda item:_creative_score(item,brief))
+        winner=max(options,key=lambda item:creative_score(item,brief))
         self.assertIn('pareceria barata',winner['hook'])
 
     def test_openai_retries_without_the_parameter_the_model_refuses(self):
@@ -3326,12 +3324,12 @@ class WorkflowTests(unittest.TestCase):
         def falso(url,payload,headers):
             chamadas.append(dict(payload))
             if 'temperature' in payload:
-                raise cw._describe_error(400,json.dumps({'error':{
+                raise cw.describe_error(400,json.dumps({'error':{
                     'message':"Unsupported value: 'temperature' does not support 0.9 with this model. Only the default (1) value is supported.",
                     'param':'temperature'}}))
             return {'choices':[{'message':{'content':'{"hook":"a","development":"b","cta":"c","caption":"d"}'}}]}
         with patch('services.copywriter._post_json',side_effect=falso):
-            saida=cw._call_openai({'model':'modelo-novo-x','api_key':'k'},'sys','user')
+            saida=cw.call_openai({'model':'modelo-novo-x','api_key':'k'},'sys','user')
         self.assertIn('"hook"',saida)
         self.assertEqual(len(chamadas),2)
         self.assertIn('temperature',chamadas[0])
@@ -3340,14 +3338,14 @@ class WorkflowTests(unittest.TestCase):
         # esforco baixo -- uma chamada so.
         chamadas.clear()
         with patch('services.copywriter._post_json',side_effect=falso):
-            cw._call_openai({'model':'gpt-6-luna','api_key':'k'},'sys','user')
+            cw.call_openai({'model':'gpt-6-luna','api_key':'k'},'sys','user')
         self.assertEqual(len(chamadas),1)
         self.assertEqual(chamadas[0]['reasoning_effort'],'low')
 
     def test_provider_error_message_reaches_the_operator(self):
         from services import copywriter as cw
         def falso(url,payload,headers):
-            raise cw._describe_error(401,json.dumps({'error':{'message':'Incorrect API key provided'}}))
+            raise cw.describe_error(401,json.dumps({'error':{'message':'Incorrect API key provided'}}))
         with patch('services.copywriter._post_json',side_effect=falso):
             pack,motivo=cw.write_script({'product':'x','color':'y'},{'provider':'openai','api_key':'k','model':'m'},attempts=1)
         self.assertIsNone(pack)

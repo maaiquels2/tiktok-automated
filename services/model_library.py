@@ -85,7 +85,7 @@ NICHE_DEFAULTS = {
 
 
 
-def _safe(name: str) -> str:
+def safe(name: str) -> str:
     s = re.sub(r"[^\w\-]+", "_", (name or "modelo").strip(), flags=re.UNICODE)
     return (s[:80] or "modelo").strip("_") or "modelo"
 
@@ -160,7 +160,7 @@ def get_entry(data_dir: Path, model_name: str, niche: str, storage_get=None):
 
 
 def niche_dir(media_dir: Path, model_name: str, niche: str) -> Path:
-    return Path(media_dir) / "model-library" / _safe(model_name) / niche
+    return Path(media_dir) / "model-library" / safe(model_name) / niche
 
 
 def list_for_model(data_dir: Path, media_dir: Path, model_name: str, storage_get=None) -> list[dict]:
@@ -266,7 +266,7 @@ def save_photo(data_dir: Path, media_dir: Path, model_name: str, niche: str, src
     if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
         ext = ".jpg"
     if storage_put is not None:
-        rel = f"model-library/{_safe(model_key)}/{niche}/reference{ext}"
+        rel = f"model-library/{safe(model_key)}/{niche}/reference{ext}"
         storage_put(rel, src.read_bytes(), mime or "image/jpeg")
     else:
         dest_dir = niche_dir(media_dir, model_key, niche)
