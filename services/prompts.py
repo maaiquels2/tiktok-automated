@@ -1587,7 +1587,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         candidates.sort(key=lambda item: item[0])
     candidates = [item[1] for item in candidates]
     # Sem piso alto: frase natural curta vale mais que enchimento.
-    return _pick_in_budget(_apparel_free(c, candidates), index, 10, 36, used_keys)
+    return _pick_in_budget(_apparel_free(c, candidates), index, *script_budget.LOCAL_PICK['development'], used_keys)
 
 
 def _cta_pool(c, forms):
@@ -1793,11 +1793,11 @@ def _script_variation(c, color, index=0):
     detail = _with_article(focus if focus else _fallback_short(c))
     i = int(index or 0)
 
-    selected_hook = _pick_in_budget(_apparel_free(c, _hook_pool(c, hook_detail, forms)), i, 10, 13,
+    selected_hook = _pick_in_budget(_apparel_free(c, _hook_pool(c, hook_detail, forms)), i, *script_budget.LOCAL_PICK['hook'],
                                     _used_keys(c, 'hook'))
     selected_development = _development_line(c, detail, features, forms, i,
                                              _used_keys(c, 'development'), hook=selected_hook)
-    selected_cta = _pick_in_budget(_cta_pool(c, forms), i, 6, 10,
+    selected_cta = _pick_in_budget(_cta_pool(c, forms), i, *script_budget.LOCAL_PICK['cta'],
                                    _used_keys(c, 'cta'), fuzzy=False)
     # Formato escolhido (responder comentario, teste...): o gancho anuncia o
     # formato; no 3 jeitos o desenvolvimento lista os looks.
@@ -1812,7 +1812,7 @@ def _script_variation(c, color, index=0):
     # Teste real: com 33 a 46 palavras sobraram 2 a 3 s de silencio no fim
     # dos 15 s. Fala de quem vende ocupa o clipe inteiro: com o meio curto
     # (o que deixa o total abaixo de FILL) entra uma frase de imaginacao de uso.
-    if _count_words(selected_development) < 26 and formats.video_format(c) != 'tres_jeitos':
+    if _count_words(selected_development) < script_budget.LOCAL_PAD_BELOW and formats.video_format(c) != 'tres_jeitos':
         extra = _future_line(c, forms, i)
         if extra and extra.casefold() not in selected_development.casefold():
             selected_development = f'{selected_development.rstrip(". ")}. {extra}'

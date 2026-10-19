@@ -206,7 +206,7 @@ def _style(c):
 
 
 def _cta(c, forms):
-    return _pick_in_budget(_cta_pool(c, forms), 0, 6, 10, fuzzy=False)
+    return _pick_in_budget(_cta_pool(c, forms), 0, *script_budget.LOCAL_PICK['cta'], fuzzy=False)
 
 
 def draft_lines(c, arc, clips, facts):

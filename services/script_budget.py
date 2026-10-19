@@ -18,6 +18,11 @@ WARN = (44, 58)
 HARD = (40, 64)
 # Gancho acima disso demora a prender.
 HOOK_MAX = 20
+# Janelas do gerador local (frases prontas dos bancos): mais curtas que TARGET de
+# proposito; quando o desenvolvimento fica abaixo de LOCAL_PAD_BELOW ganha uma
+# frase de uso, para o total chegar a FILL.
+LOCAL_PICK = {'hook': (10, 13), 'development': (10, 36), 'cta': (6, 10)}
+LOCAL_PAD_BELOW = 26
 # Piso da auditoria do texto da IA: abaixo disso a fala e rasa. Mais frouxo que
 # TARGET de proposito: contagem de palavras nao reprova roteiro natural.
 AUDIT_FLOOR = {'hook': 6, 'development': 10, 'cta': 4}
