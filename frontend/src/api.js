@@ -68,13 +68,13 @@ export async function uploadAssetDirect(cid, kind, file, extra = {}) {
 }
 
 export async function uploadProductPhotosDirect(cid, briefing, removed, files) {
-  const photos = [];
-  for (const file of files) {
+  // Todas as fotos sobem juntas (antes, uma por vez); Promise.all mantem a ordem.
+  const photos = await Promise.all(files.map(async file => {
     const {upload_url, path} = await requestAssetUploadUrl(cid, {kind:'product', filename:file.name});
     const put = await fetch(upload_url, {method:'PUT', headers:{'Content-Type': file.type || 'application/octet-stream'}, body:file});
     if (!put.ok) throw new Error('Não foi possível enviar uma das fotos para o armazenamento.');
-    photos.push({path, original_name:file.name});
-  }
+    return {path, original_name:file.name};
+  }));
   return api(`/campaigns/${cid}/look/confirm`, {method:'POST', body:{briefing, removed, photos}});
 }
 
@@ -197,7 +197,10 @@ export const characterSheet = (model_name='Micaela', niche='') => {
 export const openCharacterSheet = (body={}) =>
   api('/model-library/character-sheet/open', { method: 'POST', body });
 
-export const writerSettings = () => api('/writer');
+// Cache da configuracao da escrita: o painel da etapa remonta a cada gravacao e
+// buscava /writer de novo toda vez. Salvar ou testar limpa o cache.
+let writerCache = null;
+export const writerSettings = () => (writerCache ??= api('/writer').catch(err => { writerCache = null; throw err; }));
 // Banco de falas: voz por categoria de peca + roteiros aprovados pelo estudio.
 // Foto do celular reduzida no aparelho antes de enviar: a nuvem (Vercel)
 // recusa envios acima de 4,5 MB e a IA nao precisa de mais que 1600 px.
@@ -221,9 +224,15 @@ export async function shrinkImage(file, max = 1600, quality = 0.85) {
 // Criar com IA: fotos do produto + print da descricao -> briefing sugerido.
 export async function quickBrief(products, description, niche = '', colorsPhoto = null) {
   const form = new FormData();
-  for (const file of products) form.append('product', await shrinkImage(file));
-  if (description) form.set('description', await shrinkImage(description));
-  if (colorsPhoto) form.set('colors', await shrinkImage(colorsPhoto));
+  // Reduz todas as fotos ao mesmo tempo; a ordem no formulario continua a mesma.
+  const [shrunk, desc, colors] = await Promise.all([
+    Promise.all(products.map(file => shrinkImage(file))),
+    description ? shrinkImage(description) : null,
+    colorsPhoto ? shrinkImage(colorsPhoto) : null,
+  ]);
+  for (const file of shrunk) form.append('product', file);
+  if (desc) form.set('description', desc);
+  if (colors) form.set('colors', colors);
   if (niche) form.set('niche', niche);
   return api('/quick-brief', {method: 'POST', body: form, timeoutMs: 90000});
 }
@@ -232,5 +241,5 @@ export const persuasionPreview = body => api('/persuasion/preview', {method: 'PO
 export const speechBank = (query = '') => api('/speech-bank' + (query ? '?' + query : ''));
 export const saveToSpeechBank = body => api('/speech-bank', {method: 'POST', body});
 export const deleteFromSpeechBank = id => api(`/speech-bank/${encodeURIComponent(id)}`, {method: 'DELETE'});
-export const saveWriterSettings = (body) => api('/writer',{method:'PATCH',body});
-export const testWriter = () => api('/writer/test',{method:'POST',body:{}});
+export const saveWriterSettings = (body) => api('/writer',{method:'PATCH',body}).finally(() => { writerCache = null; });
+export const testWriter = () => api('/writer/test',{method:'POST',body:{}}).finally(() => { writerCache = null; });

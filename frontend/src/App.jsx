@@ -1,14 +1,22 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors, BookOpen, BookmarkPlus } from 'lucide-react';
 import Canvas from './Canvas';
-import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank } from './api';
+import { api, health, openBrowserFree, states, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, colorList, swatchFor } from './ui';
-import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, PerformancePanel, ModelLibraryPanel, StudioIdentityPanel, WriterSettingsPanel, NICHES, ResultsQuickTools, readStoredModel, PromptScore, StorySequence, SpeechBankPanel, AutoCreatePanel, FORMAT_OPTIONS} from './components';
+import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
+// Resultados num pedaco separado do bundle: so baixa quando a aba abre.
+const ResultsQuickTools=lazy(()=>import('./results').then(m=>({default:m.ResultsQuickTools})));
+const PerformancePanel=lazy(()=>import('./results').then(m=>({default:m.PerformancePanel})));
+// Conteudo dos modais: so baixa quando o modal abre.
+const StudioIdentityPanel=lazy(()=>import('./modals').then(m=>({default:m.StudioIdentityPanel})));
+const WriterSettingsPanel=lazy(()=>import('./modals').then(m=>({default:m.WriterSettingsPanel})));
+const SpeechBankPanel=lazy(()=>import('./modals').then(m=>({default:m.SpeechBankPanel})));
+const AutoCreatePanel=lazy(()=>import('./modals').then(m=>({default:m.AutoCreatePanel})));
 
 
 function BrandMark({kind='grok', size=22, tone='auto'}){
@@ -47,6 +55,9 @@ export default function App(){
       const authState=await api('/auth/session');
       if(active)setAuth(authState);
       if(authState.required&&!authState.authenticated)return;
+      const route=parseRoute();
+      // Link direto para uma campanha: ela vem junto com a lista, sem esperar por ela.
+      const routed=route.campaignId?api('/campaigns/'+route.campaignId).catch(()=>null):null;
       const [list,refs,ident,h]=await Promise.all([api('/campaigns'),api('/references'),studioIdentity().catch(()=>null),health().catch(()=>null)]);
       if(ident) setIdentity(ident);
       if(h?.lan_urls?.length) setLanUrls(h.lan_urls);
@@ -54,7 +65,6 @@ export default function App(){
       // O PIN da rede local so existe na versao do computador; na nuvem o
       // pedido sempre falharia e so atrasaria a abertura.
       if(h?.cloud!==true) api('/lan-pin').then(d=>setLanPin(d?.pin||'')).catch(()=>{});
-      const route=parseRoute();
       // Quando o endereco ja aponta uma campanha, abre so ela (antes a primeira
       // da lista era baixada e descartada logo em seguida).
       const first=!route.campaignId&&list[0]?await api('/campaigns/'+list[0].id):null;
@@ -63,9 +73,8 @@ export default function App(){
         let camp=first;
         let notFound=false;
         if(route.campaignId){
-          const hit=list.find(x=>x.id===route.campaignId);
-          if(hit){try{camp=await api('/campaigns/'+hit.id)}catch(e){camp=null;notFound=true}}
-          else{camp=null;notFound=true}
+          camp=list.some(x=>x.id===route.campaignId)?await routed:null;
+          if(!camp)notFound=true;
         }
         setC(camp);
         if(camp){
@@ -189,14 +198,18 @@ export default function App(){
 
   function flash(text){setNotice(text);clearTimeout(noticeTimer.current);noticeTimer.current=setTimeout(()=>setNotice(''),7000)}
   function discard(){if(!dirty)return true;if(window.confirm('Há alterações sem salvar. Deseja descartá-las?')){setDirty(false);return true}return false}
-  async function refresh(){const [list,refs]=await Promise.all([api('/campaigns'),api('/references')]);setCampaigns(list);setReferences(refs)}
+  // So a resposta mais recente vale: duas gravacoes seguidas disparam dois refresh em paralelo.
+  const refreshSeq=useRef(0);
+  async function refresh(){const n=++refreshSeq.current;const [list,refs]=await Promise.all([api('/campaigns'),api('/references')]);if(n!==refreshSeq.current)return;setCampaigns(list);setReferences(refs)}
   async function run(action,message='Salvo localmente.',next,errorText){
     if(lock.current)return false;
     lock.current=true;setBusy(true);setError('');
     // O painel remonta a cada gravacao (a chave inclui a versao da campanha),
     // o que garante texto sempre atual mas jogava o scroll de volta ao topo.
     const keepScroll=window.scrollY||0;
-    try{const result=await action();if(result?.id){setC(result);setDirty(false);if(next)setSelected(next)}await refresh();flash(message);return true}
+    // A lista do Inicio atualiza em segundo plano: esperar por ela segurava a tela
+    // travada em "Salvando" e, se so ela falhasse, uma gravacao feita virava erro.
+    try{const result=await action();if(result?.id){setC(result);setDirty(false);if(next)setSelected(next)}refresh().catch(()=>{});flash(message);return true}
     catch(e){setError(errorText?errorText(e.message):e.message);return false}
     finally{
       lock.current=false;setBusy(false);
@@ -853,6 +866,7 @@ export default function App(){
     )}
 
     {mode==='results' && (
+    <Suspense fallback={<div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando Resultados…</h1></div>}>
     <main className="workspace results-workspace" aria-busy={loading}>
       <aside className="queue results-queue">
         <div className="queue-heading"><div><span className="eyebrow">RESULTADOS</span><h2>Campanhas</h2></div></div>
@@ -898,6 +912,7 @@ export default function App(){
         ))}
       </section>
     </main>
+    </Suspense>
     )}
 
     <nav className="rd-bottom-nav" aria-label="Navegação principal no celular">
@@ -908,6 +923,7 @@ export default function App(){
     {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
     {notice&&!error&&<div className="toast" role="status"><Check size={19}/>{notice}</div>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
+      <Suspense fallback={<p className="help">Carregando…</p>}>
       {modal.type==='users'?<UserAccessPanel auth={auth} busy={busy} onError={setError} onFlash={flash}/>:modal.type==='identity'?<><StudioIdentityPanel identity={identity} setIdentity={setIdentity} busy={busy} onError={setError} onFlash={flash} onSaved={()=>setModal(null)}/><WriterSettingsPanel busy={busy} onError={setError} onFlash={flash} onSaved={()=>{setWriterRevision(v=>v+1);setModal(null)}}/></>:modal.type==='bank'?<SpeechBankPanel campaignId={modal.campaignId} onError={setError} onFlash={flash} onApply={modal.onApply?async item=>{if(await modal.onApply(item))setModal(null)}:null}/>:modal.type==='choose'?<div className="create-choice">
         <button type="button" className="choice-card is-auto" disabled={busy} onClick={()=>setModal({type:'auto',title:'Campanha automática'})}><Sparkles size={22}/><strong>Automática</strong><small>Escolha a moda e suba a foto do produto e o print da descrição. A IA lê tudo, escreve o roteiro e deixa os prompts do Grok prontos.</small></button>
         <button type="button" className="choice-card" disabled={busy} onClick={()=>setModal({type:'create'})}><Pencil size={22}/><strong>Manual</strong><small>Você preenche o briefing do zero, campo por campo, até os prompts do Grok.</small></button>
@@ -915,6 +931,7 @@ export default function App(){
         onCreate={(values,photos,message)=>createCampaign(values,photos,[],null,{generate:true,message,
           // Na criacao automatica nao ha campo Detalhes: o aviso de poucos fatos aponta para o Fatos da peca.
           errorText:values.sequence_clips?m=>pointToFacts(m,'acima'):undefined})}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={createCampaign}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
+      </Suspense>
       {error&&<p className="inline-error" role="alert">{error}</p>}
     </Dialog>}
   </>;
@@ -1156,7 +1173,7 @@ function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter
   const [draft,setDraft]=useState({hook:c.prompts.hook,development:c.prompts.development,cta:c.prompts.cta,
     cover_text:c.prompts.cover_text||'',screen_text:c.prompts.screen_text||''});
   const [writer,setWriter]=useState(null);
-  useEffect(()=>{api('/writer').then(setWriter).catch(()=>setWriter({enabled:false,provider:''}))},[]);
+  useEffect(()=>{writerSettings().then(setWriter).catch(()=>setWriter({enabled:false,provider:''}))},[]);
   const fields=[['hook','Hook','0–4s'],['development','Desenvolvimento','4–12s'],['cta','Chamada para ação','12–15s']];
   // Texto de capa e texto de tela nao entram no video gerado (a IA escreve
   // letra torta): sao colados no CapCut ou no editor do TikTok. Quem assiste
