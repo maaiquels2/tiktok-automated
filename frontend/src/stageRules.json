@@ -1,0 +1,12 @@
+{
+  "states": [
+    "briefing",
+    "image_ready",
+    "image_approved",
+    "script_ready",
+    "video_ready",
+    "video_approved",
+    "ready_to_publish",
+    "published"
+  ]
+}

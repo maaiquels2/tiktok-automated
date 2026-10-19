@@ -2479,6 +2479,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(stages.rewind_after_edit('image_ready',['hook']),(None,[]))
         self.assertEqual(stages.rewind_after_edit('published',['image']),('briefing',['image','video']))
 
+    def test_stage_list_is_one_source_for_server_and_screen(self):
+        from services import stages
+        tela=json.loads((Path(__file__).resolve().parents[1]/'frontend'/'src'/'stageRules.json').read_text(encoding='utf-8'))
+        self.assertEqual(tela,stages.rules())
+        # need_asset e a tela usam a mesma regra de cor sem midia.
+        c={'color':'Azul, Preto','assets':[{'kind':'image','slot':'Azul','approved_at':None}]}
+        self.assertEqual(stages.media_gaps(c,'image'),['Preto'])
+        self.assertEqual(stages.media_gaps(c,'image',approved=True),['Azul','Preto'])
+
     def test_detail_says_what_blocks_each_approval(self):
         self.assertEqual(self.get()['readiness']['image_approved'],['foto da modelo','imagem de Azul'])
 

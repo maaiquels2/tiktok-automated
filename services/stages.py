@@ -15,6 +15,11 @@ SCRIPT_FIELDS = {'image': 'prompt de imagem', 'video': 'prompt de vídeo', 'hook
 SPOKEN = {'hook', 'development', 'cta'}
 
 
+def rules():
+    """O que a tela precisa (frontend/src/stageRules.json; um teste confere)."""
+    return dict(states=list(STATES))
+
+
 def index(status):
     return STATES.index(status)
 
@@ -37,23 +42,28 @@ def script_gaps(c):
     return [('', k) for k in SCRIPT_FIELDS if not str(prompts.get(k) or '').strip()]
 
 
-def media_gaps(c, kind, approved=False):
-    """Cores sem midia (``kind`` image ou video), ou sem aprovacao se ``approved``."""
+def media_by_slot(c, kind):
+    """{cor: midia ``kind`` (image ou video)} na ordem das cores; None onde falta.
+
+    Video conta o arquivo enviado e o que ficou so no aparelho (o enviado vale
+    primeiro). Campanha sem cor aceita a primeira midia, qualquer que seja o slot.
+    """
     slots = variants.slots(c.get('color'))
-    rows = [a for a in c.get('assets') or [] if a.get('kind') == kind]
+    rows = [a for a in c.get('assets') or [] if a.get('kind', kind) == kind]
     if kind == 'video':
         rows += c.get('device_videos') or []
     by_slot = {}
     for row in rows:
         by_slot.setdefault(row.get('slot') or '', row)
-    gaps = []
-    for slot in slots:
-        row = by_slot.get(slot)
-        if slots == [''] and not row and rows:
-            row = rows[0]
-        if not row or (approved and not row.get('approved_at')):
-            gaps.append(slot)
-    return gaps
+    if slots == [''] and '' not in by_slot and rows:
+        by_slot[''] = rows[0]
+    return {slot: by_slot.get(slot) for slot in slots}
+
+
+def media_gaps(c, kind, approved=False):
+    """Cores sem midia (``kind`` image ou video), ou sem aprovacao se ``approved``."""
+    return [slot for slot, row in media_by_slot(c, kind).items()
+            if not row or (approved and not row.get('approved_at'))]
 
 
 def readiness(c):

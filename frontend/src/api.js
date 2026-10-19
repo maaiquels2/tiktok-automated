@@ -1,3 +1,4 @@
+import STAGE_RULES from './stageRules.json';
 export async function api(path, { timeoutMs, ...options } = {}) {
 
   const form = options.body instanceof FormData;
@@ -78,7 +79,10 @@ export async function uploadProductPhotosDirect(cid, briefing, removed, files) {
   return api(`/campaigns/${cid}/look/confirm`, {method:'POST', body:{briefing, removed, photos}});
 }
 
-export const states = ['briefing','image_ready','image_approved','script_ready','video_ready','video_approved','ready_to_publish','published'];
+// Ordem das etapas: a mesma do servidor (services/stages.py; um teste confere).
+export const states = STAGE_RULES.states;
+// A campanha ja chegou (ou passou) da etapa ``name``.
+export const reached = (status, name) => states.indexOf(status) >= states.indexOf(name);
 
 export const statusLabels = {briefing:'Em preparação',image_ready:'Imagem para revisar',image_approved:'Imagem aprovada',script_ready:'Roteiro pronto',video_ready:'Vídeo para revisar',video_approved:'Vídeo aprovado',ready_to_publish:'Pronta para publicar',published:'Publicada'};
 

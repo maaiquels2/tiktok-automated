@@ -983,42 +983,20 @@ def create_app(config=None):
 
     def need_asset(cid,kind,approved=False,slot=None):
         if kind in {'image','video'} and slot is None:
-            c=campaign(cid)
-            slots=image_slots_for(c)
+            # Qual cor esta sem midia e a mesma regra que a tela recebe (stages.readiness).
             rows=assets_of(cid,kind)
-            by_slot={r['slot']:r for r in rows}
-            missing=[s for s in slots if s not in by_slot]
+            view={'color':campaign(cid).get('color'),'assets':rows}
+            missing=stages.media_gaps(view,kind)
             if missing:
                 label=', '.join(m for m in missing if m) or kind
                 word='imagem' if kind=='image' else 'vídeo'
                 raise Invalid(f'Anexe o {word} de cada cor antes de avançar ({label}).',409)
-            if approved:
-                # Older builds could advance the campaign to video_approved
-                # without stamping approved_at on its file. That left a valid
-                # single-video campaign permanently blocked at publication.
-                # Treat the recorded human transition as the approval and heal
-                # only that legacy, already-advanced state.
-                legacy_video_approval = False
-                if kind=='video' and c.get('status') in {'video_approved','ready_to_publish','published'}:
-                    review=db().execute(
-                        "SELECT human_review FROM steps WHERE campaign_id=? AND name='video_approved'",
-                        (cid,),
-                    ).fetchone()
-                    legacy_video_approval=bool(review and review['human_review'])
-                for s in slots:
-                    row=by_slot.get(s)
-                    if slots==[''] and not row and rows:
-                        row=rows[0]
-                    if not row or not row['approved_at']:
-                        if row and legacy_video_approval:
-                            db().execute('UPDATE assets SET approved_at=COALESCE(approved_at,CURRENT_TIMESTAMP) WHERE id=?',(row['id'],))
-                            row['approved_at']='legacy-repaired'
-                            continue
-                        if len(rows)==1:
-                            word='a imagem anexada' if kind=='image' else 'o vídeo anexado'
-                            raise Invalid(f'Aprove {word} antes de avançar.',409)
-                        word='imagens' if kind=='image' else 'vídeos'
-                        raise Invalid(f'Aprove todos os {word} anexados antes de avançar.',409)
+            if approved and stages.media_gaps(view,kind,approved=True):
+                if len(rows)==1:
+                    word='a imagem anexada' if kind=='image' else 'o vídeo anexado'
+                    raise Invalid(f'Aprove {word} antes de avançar.',409)
+                word='imagens' if kind=='image' else 'vídeos'
+                raise Invalid(f'Aprove todos os {word} anexados antes de avançar.',409)
             for r in rows:
                 path_for(r)
             return rows
@@ -1030,22 +1008,12 @@ def create_app(config=None):
 
     def need_videos(cid,approved=False):
         """Return one usable video record per color, including device-only files."""
-        c=campaign(cid)
-        slots=image_slots_for(c)
-        physical={row.get('slot') or '':row for row in assets_of(cid,'video')}
-        local={row.get('slot') or '':row for row in device_videos_of(cid)}
-        rows=[]
-        missing=[]
-        for slot in slots:
-            row=physical.get(slot) or local.get(slot)
-            if not row or (approved and not row.get('approved_at')):
-                missing.append(slot or 'vídeo')
-            else:
-                rows.append(row)
+        view={'color':campaign(cid).get('color'),'assets':assets_of(cid,'video'),'device_videos':device_videos_of(cid)}
+        missing=stages.media_gaps(view,'video',approved)
         if missing:
             action='Aprove' if approved else 'Selecione'
-            raise Invalid(f"{action} o vídeo de cada cor antes de avançar. Falta: {', '.join(missing)}.",409)
-        return rows
+            raise Invalid(f"{action} o vídeo de cada cor antes de avançar. Falta: {', '.join(s or 'vídeo' for s in missing)}.",409)
+        return [row for row in stages.media_by_slot(view,'video').values() if row]
 
     def detail(cid):
         c=campaign(cid)
