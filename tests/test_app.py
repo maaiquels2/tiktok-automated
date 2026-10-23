@@ -1651,7 +1651,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('só nos closes do produto ele pode sair do quadro',curto)
         self.assertIn('giro completo',curto)
         legging=generate({**base,'product':'Legging cintura alta','outfit':'legging','video_style':'ousado'})['video']
-        self.assertIn('agachamento firme',legging)
+        self.assertIn('sobe um joelho até a altura do quadril',legging)
         self.assertNotIn('giro completo',legging)
 
     def test_video_style_is_saved_and_validated(self):
@@ -1675,13 +1675,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('Fiz o teste do agachamento',teste['hook'])
         self.assertIn('o teste do agachamento: agacha fundo',teste['video'].split('AÇÕES',1)[1])
         cores=generate({**base,'video_mode':'troca_cor'})
-        self.assertIn('cobre o quadro inteiro (transição para a próxima cor)',cores['video'])
+        self.assertIn('até tampar o quadro inteiro, tela toda escura (transição para a próxima cor)',cores['video'])
+        # A fala para em 14 s: com "15 s até o fim" o Grok não deixava o segundo da mão na lente.
+        self.assertIn('o último segundo é só da mão na lente',cores['video'])
+        self.assertNotIn('15 s até o fim',cores['video'])
+        self.assertIn('fora do instante da mão na lente',build_compact_video_prompt({**base,'video_mode':'troca_cor'},cores,'Preto'))
         self.assertEqual(cores['screen_text'],'Qual cor é a sua?')
         jeitos=generate({**base,'video_mode':'tres_jeitos'})
         self.assertIn('Três jeitos de usar',jeitos['hook'])
         self.assertIn('E por último',jeitos['development'])
         self.assertIn('três looks em sequência',jeitos['video'])
         self.assertIn('cortes fora das trocas de look',jeitos['video'])
+        self.assertIn('a palma aberta vem e tampa toda a lente',jeitos['video'])
+        guia=build_compact_video_prompt({**base,'video_mode':'tres_jeitos'},jeitos,'Preto')
+        self.assertIn('só os looks pedidos entram por cima',guia)
         caixa=generate({**base,'video_mode':'unboxing'})
         self.assertEqual(_video_mode({'video_mode':'unboxing'}),'pov')
         self.assertIn('VÍDEO ABRINDO O PACOTE',caixa['video'])
@@ -1714,7 +1721,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('começa já em movimento',tecnica)
         self.assertIn('loop sem emenda',tecnica)
         self.assertIn('estica o tecido de leve',generate({**base,'video_style':'estica'})['video'])
-        self.assertIn('ao tirar, revela a peça',generate({**base,'video_style':'revela'})['video'])
+        self.assertIn('tampa toda a lente com a palma aberta e, ao tirar, surge mais perto e em outra pose',generate({**base,'video_style':'revela'})['video'])
         modos=['','espelho','pov','movimento']+list(formats.FORMATS)
         for modo in modos:
             for par in itertools.combinations(formats.TECHNIQUES,2):
@@ -1723,6 +1730,23 @@ class WorkflowTests(unittest.TestCase):
                 self.assertLessEqual(len(video),3940,(modo,estilo))
                 if modo in ('','espelho','comentario','teste','troca_cor','tres_jeitos'):
                     self.assertIn('AÇÕES',video,(modo,estilo))
+
+    def test_gym_clothes_move_in_place_without_hunting_for_a_window(self):
+        # Video real: a modelo andava de um lado para o outro e girava procurando uma janela que a academia nao tem.
+        from services.prompt_improve import build_compact_video_prompt
+        base=dict(model_name='Micaela',product='Legging cintura alta',outfit='legging',color='Preto',audience='',
+                  benefit='',angle='',tone='',style='',details='tecido grosso, cintura alta, sem transparência',
+                  movements='',generator='grok',niche='academia',objection='fica transparente no agachamento')
+        for extra in ({},{'video_mode':'espelho'},{'video_style':'ousado'},{'video_mode':'teste'}):
+            c={**base,**extra}; r=generate(c); guia=build_compact_video_prompt(c,r,'Preto')
+            for texto in (r['video'],guia):
+                self.assertNotIn('janela',texto,extra)
+                self.assertNotIn('passada larga',texto,extra)
+                self.assertIn('sem andar de um lado para o outro',texto,extra)
+        teste=generate({**base,'video_mode':'teste'})['video']
+        self.assertEqual(teste.count('agacha'),teste.count('teste do agachamento')+teste.count('agacha fundo'),
+                         'o agachamento da prova repetia o do teste')
+        self.assertNotIn('sem andar de um lado',generate({**base,'niche':'casual'})['video'])
 
     def test_video_formats_are_validated_and_saved(self):
         ok=self.client.post('/api/campaigns',json={**self.brief,'video_mode':'comentario','video_style':'loop,acao'},

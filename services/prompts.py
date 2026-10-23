@@ -1483,7 +1483,7 @@ _PROOF_VARIANTS = (
      ('quis te mostrar {p} no corpo, de frente', 'tô com {p} no corpo, pra você ver de frente',
       'vesti {p} pra você ver como fica de frente')),
     (r'tô aqui contra a luz, pra você conferir',
-     ('tô aqui contra a luz, pra você conferir', 'vim pra frente da janela, contra a luz, pra você conferir',
+     ('tô aqui contra a luz, pra você conferir', 'olha de pertinho, contra a luz, pra você conferir',
       'olha aqui contra a luz, pode conferir')),
     (r'tô aqui na luz, pra você ver o tecido',
      ('tô aqui na luz, pra você ver o tecido', 'chega mais perto, olha o tecido aqui na luz',
@@ -1989,8 +1989,8 @@ VIDEO_NICHE = {
     },
     "academia": {
         "setting": "academia limpa ou outdoor fitness crivel; luz clara e energetica",
-        "camera": "plano médio dinâmico; ângulo baixo curto no agachamento; detalhe de perto no cós e no tecido; acompanhamento ao caminhar até a câmera",
-        "must_show": "agachar, alongar e caminhar para revelar o caimento; suor somente se aparecer naturalmente",
+        "camera": "plano médio frontal; detalhe de perto no cós e no tecido",
+        "must_show": "um agachamento no lugar para revelar o caimento, sem andar de um lado para o outro; suor somente se aparecer naturalmente",
         "avoid": "maquina vazia sem acao, deformacao anatomica, rosto mudando entre cortes",
     },
     "casual": {
@@ -2375,8 +2375,8 @@ def _build_mesa_video_prompt(c, *, resolution, color, product, benefit, movement
         (0, unconfirmed),
         (1, piece_lock_speech(c)),
         (2, f"Notas adicionais do operador (não são falas): {video_notes}. " if video_notes else ''),
-        (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos; a fala ocupa os 15 s até o fim, "
-            "sem silêncio. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, lábios "
+        (0, formats.speech_until(c, "As três falas são UM discurso contínuo, sem pausa entre os trechos; a fala ocupa os 15 s até o fim, "
+            "sem silêncio. ") + "Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, lábios "
             "sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; nunca leia "
             "títulos, instruções, câmera, shot list ou notas. Som ambiente baixo, sem música. "),
         (2, "Estilo visual: natural e realista, luz suave de mesa. "),
@@ -2557,7 +2557,7 @@ _BOLD_MOVES = (
      'dá um giro completo e rápido, deixando a peça abrir e acompanhar o movimento', True),
     (('fantasia',), 'faz um gesto característico da fantasia e dá um giro completo e rápido', True),
     (('legging', 'short', 'bermuda', 'top', 'conjunto fitness'),
-     'faz um agachamento firme e uma passada larga, com energia de treino', False),
+     'sobe um joelho até a altura do quadril e desce, no lugar, com energia de treino', False),
     (('biquíni', 'biquini', 'maiô', 'maio'),
      'caminha confiante, joga o cabelo para trás e leva a mão à cintura', False),
     (('calça', 'calca', 'jeans', 'courino', 'colete', 'jaqueta', 'blazer'),
@@ -2613,9 +2613,9 @@ def light_scene(falas, espelho=False):
     """Acao de contraluz quando a fala promete mostrar a peca contra a luz."""
     if not re.search(r'contra a luz', ' '.join(f or '' for f in falas), re.I):
         return ''
-    if espelho:
-        return 'vira de leve para a janela, com a luz batendo atrás do tecido, e volta para o espelho'
-    return 'vira de leve para a janela, com a luz batendo atrás do tecido, e volta de frente'
+    # "Vira para a janela": na academia nao ha janela e a modelo girava procurando uma.
+    volta = 'volta para o espelho' if espelho else 'volta de frente'
+    return f'sem sair do lugar, gira só o tronco de leve para a luz do ambiente, que atravessa o tecido, e {volta}'
 
 
 def _build_video_prompt(c, *, resolution, color, product, benefit, movements, details, hook, development, cta,
@@ -2744,9 +2744,15 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         # O meio do 3 jeitos e das trocas de look: gesto de prova ali
         # disputaria o mesmo tempo e estouraria o limite do Grok.
         gestures = []
-    acoes = (f"AÇÕES (na ordem, a primeira é obrigatória, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar): {moves}. "
+    if formats.hand_covers(c):
+        camera = camera.replace('enquanto ela fala.', 'enquanto ela fala, fora do instante da mão na lente.')
+    if 'agach' in moves:
+        # Agachamento do teste ou do ousado + o da prova de transparencia: dois agachamentos e ela parecia perdida.
+        gestures = [g for g in gestures if 'agach' not in g.split(' → ', 1)[-1]]
+    no_lugar = ', sem andar de um lado para o outro' if _niche_key(c) == 'academia' else ''
+    acoes = (f"AÇÕES (na ordem, a primeira é obrigatória, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar{no_lugar}): {moves}. "
              if jeitos or lead else
-             f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar): {moves}. ")
+             f"AÇÕES (escolha 2 a 3, na ordem, entre 0s e {t2 - 1}s, emendadas, sem parar nem posar{no_lugar}): {moves}. ")
     shot_head = ("\nSHOT LIST 15s — um take com 2 trocas de look pela mão na lente, sem pausas na fala:\n" if cortes
                  else "\nSHOT LIST 15s — um único take contínuo, sem pausas entre os trechos:\n")
     proof_block = (
@@ -2794,10 +2800,10 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
             f"{t2}–15s CTA: apontando para baixo uma vez, concluindo o mesmo pensamento. Fala (PT-BR): \"{cta}\"\n"),
         (0, _unconfirmed_line(c)),
         (1, piece_lock_speech(c)),
-        (0, "As três falas são UM discurso contínuo, sem pausa entre os trechos, como quem conta uma descoberta "
+        (0, formats.speech_until(c, "As três falas são UM discurso contínuo, sem pausa entre os trechos, como quem conta uma descoberta "
             "para uma amiga. Áudio: voz feminina em português do Brasil, espontânea, sorriso na voz, a fala ocupa "
             "os 15 s até o fim, sem silêncio, lábios sincronizados, nada de locução; fale só as falas entre aspas, palavra por palavra; "
-            "nunca leia títulos, instruções, câmera, shot list ou notas. Som ambiente baixo, sem música. "),
+            "nunca leia títulos, instruções, câmera, shot list ou notas. Som ambiente baixo, sem música. ")),
         (2, f"Estilo visual: {style}. "),
         (4, f"Total das falas: {words} palavras; se passar de 15s em leitura natural, sinalize em vez de acelerar. "),
         (0, "Sem promessas não demonstradas no vídeo."),

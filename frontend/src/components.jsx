@@ -694,7 +694,6 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
     const pending=variants.find(v=>!slotMap[v.color||'default']?.published);
     return pending?.color || variants[0]?.color || '';
   });
-  const [checks,setChecks]=useState({});
   const [publishedUrl,setPublishedUrl]=useState('');
   const [captionDraft,setCaptionDraft]=useState('');
   const [editingCaption,setEditingCaption]=useState(false);
@@ -708,22 +707,22 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
   const caption=variant?.prompts?.caption||c.prompts?.caption||'';
   useEffect(()=>{ setCaptionDraft(caption||''); setEditingCaption(false); },[caption, variant?.color, c.id, c.version]);
   const remaining=variants.filter(v=>!slotMap[v.color||'default']?.published).length;
-  const check=(key,label)=><label className="check-row" key={key}><input type="checkbox" checked={!!checks[key]} disabled={busy||immutable||done} onChange={e=>setChecks(old=>({...old,[key]:e.target.checked}))}/><span>{label}</span></label>;
-  const canRegister = ['account','product','caption','review','published'].every(k=>checks[k]);
+  // O clique em "Marcar como publicado" vale como confirmação; o backend ainda exige as 5 chaves.
+  const PUBLISH_CHECKS={account:true,product:true,caption:true,review:true,published:true};
   return <section className="publish-queue publish-queue-compact">
     <div className="publish-topbar">
       <div className="publish-slot-tabs">
         {variants.map(v=>{
           const key=v.color||'default';
           const ok=!!slotMap[key]?.published;
-          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setChecks({});setPublishedUrl(slotMap[key]?.url||'')}}>
+          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setPublishedUrl(slotMap[key]?.url||'')}}>
             {ok?'✓ ':''}{v.color||'Produto'}
           </button>;
         })}
       </div>
       <TikTokLaunchButtons className="button publish-open-studio" disabled={busy} onOpenStudio={event=>onOpen('studio','publish',event)}/>
     </div>
-    <p className="publish-hint">{isMobileDevice()?'Salve o vídeo no celular e copie a legenda. Abra o TikTok, confira a conta e publique; depois volte para registrar o link.':'Uma cor por vez: copie legenda → suba o MP4 no Studio → registre o link.'}</p>
+    <p className="publish-hint">{isMobileDevice()?'Salve o vídeo no celular e copie a legenda. Abra o TikTok, confira a conta e publique; depois volte e marque como publicado.':'Uma cor por vez: copie legenda → suba o MP4 no Studio → marque como publicado.'}</p>
 
     <div className="publish-grid">
       <div className="publish-media">
@@ -774,17 +773,10 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
       </div>:
       done?<div className="notice success"><Check size={16}/> Cor <strong>{variant?.color}</strong> já registrada. Escolha a próxima ({remaining} restante{remaining===1?'':'s'}).</div>:
       <div className="publish-register">
-        <div className="publish-checks">
-          {check('account','Conta TikTok certa')}
-          {check('product',`Produto Shop: ${c.product} (${variant?.color})`)}
-          {check('caption','MP4 + legenda desta cor')}
-          {check('review','Revisei vídeo/áudio/direitos')}
-          {check('published','Já publiquei no Studio')}
-        </div>
         <label className="publish-link-field">Link do vídeo (opcional)<input autoComplete="off" type="url" value={publishedUrl} onChange={e=>setPublishedUrl(e.target.value)} placeholder="https://www.tiktok.com/@…/video/…"/></label>
-        <button className="primary full" disabled={busy||!canRegister}
-          onClick={()=>onPublishSlot({color:variant?.color,checklist:checks,published_url:publishedUrl})}>
-          Registrar publicação · {variant?.color}
+        <button className="primary full" disabled={busy||immutable}
+          onClick={()=>onPublishSlot({color:variant?.color,checklist:PUBLISH_CHECKS,published_url:publishedUrl})}>
+          Marcar como publicado · {variant?.color}
         </button>
       </div>}
   </section>;

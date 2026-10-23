@@ -147,7 +147,8 @@ def closing_rules(c: dict, product: str, keeps: str, face: bool = True) -> str:
         parts.append('mesmo rosto em todos os quadros; rosto inteiro no gancho e no fim — só nos closes do produto '
                      'ele pode sair do quadro')
     elif face:
-        parts.append('mesmo rosto em todos os quadros, sempre inteiro na imagem enquanto ela fala')
+        parts.append('mesmo rosto em todos os quadros, sempre inteiro na imagem enquanto ela fala'
+                     + (', fora do instante da mão na lente' if formats.hand_covers(c) else ''))
     if 'costas' not in body_turns(c):
         if 'ousado' in estilo and bold_move(c)[1]:
             parts.append('ela nunca para de costas para a câmera (no giro, as costas só passam)')
@@ -365,7 +366,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
 
     first_frame = (
         f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}); preserve 100% o mesmo rosto, '
-        'cabelo, pele e corpo em todos os quadros, vestindo exatamente o que aparece nela.')
+        'cabelo, pele e corpo em todos os quadros, vestindo exatamente o que aparece nela'
+        + ('; depois, só os looks pedidos entram por cima.' if jeitos else '.'))
     light = 'Luz: a mesma da imagem, sem trocar a cena nem escurecer.'
     close = closing_rules(c, product, keeps)
 
@@ -411,7 +413,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             'Câmera: o vídeo é o que o celular dela grava no espelho de corpo inteiro; o quadro é o reflexo, com o '
             'celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural, um único take '
             f'contínuo, sem cortes{cortes} nem zoom.' + closes,
-            f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, {"em ritmo natural de conversa, sem câmera lenta"}; '
+            f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta'
+            + (', sem andar de um lado para o outro' if _niche_key(c) == 'academia' else '') + '; '
             'no final, de frente para o espelho, a mão livre aponta uma vez para baixo com o indicador, sorrindo. '
             f'{fim}{seamless}',
             f'O que ela diz, olhando para a tela do celular no reflexo, num fôlego só: "{fala}"',
@@ -427,7 +430,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
             first_frame, light,
             (f'Câmera: na mão, {formats.ASMR_CAMERA}, um único take contínuo.' if formats.asmr(c) else
              f'Câmera: fixa na altura do peito, {shot}, sem zoom, um único take contínuo, sem cortes.'),
-            f'Ação contínua, sem pausas: ela {abre_fmt}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
+            f'Ação contínua, sem pausas: ela {abre_fmt}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta'
+        + (', sem andar de um lado para o outro' if _niche_key(c) == 'academia' else '') + '; '
             f'no final, já de frente para a lente, ela {cena["cta"]}, com sorriso leve e confiante. {fim}{seamless}',
             f'Expressão: {cena["arc"]}.',
             ('Som (é o conteúdo): sons nítidos e próximos do tecido, da amarração ou do zíper e dos passos; '
@@ -440,12 +444,13 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         first_frame, light,
         f'Câmera: na mão, estável, {speech_framing(c)}, frontal, um único take contínuo, sem cortes{cortes}; dolly-in suave e '
         f'contínuo até {push_target(c)} e volta suave ao plano inicial no final.'
-        + (closes or ' O rosto fica sempre no quadro.'),
-        f'Ação contínua, sem pausas: ela {abre_fmt}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta; '
+        + (closes or ' O rosto fica sempre no quadro' + (', fora do instante da mão na lente.' if formats.hand_covers(c) else '.')),
+        f'Ação contínua, sem pausas: ela {abre_fmt}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta'
+        + (', sem andar de um lado para o outro' if _niche_key(c) == 'academia' else '') + '; '
         f'no final, já de frente para a lente, ela {cena["cta"]}, sorrindo. {fim}{seamless}',
         f'O que ela diz, do começo ao fim do vídeo, num fôlego só e enquanto se move: "{fala}"',
         f'Expressão: {cena["arc"]}.',
         HANDS,
-        SPEECH,
+        formats.speech_until(c, SPEECH),
         close,
     ])

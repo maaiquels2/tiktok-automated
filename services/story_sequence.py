@@ -88,7 +88,9 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
     abre = formats.opening(c, cena['hook'], lugar)
     if mode == 'espelho':
         abre = abre.replace('em direção à câmera', 'em direção ao espelho').replace('até a câmera', 'até o espelho')
-    keep_line = 'Continuação do mesmo take, já em movimento: mesma pessoa, roupa e luz; segue o último quadro sem pausa.'
+    keep_line = ('Continuação do mesmo take, já em movimento: mesma pessoa e luz'
+                 + ('; a roupa só muda nas trocas de look' if jeitos else ', mesma roupa')
+                 + '; segue o último quadro sem pausa.')
     # Emenda das partes: quem para no ultimo quadro faz o Extend recomecar
     # do zero, e o video final trava na juncao.
     ends_moving = 'Termina em movimento, sem parar no último quadro.'

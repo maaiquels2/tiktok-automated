@@ -155,7 +155,9 @@ def opening(c, abre, mode=''):
     if 'acao' in tec:
         antes.append('começa já em movimento, nunca parada no primeiro quadro')
     if 'revela' in tec:
-        antes.append('cobre ' + ('a câmera do celular' if espelho else 'a lente') + ' com a mão e, ao tirar, revela a peça')
+        # O 1o quadro e a imagem aprovada, ja com a peca: sem mudanca depois da mao, o "revelar" mostrava o mesmo quadro.
+        antes.append('tampa ' + ('toda a câmera do celular' if espelho else 'toda a lente')
+                     + ' com a palma aberta e, ao tirar, surge mais perto e em outra pose')
     if 'aproxima' in tec:
         antes.append('dá dois passos rápidos até bem perto ' + ('do espelho' if espelho else 'da lente')
                      + ' e para de repente')
@@ -184,17 +186,17 @@ def three_looks(c, piece):
         return ''
     a, b = looks(c)
     return (f'três looks em sequência, sempre com {piece} à mostra: primeiro só como está na imagem; depois {a}; '
-            f'por último {b}; em cada troca, a mão cobre a lente por meio segundo e, ao sair, ela já está no look '
-            'seguinte, no mesmo lugar e luz')
+            f'por último {b}; a cada novo look citado, a palma aberta vem e tampa toda a lente por meio segundo e, '
+            'ao sair, ela já está no look seguinte, no mesmo lugar e luz')
 
 
 def ending(c, mode=''):
     """Frase final do encerramento: transicao da troca de cor ou loop."""
     fmt, tec = video_format(c), techniques(c)
     if fmt == 'troca_cor':
-        alvo = 'a câmera do celular' if mode == 'espelho' else 'a lente'
-        return (f'No último segundo, depois da fala, a mão aberta vem até {alvo} e cobre o quadro inteiro '
-                '(transição para a próxima cor). ')
+        alvo = 'da câmera do celular' if mode == 'espelho' else 'da lente'
+        return (f'No último segundo, depois da última palavra, ela aproxima a palma aberta {alvo} até tampar o '
+                'quadro inteiro, tela toda escura (transição para a próxima cor). ')
     if 'loop' in tec:
         return 'No último quadro, volta à pose e ao enquadramento do primeiro (loop sem emenda). '
     return ''
@@ -202,6 +204,20 @@ def ending(c, mode=''):
 
 def allows_cuts(c):
     return video_format(c) == 'tres_jeitos'
+
+
+def hand_covers(c):
+    """Formatos em que a mão tampa a lente: o rosto sai do quadro nesse instante."""
+    return video_format(c) in ('troca_cor', 'tres_jeitos') or 'revela' in techniques(c)
+
+
+def speech_until(c, text):
+    """Na troca de cor o último segundo é da mão na lente: "a fala ocupa os 15 s até o fim" disputava esse
+    segundo e a transição sumia."""
+    if video_format(c) != 'troca_cor':
+        return text
+    return (text.replace('15 segundos até o fim, sem silêncio no final', '14 segundos; o último é só da mão na lente')
+                .replace('15 s até o fim, sem silêncio', '14 s, sem silêncio; o último segundo é só da mão na lente'))
 
 
 def _lower_first(text):
