@@ -12,7 +12,7 @@ import urllib.request
 AUTHORIZE_URL = 'https://www.tiktok.com/v2/auth/authorize/'
 TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/'
 REDIRECT_URI = os.environ.get('TIKTOK_REDIRECT_URI', 'https://tiktok-automated.vercel.app/api/tiktok/callback')
-SCOPES = 'user.info.basic'
+SCOPES = 'user.info.basic,video.publish'
 
 
 class TikTokAuthError(Exception):
