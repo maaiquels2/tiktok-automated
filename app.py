@@ -1264,6 +1264,12 @@ def create_app(config=None):
     def index():
         return send_from_directory(app.config['FRONTEND_DIR'],'index.html')
 
+    @app.get('/termos')
+    @app.get('/privacidade')
+    def legal_page():
+        name = 'termos.html' if request.path == '/termos' else 'privacidade.html'
+        return send_from_directory(app.config['FRONTEND_DIR']/'legal', name)
+
 
     @app.get('/gate/')
     @app.get('/gate/index.html')
