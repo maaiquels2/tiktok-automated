@@ -1264,6 +1264,10 @@ def create_app(config=None):
     def index():
         return send_from_directory(app.config['FRONTEND_DIR'],'index.html')
 
+    @app.get('/tiktok8tkg8yFd2ErD70CClAjZEa3ahM0kyrHX.txt')
+    def tiktok_verification():
+        return send_from_directory(app.config['FRONTEND_DIR'],'tiktok8tkg8yFd2ErD70CClAjZEa3ahM0kyrHX.txt',mimetype='text/plain')
+
     @app.get('/termos')
     @app.get('/privacidade')
     def legal_page():
