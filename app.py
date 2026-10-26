@@ -23,6 +23,9 @@ from flask import Flask, g, jsonify, redirect, request, send_file, send_from_dir
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
+from services import tiktok_auth
+import hmac
+import secrets
 from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
@@ -279,6 +282,7 @@ def create_app(config=None):
                             "SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() "
                             "AND table_name='rate_limits'").fetchone():
                         conn.execute(RATE_LIMITS_SQL)
+                        conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
                         conn.execute('ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY')
                         conn.commit()
                     # Biblioteca de prompts aprovados e uso da IA por campanha.
@@ -359,6 +363,7 @@ def create_app(config=None):
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
             conn.execute(RATE_LIMITS_SQL)
+            conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
             conn.execute(prompt_library.LIBRARY_SQL)
             conn.execute(prompt_library.USAGE_SQL)
             prompt_library.seed(conn)
@@ -1267,6 +1272,46 @@ def create_app(config=None):
     @app.get('/tiktok8tkg8yFd2ErD70CClAjZEa3ahM0kyrHX.txt')
     def tiktok_verification():
         return send_from_directory(app.config['FRONTEND_DIR'],'tiktok8tkg8yFd2ErD70CClAjZEa3ahM0kyrHX.txt',mimetype='text/plain')
+
+    @app.get('/api/tiktok/connect')
+    def tiktok_connect():
+        state = secrets.token_urlsafe(24)
+        session['tiktok_state'] = state
+        try:
+            url = tiktok_auth.authorize_url(state)
+        except tiktok_auth.TikTokAuthError as e:
+            raise Invalid(e.args[0], 500)
+        return redirect(url)
+
+    @app.get('/api/tiktok/callback')
+    def tiktok_callback():
+        if request.args.get('error'):
+            return redirect('/#/inicio?tiktok=recusado')
+        expected = session.pop('tiktok_state', None)
+        state = request.args.get('state', '')
+        if not expected or not hmac.compare_digest(state, expected):
+            raise Invalid('Conexao com TikTok expirou. Tente conectar de novo.', 400)
+        try:
+            data = tiktok_auth.exchange_code(request.args.get('code', ''))
+        except tiktok_auth.TikTokAuthError as e:
+            raise Invalid(e.args[0], 502)
+        user_id = session.get('user_id') or 0
+        db().execute('INSERT INTO tiktok_connections(user_id,open_id,access_token,refresh_token,expires_in,scope) '
+                     'VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET open_id=excluded.open_id, '
+                     'access_token=excluded.access_token, refresh_token=excluded.refresh_token, '
+                     'expires_in=excluded.expires_in, scope=excluded.scope, connected_at=CURRENT_TIMESTAMP',
+                     (user_id, str(data.get('open_id', '')), str(data['access_token']),
+                      str(data.get('refresh_token', '')), int(data.get('expires_in') or 0), str(data.get('scope', ''))))
+        db().commit()
+        return redirect('/#/inicio?tiktok=conectado')
+
+    @app.get('/api/tiktok/status')
+    def tiktok_status():
+        user_id = session.get('user_id') or 0
+        row = db().execute('SELECT open_id, scope, connected_at FROM tiktok_connections WHERE user_id=?', (user_id,)).fetchone()
+        if not row:
+            return jsonify(connected=False)
+        return jsonify(connected=True, open_id=row[0], scope=row[1], connected_at=str(row[2]))
 
     @app.get('/termos')
     @app.get('/privacidade')
