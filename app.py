@@ -281,7 +281,7 @@ def create_app(config=None):
                             "SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() "
                             "AND table_name='rate_limits'").fetchone():
                         conn.execute(RATE_LIMITS_SQL)
-                        conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
+                        conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT \'\')')
                         conn.execute('ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY')
                         conn.commit()
                     # Biblioteca de prompts aprovados e uso da IA por campanha.
@@ -362,7 +362,7 @@ def create_app(config=None):
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
             conn.execute(RATE_LIMITS_SQL)
-            conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
+            conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT \'\')')
             conn.execute(prompt_library.LIBRARY_SQL)
             conn.execute(prompt_library.USAGE_SQL)
             prompt_library.seed(conn)
@@ -1301,12 +1301,13 @@ def create_app(config=None):
             raise Invalid(e.args[0], 502)
         user_id = session.get('user_id') or 0
         try:
-            db().execute('INSERT INTO tiktok_connections(user_id,open_id,access_token,refresh_token,expires_in,scope) '
-                         'VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET open_id=excluded.open_id, '
+            now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
+            db().execute('INSERT INTO tiktok_connections(user_id,open_id,access_token,refresh_token,expires_in,scope,connected_at) '
+                         'VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET open_id=excluded.open_id, '
                          'access_token=excluded.access_token, refresh_token=excluded.refresh_token, '
-                         'expires_in=excluded.expires_in, scope=excluded.scope, connected_at=CURRENT_TIMESTAMP',
+                         'expires_in=excluded.expires_in, scope=excluded.scope, connected_at=excluded.connected_at',
                          (user_id, str(data.get('open_id', '')), str(data['access_token']),
-                          str(data.get('refresh_token', '')), int(data.get('expires_in') or 0), str(data.get('scope', ''))))
+                          str(data.get('refresh_token', '')), int(data.get('expires_in') or 0), str(data.get('scope', '')), now))
             db().commit()
         except Exception as e:
             app.logger.exception('Falha ao salvar conexao com TikTok')
