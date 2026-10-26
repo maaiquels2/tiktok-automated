@@ -6,6 +6,7 @@ import Canvas from './Canvas';
 import { AboveDialogs } from './aboveDialogs.jsx';
 import { api, health, openBrowserFree, reached, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
 import {Landing, BackToLanding} from './Landing';
+import { TikTokPublish } from './TikTokPublish';
 import { PHASES, statusInfo, phaseTone, swatchFor, nextStepLabel } from './ui';
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS, AiUsage, SaveToLibrary} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
@@ -752,6 +753,7 @@ export default function App(){
         {mode==='home' && (
     <main className="rd-home" aria-busy={loading}>
       <div className="rd-home-main">
+        <TikTokPublish/>
         {homeView==='ativas'&&!loading&&continueItem&&<section className="rd-continue" aria-label="Continue de onde parou">
           {continueItem.cover_asset_id?<img className="rd-continue-cover" src={`/api/assets/${continueItem.cover_asset_id}/file`} alt="" onError={hideBrokenImage}/>:<span className="rd-continue-cover" aria-hidden="true"/>}
           <div className="rd-continue-body">

@@ -23,7 +23,7 @@ from flask import Flask, g, jsonify, redirect, request, send_file, send_from_dir
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
-from services import tiktok_auth
+from services import tiktok_auth, tiktok_publish
 import hmac
 import secrets
 from services.media import inspect_media
@@ -1312,6 +1312,38 @@ def create_app(config=None):
         if not row:
             return jsonify(connected=False)
         return jsonify(connected=True, open_id=row[0], scope=row[1], connected_at=str(row[2]))
+
+    def _tiktok_token():
+        user_id = session.get('user_id') or 0
+        row = db().execute('SELECT access_token FROM tiktok_connections WHERE user_id=?', (user_id,)).fetchone()
+        if not row:
+            raise Invalid('Conecte sua conta do TikTok antes de publicar.', 409)
+        return row[0]
+
+    @app.post('/api/tiktok/publish/init')
+    def tiktok_publish_init():
+        data = request.get_json(silent=True) or {}
+        try:
+            size = int(data.get('size') or 0)
+        except (TypeError, ValueError):
+            raise Invalid('Tamanho do video invalido.', 400)
+        caption = str(data.get('caption') or '').strip()
+        try:
+            out = tiktok_publish.init_video(_tiktok_token(), caption, size)
+        except tiktok_publish.TikTokPublishError as e:
+            raise Invalid(e.args[0], 502)
+        return jsonify(publish_id=out['publish_id'], upload_url=out['upload_url'])
+
+    @app.get('/api/tiktok/publish/status')
+    def tiktok_publish_status():
+        publish_id = request.args.get('publish_id', '').strip()
+        if not publish_id:
+            raise Invalid('publish_id obrigatorio.', 400)
+        try:
+            out = tiktok_publish.status(_tiktok_token(), publish_id)
+        except tiktok_publish.TikTokPublishError as e:
+            raise Invalid(e.args[0], 502)
+        return jsonify(out)
 
     @app.get('/termos')
     @app.get('/privacidade')
