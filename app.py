@@ -1286,7 +1286,7 @@ def create_app(config=None):
             raise Invalid(e.args[0], 500)
         except Exception as e:
             app.logger.exception('Falha ao iniciar login com TikTok')
-            raise Invalid(f'Nao foi possivel iniciar a conexao com o TikTok ({type(e).__name__}). Avise o suporte.', 500)
+            raise Invalid(f'Nao foi possivel iniciar a conexao com o TikTok ({type(e).__name__}: {str(e)[:160]}). Avise o suporte.', 500)
         return redirect(url)
 
     @app.get('/api/tiktok/callback')
