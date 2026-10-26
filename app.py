@@ -1269,9 +1269,12 @@ def create_app(config=None):
     def index():
         return send_from_directory(app.config['FRONTEND_DIR'],'index.html')
 
-    @app.get('/tiktok8tkg8yFd2ErD70CClAjZEa3ahM0kyrHX.txt')
-    def tiktok_verification():
-        return send_from_directory(app.config['FRONTEND_DIR'],'tiktok8tkg8yFd2ErD70CClAjZEa3ahM0kyrHX.txt',mimetype='text/plain')
+    @app.get('/<name>')
+    def tiktok_verification(name):
+        # so os arquivos de verificacao do TikTok (tiktok<alfanumerico>.txt) na raiz do site
+        if not re.fullmatch(r'tiktok[A-Za-z0-9]+\.txt', name):
+            return jsonify(error='Nao encontrado.'), 404
+        return send_from_directory(app.config['FRONTEND_DIR'], name, mimetype='text/plain')
 
     @app.get('/api/tiktok/connect')
     def tiktok_connect():
