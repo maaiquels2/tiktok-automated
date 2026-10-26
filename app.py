@@ -1300,13 +1300,17 @@ def create_app(config=None):
         except tiktok_auth.TikTokAuthError as e:
             raise Invalid(e.args[0], 502)
         user_id = session.get('user_id') or 0
-        db().execute('INSERT INTO tiktok_connections(user_id,open_id,access_token,refresh_token,expires_in,scope) '
-                     'VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET open_id=excluded.open_id, '
-                     'access_token=excluded.access_token, refresh_token=excluded.refresh_token, '
-                     'expires_in=excluded.expires_in, scope=excluded.scope, connected_at=CURRENT_TIMESTAMP',
-                     (user_id, str(data.get('open_id', '')), str(data['access_token']),
-                      str(data.get('refresh_token', '')), int(data.get('expires_in') or 0), str(data.get('scope', ''))))
-        db().commit()
+        try:
+            db().execute('INSERT INTO tiktok_connections(user_id,open_id,access_token,refresh_token,expires_in,scope) '
+                         'VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET open_id=excluded.open_id, '
+                         'access_token=excluded.access_token, refresh_token=excluded.refresh_token, '
+                         'expires_in=excluded.expires_in, scope=excluded.scope, connected_at=CURRENT_TIMESTAMP',
+                         (user_id, str(data.get('open_id', '')), str(data['access_token']),
+                          str(data.get('refresh_token', '')), int(data.get('expires_in') or 0), str(data.get('scope', ''))))
+            db().commit()
+        except Exception as e:
+            app.logger.exception('Falha ao salvar conexao com TikTok')
+            raise Invalid(f'Nao foi possivel salvar a conexao com o TikTok ({type(e).__name__}: {str(e)[:160]}). Avise o suporte.', 500)
         return redirect('/#/inicio?tiktok=conectado')
 
     @app.get('/api/tiktok/status')
