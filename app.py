@@ -112,7 +112,6 @@ def create_app(config=None):
         except OSError:
             secret=''
     if not secret:
-        import secrets
         secret=secrets.token_urlsafe(48)
         try:
             secret_path.write_text(secret,encoding='utf-8')
@@ -479,7 +478,6 @@ def create_app(config=None):
         except OSError:
             pin = ''
         if not (pin.isdigit() and len(pin) == 4):
-            import secrets
             pin = f'{secrets.randbelow(9000) + 1000}'
             try:
                 path.write_text(pin, encoding='utf-8')
