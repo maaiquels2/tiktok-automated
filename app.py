@@ -1278,12 +1278,15 @@ def create_app(config=None):
 
     @app.get('/api/tiktok/connect')
     def tiktok_connect():
-        state = secrets.token_urlsafe(24)
-        session['tiktok_state'] = state
         try:
+            state = secrets.token_urlsafe(24)
+            session['tiktok_state'] = state
             url = tiktok_auth.authorize_url(state)
         except tiktok_auth.TikTokAuthError as e:
             raise Invalid(e.args[0], 500)
+        except Exception as e:
+            app.logger.exception('Falha ao iniciar login com TikTok')
+            raise Invalid(f'Nao foi possivel iniciar a conexao com o TikTok ({type(e).__name__}). Avise o suporte.', 500)
         return redirect(url)
 
     @app.get('/api/tiktok/callback')
