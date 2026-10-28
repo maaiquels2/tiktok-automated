@@ -3070,6 +3070,57 @@ class WorkflowTests(unittest.TestCase):
         missing=self.client.get(f'/api/campaigns/{self.cid}/sequence?variant=999999',headers=self.headers)
         self.assertEqual(missing.status_code,404)
 
+    def test_home_reveal_builds_two_scenes_with_the_audited_lines(self):
+        from services.home_reveal import build_home_reveal
+        c={'product':'Maiô de um ombro só','niche':'praia','generator':'grok',
+           'details':'alça única com 3 argolas douradas, argola dourada na frente, recorte frontal'}
+        falas={'hook':'Esse maiô marrom chama atenção de longe.',
+               'development':'As argolas douradas e o recorte na frente deixam o visual elegante.',
+               'cta':'Toca no carrinho laranja e escolhe o teu.'}
+        seq=build_home_reveal(c,falas,'Marrom')
+        cena1,cena2=seq['clips'][2]['prompt'],seq['clips'][3]['prompt']
+        # Cena 1: curta, peca dobrada e quase parada, termina com a MAO tampando a lente.
+        self.assertIn('6 segundos',cena1)
+        self.assertIn('dobrada',cena1)
+        self.assertIn('tampa a lente inteira com a palma',cena1)
+        self.assertNotIn('abraç',cena1.casefold())
+        # Cena 2: comeca com a mao saindo da lente e usa as tres falas do roteiro.
+        self.assertIn('cobre a lente e desce',cena2)
+        for fala in falas.values():
+            self.assertIn(fala,cena2)
+        # A descricao da peca vem do briefing, nas palavras do operador.
+        self.assertIn('3 argolas douradas',cena1)
+        self.assertEqual(seq['total_seconds'],21)
+        self.assertEqual(copywriter_audit({**falas,'hook':seq['clips'][2]['spoken']},c,require_caption=False,
+                                          strict_style=False),[])
+        # Prompts curtos: abaixo do limite do Grok com folga.
+        self.assertTrue(all(len(clip['prompt'])<1600 for clip in seq['clips']))
+        # Flow faz clipes de 8 s.
+        self.assertEqual(build_home_reveal({**c,'generator':'flow'},falas,'Marrom')['clips'][2]['seconds'],8)
+
+    def test_home_reveal_is_only_for_clothes(self):
+        from services.home_reveal import RevealError, build_home_reveal
+        falas={'hook':'a','development':'b','cta':'c'}
+        with self.assertRaises(RevealError):
+            build_home_reveal({'product':'Creme hidratante facial'},falas,'')
+        with self.assertRaises(RevealError):
+            build_home_reveal({'product':'Vestido'},{**falas,'cta':''},'Azul')
+
+    def test_home_reveal_endpoint_reads_the_chosen_color(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco','generator':'grok'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=self.get()
+        branco=before['variants'][1]
+        response=self.client.get(f"/api/campaigns/{self.cid}/home-reveal?variant={branco['id']}",headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json['color'],'Branco')
+        self.assertIn(branco['prompts']['cta'].replace('"',"'"),response.json['clips'][3]['prompt'])
+        self.assertEqual(self.get()['version'],before['version'])
+        missing=self.client.get(f'/api/campaigns/{self.cid}/home-reveal?variant=999999',headers=self.headers)
+        self.assertEqual(missing.status_code,404)
+
     def test_explicit_ai_refresh_works_for_a_color_variant(self):
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
         self.cid=other['id']

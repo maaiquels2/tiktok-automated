@@ -3291,6 +3291,26 @@ def create_app(config=None):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de montar a sequência.',409)
         return jsonify(build_story_sequence(c,prompts,color))
 
+    # Formato "Recebi em casa": 2 cenas (abre a caixa de pijama e tampa a lente -> ja no corpo, com as falas do
+    # roteiro) e a montagem no CapCut (services/home_reveal.py). So leitura, como a sequencia acima.
+    @app.get('/api/campaigns/<int:cid>/home-reveal')
+    def home_reveal(cid):
+        from services.home_reveal import RevealError, build_home_reveal
+        c=detail(cid)
+        prompts,color=c['prompts'],c.get('color') or ''
+        vid=request.args.get('variant',type=int)
+        if vid is not None:
+            variant=next((v for v in c['variants'] if v['id']==vid),None)
+            if variant is None:
+                raise Invalid('Variação de cor não encontrada.',404)
+            prompts,color=variant['prompts'],variant['color']
+        elif c['variants']:
+            prompts,color=c['variants'][0]['prompts'],c['variants'][0]['color']
+        try:
+            return jsonify(build_home_reveal(c,prompts,color))
+        except RevealError as error:
+            raise Invalid(str(error),error.status)
+
     # Sequencia STORYTELLING de 2 ou 3 clipes (arcos Motivos e Questionada) com fala nova em cada clipe
     # (services/story_arcs.py). So leitura, como a de cima: nada e gravado na campanha. E POST porque o
     # operador pode mandar as falas que editou para gerar os prompts de novo.
