@@ -64,7 +64,7 @@ def scene1_line(c):
     forms = piece_forms(c)
     _focus, features = focus_parts(c)
     detalhe = with_article(features[0]) if features else 'esse acabamento'
-    return f'CHEGOU! Olha {detalhe} d{forms["dem"]} {forms["piece"]}... vou vestir agora, já volto!'
+    return f'GENTE, CHEGOU! Olha {detalhe} d{forms["dem"]} {forms["piece"]}... vou vestir agora, já volto!'
 
 
 def _scene2_gestures(c):
@@ -134,8 +134,10 @@ def build_home_reveal(c, prompts, color):
         f'{t1}–{t2}s: {prova}, sem parar de falar. Fala: "{development}"',
         f'{t2}–15s: uma mão na cintura; a outra aponta uma vez para baixo com o indicador e volta, sorrindo, ainda '
         f'falando. Fala: "{cta}"',
-        'Corpo de frente o tempo todo. As três falas são um discurso contínuo; voz feminina em português do Brasil, '
-        'espontânea, lábios sincronizados, só as palavras entre aspas.',
+        'Corpo de frente e rosto inteiro no quadro o tempo todo; sem cortes, sem câmera lenta e sem pose parada no '
+        'fim.',
+        'As três falas são um discurso contínuo, sem silêncio; voz feminina em português do Brasil, espontânea, '
+        'sorriso na voz, lábios sincronizados, só as palavras entre aspas, sem ler instruções.',
         'Sem texto na tela, sem música, som ambiente baixo.',
     ])
 
