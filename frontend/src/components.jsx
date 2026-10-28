@@ -6,7 +6,7 @@ import { scorePrompt } from './promptScore';
 import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
 import { isFewFacts, pointToFacts } from './sequenceText';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, storyArc, persuasionPreview, savePromptToLibrary } from './api';
+import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -178,6 +178,40 @@ export function StorySequence({campaignId,variantId=null,onError}){
         <small className="help">{clip.why}</small>
         <p>{clip.prompt}</p>
         {clip.screen_text&&<p className="story-screen-text"><strong>Texto na tela (CapCut):</strong> {clip.screen_text}</p>}
+      </div>)}
+      <h4>Como gerar no Grok</h4>
+      <ul>{seq.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>
+      <h4>Montagem no CapCut</h4>
+      <ol>{seq.capcut.map(step=><li key={step}>{step}</li>)}</ol>
+    </div>}
+  </section>;
+}
+
+// Formato "Recebi em casa" (services/home_reveal.py): Cena 1 abrindo a caixa de pijama, terminando com a mao na
+// lente; Cena 2 ja no corpo, comecando com a mao saindo da lente. So leitura, como a StorySequence.
+export function HomeReveal({campaignId,variantId=null,onError}){
+  const [open,setOpen]=useState(false);
+  const [seq,setSeq]=useState(null);
+  const [loading,setLoading]=useState(false);
+  async function toggle(){
+    if(seq){setOpen(v=>!v);return}
+    setLoading(true);
+    try{setSeq(await homeReveal(campaignId,variantId));setOpen(true)}
+    catch(e){onError?.(e.message)}
+    finally{setLoading(false)}
+  }
+  return <section className="story-sequence">
+    <button type="button" onClick={toggle} disabled={loading} aria-expanded={open}>
+      <span className="rd-story-eyebrow">2 CENAS · TRANSIÇÃO COM A MÃO</span>
+      <strong>{loading?'Montando as cenas…':open?'Fechar Recebi em casa':'Recebi em casa → no corpo'}</strong>
+      <small>Cena 1: ela abre a caixa de pijama, vibra e tampa a lente. Cena 2: a mão sai da lente e ela já está com a peça, usando as falas do roteiro.</small>
+    </button>
+    {open&&seq&&<div className="story-sequence-body">
+      <div className="section-title"><strong>2 cenas · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
+      {seq.clips.map(clip=><div key={clip.index} className="variant-prompt story-clip">
+        <div className="section-title"><strong>Passo {clip.index} · {clip.role} <small>{clip.kind==='image'?'imagem':`vídeo · ${clip.seconds}s`}</small></strong><CopyButton text={clip.prompt} onError={onError}/></div>
+        <small className="help">{clip.why} Anexe: {clip.attach}.</small>
+        <p>{clip.prompt}</p>
       </div>)}
       <h4>Como gerar no Grok</h4>
       <ul>{seq.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>
@@ -429,6 +463,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
           </ol>
         </section>
         {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>
+          {campaign.video_mode!=='mesa'&&<HomeReveal key={['casa',variantId||'base',p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>}
           {ARC_FORMATS.includes(campaign.video_mode||'')&&!campaign.sequence_clips&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
       </div>
 
