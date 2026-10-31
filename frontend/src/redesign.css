@@ -610,10 +610,48 @@ button.rd-brand {
   line-height: 1.6;
   color: var(--rd-ink);
   white-space: pre-wrap;
-  max-height: 220px;
+  max-height: 280px;
   overflow: auto;
+  scrollbar-color: var(--rd-line-strong) transparent;
   margin: 0;
 }
+.rd-prompt-box.is-open { max-height: none; }
+.rd-prompt-box:focus-visible { outline: 2px solid var(--rd-primary); outline-offset: 2px; }
+.rd-prompt-box::selection,
+.rd-prompt-box *::selection { background: var(--rd-primary); color: var(--rd-surface); }
+.pt-label { font-weight: 650; color: var(--rd-primary-ink); }
+.pt-say { background: var(--rd-primary-soft); color: var(--rd-ink); border-radius: 4px; padding: 1px 3px; }
+.rd-prompt-view { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.rd-prompt-toggle {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--rd-line-strong);
+  background: transparent;
+  color: var(--rd-primary-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rd-prompt-toggle:focus-visible { outline: 2px solid var(--rd-primary); outline-offset: 2px; }
+@media (hover: hover) {
+  .rd-prompt-toggle:hover { background: var(--rd-primary-soft); }
+}
+.rd-prompt-legend { margin: 0; }
+.rd-meter { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.rd-meter-bar { flex: 1 1 160px; max-width: 320px; height: 6px; border-radius: 3px; background: var(--rd-sunken); overflow: hidden; }
+.rd-meter-bar i { display: block; height: 100%; border-radius: 3px; background: var(--rd-primary); }
+.rd-meter.is-over .rd-meter-bar i { background: var(--rd-danger); }
+.rd-meter.is-over .rd-prompt-count { color: var(--rd-danger); font-weight: 700; }
+.rd-meter .rd-prompt-count { margin-left: 0; }
+.field-count { display: block; margin-top: 4px; font-size: 12px; color: var(--rd-ink-3); font-variant-numeric: tabular-nums; }
+.field-count.is-ok { color: var(--rd-publicar-ink); }
+.field-count.is-near { color: var(--rd-primary-ink); }
+.budget-caption { align-self: center; }
+.script-editor .script-budget,
+.variant-content .script-budget { margin: 14px 0 18px; }
 .rd-prompt-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .rd-cta {
   min-height: 52px;

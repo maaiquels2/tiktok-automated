@@ -2,6 +2,8 @@ import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from 
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { scorePrompt } from './promptScore';
+import { segmentPrompt } from './promptSegments';
+import { FieldCount, ScriptBudget } from './scriptBudget';
 // Regras de formato do servidor (services/formats.py; um teste confere).
 import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
@@ -391,6 +393,32 @@ export function StyleChips({value,onChange,labelledBy}){
 // acao principal (copiar e abrir o gerador), falas como linha do tempo, o
 // passo a passo e, por ultimo, o envio do MP4. No celular a acao principal
 // fica presa no rodape, na altura do polegar.
+// O prompt de vídeo na tela: títulos de seção e falas entre aspas em destaque, área alta e recolhível.
+// Só exibição: quem copia usa o texto cru (segmentPrompt devolve o mesmo texto quando os pedaços se juntam).
+export function PromptBox({text,empty}){
+  const [open,setOpen]=useState(false);
+  const parts=segmentPrompt(text);
+  const long=String(text||'').length>900;
+  return <div className="rd-prompt-view">
+    <pre className={'rd-prompt-box'+(open?' is-open':'')} tabIndex={0} aria-label="Prompt de vídeo">{text
+      ?parts.map((part,i)=>part.kind==='label'?<b key={i} className="pt-label">{part.text}</b>
+        :part.kind==='say'?<mark key={i} className="pt-say">{part.text}</mark>:part.text)
+      :empty}</pre>
+    {long&&<button type="button" className="rd-prompt-toggle" aria-expanded={open} onClick={()=>setOpen(v=>!v)}>{open?'Recolher o prompt':'Mostrar o prompt inteiro'}</button>}
+  </div>;
+}
+
+// Quantos caracteres o prompt usa do limite do gerador. O prompt completo encosta no limite de propósito:
+// só passar dele é problema (o fim é cortado). Sem limite (Flow), mostra só a contagem.
+export function PromptMeter({length,limit}){
+  const over=!!limit&&length>limit;
+  const fmt=n=>n.toLocaleString('pt-BR');
+  return <div className={'rd-meter'+(over?' is-over':'')}>
+    {limit?<div className="rd-meter-bar" role="meter" aria-label="Caracteres do prompt" aria-valuemin={0} aria-valuemax={limit} aria-valuenow={Math.min(length,limit)}><i style={{width:Math.min(100,length/limit*100)+'%'}}/></div>:null}
+    <span className="rd-prompt-count">{fmt(length)}{limit?` de ${fmt(limit)}`:''} caracteres{over?` · passa ${fmt(length-limit)}: o fim do prompt é cortado`:''}</span>
+  </div>;
+}
+
 export function VideoWorkbench({campaign,prompts,color,variantId=null,image,video,deviceVideo,deviceFile,busy,disabled,immutable,onError,onUpload,onDeviceVideo,onRefreshVideoPrompt,onImproveVideoPrompt,onChangeVideoMode,onOpenGenerator,videoPromptLimit}){
   const p=prompts||{};
   const [copied,setCopied]=useState(false);
@@ -399,7 +427,6 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
   const guia=String(p.video||'').startsWith('Vídeo vertical');
   const gen=campaign?.generator==='flow'?'Flow':'Grok';
   const length=p.video?.length||0;
-  const over=!!videoPromptLimit&&length>videoPromptLimit;
   const hasVideo=!!(video||deviceVideo);
   const name=color||'este vídeo';
   const launch=className=><ServiceLaunch service={campaign?.generator||'grok'} className={className} disabled={busy||!p.video}
@@ -431,7 +458,9 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
           </div>
         </div>
         {campaign?.edit_tip&&<p className="help rd-format-tip"><strong>Na edição:</strong> {campaign.edit_tip}</p>}
-        <pre className="rd-prompt-box">{p.video||'Gere os prompts em Definir look.'}</pre>
+        <PromptBox text={p.video} empty="Gere os prompts em Definir look."/>
+        {p.video&&<p className="help rd-prompt-legend">Em destaque: as seções do prompt e as falas entre aspas. O texto copiado é o mesmo, sem destaque.</p>}
+        <PromptMeter length={length} limit={videoPromptLimit}/>
         <div className="rd-prompt-actions">
           {launch('rd-cta')}
           <CopyButton text={p.video||''} onError={onError} label="Só copiar"/>
@@ -439,7 +468,6 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
             format={(FORMAT_OPTIONS.find(([id])=>id===mode)||[,'Com fala'])[1]} version={guia?'Guia do Grok':'Completo'}
             note={campaign?.id?`Guardado da campanha #${campaign.id}${color?` · cor ${color}`:''}.`:''}/>
           {!immutable&&onRefreshVideoPrompt&&<button type="button" className="button" disabled={busy} onClick={()=>(guia?onImproveVideoPrompt:onRefreshVideoPrompt)?.(variantId)}><RefreshCw size={15}/> Recriar</button>}
-          <span className={'rd-prompt-count'+(over?' is-over':'')}>{length.toLocaleString('pt-BR')}{videoPromptLimit?` / ${videoPromptLimit.toLocaleString('pt-BR')}`:''} caracteres</span>
         </div>
       </section>
 
@@ -545,29 +573,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
         busy={busy} disabled={disabled} immutable={immutable} onError={onError} onUpload={onUpload} onDeviceVideo={onDeviceVideo}
         onRefreshVideoPrompt={onRefreshVideoPrompt} onImproveVideoPrompt={onImproveVideoPrompt} onChangeVideoMode={onChangeVideoMode} onOpenGenerator={onOpenGenerator} videoPromptLimit={videoPromptLimit}/>}
       {focus==='script'&&<>
-        {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
-          <div><span className="eyebrow">ESCRITA POR API · {variant.color}</span><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?`Escolha entre gerar somente ${variant.color} ou os roteiros das ${variants.length} cores em uma solicitação.`:'Configure a chave para chamar a API nesta etapa.'}</small></div>
-          {writer?.enabled
-            ?<div className="script-ai-buttons">
-              <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar esta cor</span><span className="button-label-mobile">Esta cor</span></button>
-              {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar todas as {variants.length} cores</span><span className="button-label-mobile">Todas ({variants.length})</span></button>}
-            </div>
-            :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
-        </section>}
-        <div className="variant-actions">
-          <span className="help">Alternativas locais, sem usar API:</span>
-          {onRefreshVariant&&!immutable&&<>
-            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'],{writerMode:'local'})}>Criar outro hook</button>
-            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
-          </>}
-        </div>
-        {(onSaveToBank||onOpenBank)&&<div className="variant-actions speech-bank-actions">
-          <span className="help">Banco de falas:</span>
-          {onSaveToBank&&<button type="button" disabled={busy||!p.hook||!p.development||!p.cta} onClick={()=>onSaveToBank(variant.id,{hook:p.hook,development:p.development,cta:p.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}
-          {onOpenBank&&!immutable&&<button type="button" disabled={busy} onClick={()=>onOpenBank(variant.id)}><BookOpen size={16}/> Ver falas aprovadas</button>}
-        </div>}
-        <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
-        <div className="script-budget" aria-label="Palavras por trecho">{[['hook','abertura'],['development','meio'],['cta','fechamento']].map(([key,time])=>{const words=String(p[key]||'').trim().split(/\s+/).filter(Boolean).length;return <span key={key} className={'budget-chip is-'+(!words?'off':'ok')} title={`${time}: sem limite de palavras`}><em>{time}</em>{words}<small> palavras</small></span>})}</div>
+        <ScriptBudget draft={p} caption="Roteiro salvo:"/>
         {[['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s']].map(([key,title])=>
           <div className="variant-prompt" key={key}>
             <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
@@ -575,6 +581,28 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
               ?<VariantScriptField variant={variant} field={key} value={p[key]||''} busy={busy} onSave={onSaveVariant}/>
               :<p>{p[key]||'-'}</p>}
           </div>)}
+        {(onSaveToBank||onOpenBank)&&<div className="variant-actions speech-bank-actions">
+          <span className="help">Banco de falas:</span>
+          {onSaveToBank&&<button type="button" disabled={busy||!p.hook||!p.development||!p.cta} onClick={()=>onSaveToBank(variant.id,{hook:p.hook,development:p.development,cta:p.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}
+          {onOpenBank&&!immutable&&<button type="button" disabled={busy} onClick={()=>onOpenBank(variant.id)}><BookOpen size={16}/> Ver falas aprovadas</button>}
+        </div>}
+        <p className="help">Legenda do TikTok fica na etapa <strong>Studio</strong> (publicação). Aqui só as falas do vídeo.</p>
+        <div className="variant-actions">
+          <span className="help">Outras falas, sem usar API:</span>
+          {onRefreshVariant&&!immutable&&<>
+            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook'],{writerMode:'local'})}>Criar outro hook</button>
+            <button type="button" disabled={busy} onClick={()=>onRefreshVariant(variant.id,['hook','development','cta'],{writerMode:'local'})}>Criar outra fala inteira</button>
+          </>}
+        </div>
+        {!immutable&&<section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
+          <div><strong>{writer?.enabled?(writer.provider==='gemini'?'Gemini está configurado':'ChatGPT está configurado'):'ChatGPT ainda não está ativo'} · {variant.color}</strong><small>{writer?.enabled?`Escolha entre gerar somente ${variant.color} ou os roteiros das ${variants.length} cores em uma solicitação.`:'Configure a chave para chamar a API nesta etapa.'}</small></div>
+          {writer?.enabled
+            ?<div className="script-ai-buttons">
+              <button type="button" disabled={busy} onClick={()=>onRefreshVariant?.(variant.id,['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar esta cor</span><span className="button-label-mobile">Esta cor</span></button>
+              {variants.length>1&&<button type="button" className="primary" disabled={busy} onClick={()=>onRefreshAllVariants?.(['hook','development','cta'],{writerMode:'ai'})}><Sparkles size={16}/><span className="button-label-desktop">Gerar todas as {variants.length} cores</span><span className="button-label-mobile">Todas ({variants.length})</span></button>}
+            </div>
+            :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
+        </section>}
       </>}
       {!['image','video','script'].includes(focus)&&[['image','Prompt de imagem'],['video','Prompt de vídeo'],['hook','Hook · 0-4s'],['development','Desenvolvimento · 4-12s'],['cta','CTA · 12-15s'],['caption','Legenda']].map(([key,title])=>
         <div className="variant-prompt" key={key}>
@@ -592,6 +620,7 @@ function VariantScriptField({variant,field,value,busy,onSave}){
   const dirty=draft!==value;
   return <div className="variant-script-field">
     <textarea autoComplete="off" rows={field==='video'?6:3} maxLength={12000} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)}/>
+    <FieldCount field={field} value={draft}/>
     {dirty&&<button type="button" className="full" disabled={busy||!draft.trim()} onClick={()=>onSave(variant.id,{[field]:draft})}>Salvar {field}</button>}
   </div>;
 }

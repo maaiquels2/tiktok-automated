@@ -13,6 +13,7 @@ import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
 // Orcamento do roteiro: o mesmo do servidor (services/script_budget.py; um teste confere).
 import SCRIPT_RULES from './scriptRules.json';
+import {FieldCount,ScriptBudget,countWords} from './scriptBudget';
 import FORMAT_RULES from './formatRules.json';
 // Resultados num pedaco separado do bundle: so baixa quando a aba abre.
 const ResultsQuickTools=lazy(()=>import('./results').then(m=>({default:m.ResultsQuickTools})));
@@ -1128,28 +1129,6 @@ function spokenWords(prompts){return ['hook','development','cta'].reduce((sum,ke
 // Foto que nao carrega (arquivo apagado do armazenamento) some, em vez de
 // deixar o icone de imagem quebrada no cartao.
 function hideBrokenImage(event){event.currentTarget.style.visibility='hidden'}
-const SCRIPT_PART_LABELS={hook:'abertura',development:'meio',cta:'fechamento'};
-function countWords(value){const clean=String(value||'').trim();return clean?clean.split(/\s+/).length:0}
-function ScriptBudget({draft}){
-  const rows=Object.entries(SCRIPT_RULES.target).map(([key,[low,high]])=>{
-    const time=SCRIPT_PART_LABELS[key];
-    const words=countWords(draft[key]);
-    // Acima do alvo nao e erro: fica neutro. Vazio ou curto demais e que pede atencao.
-    const state=words>=low?'ok':(words>=low-2?'near':'off');
-    return {key,words,low,high,time,state};
-  });
-  const total=rows.reduce((sum,row)=>sum+row.words,0);
-  const [fillLow,fillHigh]=SCRIPT_RULES.fill,[warnLow,warnHigh]=SCRIPT_RULES.warn;
-  const totalState=total<warnLow||total>warnHigh?'near':'ok';
-  return <div className="script-budget">
-    {rows.map(row=><span key={row.key} className={'budget-chip is-'+row.state} title={`${row.time}: alvo ${row.low} a ${row.high} palavras`}>
-      <em>{row.time}</em>{row.words}<small>/{row.low}–{row.high}</small>
-    </span>)}
-    <span className={'budget-chip is-total is-'+totalState} title={`De ${fillLow} a ${fillHigh} palavras ocupam os 15 s sem silêncio; acima de ${warnHigh}, use a sequência de clipes`}>
-      <em>total</em>{total}<small>{total>warnHigh?' · sequência':total<warnLow?' · vai sobrar silêncio':' palavras'}</small>
-    </span>
-  </div>;
-}
 // Quem escreveu este roteiro: o modelo de linguagem ou o gerador local. Sem
 // isto na tela, nao ha como o operador saber qual dos dois ele esta lendo.
 function WriterBadge({c}){
@@ -1182,5 +1161,47 @@ function ScriptEditor({c,busy,onDirty,onError,onSave,onRefresh,onConfigureWriter
   const changed=Object.keys(draft).some(k=>draft[k]!==(c.prompts[k]||''));
   const falasVazias=['hook','development','cta'].some(k=>!(draft[k]||'').trim());
   const aiName=writer?.provider==='gemini'?'Gemini':'ChatGPT';
-  return <div className="script-editor"><WriterBadge c={c}/><AiUsage usage={c.ai_usage}/>{c.status!=='published'&&onRefresh&&<><section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}><div><span className="eyebrow">ESCRITA POR API</span><strong>{writer?.enabled?`${aiName} está configurado`:'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera hook, desenvolvimento, CTA e legenda; o app audita o resultado antes de aceitar.':'Configure a chave uma vez para liberar a geração nesta etapa.'}</small></div>{writer?.enabled?<button className="primary" disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar roteiro com {aiName}</button>:<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}</section><div className="script-refresh-actions"><span className="help">Alternativas locais, sem usar API:</span><button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'],{writerMode:'local'})}>Criar outro hook</button><button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'local'})}>Criar outra fala inteira</button>{changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}</div></>}{fields.map(([key,title,time])=><section className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><textarea autoComplete="off" aria-label={title} value={draft[key]} readOnly={c.status==='published'} rows={3} maxLength={12000} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></section>)}<section className="post-text-block"><div className="section-title"><div><span className="time-label">POSTAGEM</span><h3>Para colar no CapCut</h3></div></div><p className="help">O prompt de vídeo proíbe texto dentro do quadro de propósito — gerador de IA escreve letra torta. Estes dois textos entram na postagem, onde a tipografia sai correta. Boa parte do TikTok roda sem som: sem eles, quem assiste mudo não recebe o gancho.</p>{postFields.map(([key,title,time])=><div className="script-part" key={key}><div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div><input autoComplete="off" aria-label={title} value={draft[key]||''} readOnly={c.status==='published'} maxLength={120} onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/></div>)}</section>{changed&&<button className="full" disabled={busy||falasVazias} onClick={()=>onSave(draft)}>Salvar roteiro</button>}{c.status!=='published'&&(onSaveToBank||onOpenBank)&&<div className="script-refresh-actions speech-bank-actions"><span className="help">Banco de falas:</span>{onSaveToBank&&<button type="button" disabled={busy||changed||falasVazias} onClick={()=>onSaveToBank({hook:draft.hook,development:draft.development,cta:draft.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}{onOpenBank&&<button type="button" disabled={busy} onClick={()=>onOpenBank(item=>{setDraft(d=>({...d,hook:item.hook,development:item.development,cta:item.cta}));onDirty(true);return true})}><BookOpen size={16}/> Ver falas aprovadas</button>}{changed&&onSaveToBank&&<small className="help">Salve o roteiro antes de guardar no banco.</small>}</div>}<ScriptBudget draft={draft}/></div>;
+  const published=c.status==='published';
+  // As falas vem primeiro; gerar outras (local ou por API) fica depois delas.
+  return <div className="script-editor">
+    <WriterBadge c={c}/>
+    <AiUsage usage={c.ai_usage}/>
+    <ScriptBudget draft={draft}/>
+    {fields.map(([key,title,time])=><section className="script-part" key={key}>
+      <div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div>
+      <textarea autoComplete="off" aria-label={title} value={draft[key]} readOnly={published} rows={3} maxLength={12000}
+        onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/>
+      <FieldCount field={key} value={draft[key]}/>
+    </section>)}
+    {changed&&<button className="full" disabled={busy||falasVazias} onClick={()=>onSave(draft)}>Salvar roteiro</button>}
+    {!published&&(onSaveToBank||onOpenBank)&&<div className="script-refresh-actions speech-bank-actions">
+      <span className="help">Banco de falas:</span>
+      {onSaveToBank&&<button type="button" disabled={busy||changed||falasVazias} onClick={()=>onSaveToBank({hook:draft.hook,development:draft.development,cta:draft.cta})}><BookmarkPlus size={16}/> Guardar no banco</button>}
+      {onOpenBank&&<button type="button" disabled={busy} onClick={()=>onOpenBank(item=>{setDraft(d=>({...d,hook:item.hook,development:item.development,cta:item.cta}));onDirty(true);return true})}><BookOpen size={16}/> Ver falas aprovadas</button>}
+      {changed&&onSaveToBank&&<small className="help">Salve o roteiro antes de guardar no banco.</small>}
+    </div>}
+    <section className="post-text-block">
+      <div className="section-title"><div><span className="time-label">POSTAGEM</span><h3>Para colar no CapCut</h3></div></div>
+      <p className="help">O prompt de vídeo proíbe texto dentro do quadro de propósito — gerador de IA escreve letra torta. Estes dois textos entram na postagem, onde a tipografia sai correta. Boa parte do TikTok roda sem som: sem eles, quem assiste mudo não recebe o gancho.</p>
+      {postFields.map(([key,title,time])=><div className="script-part" key={key}>
+        <div className="section-title"><div><span className="time-label">{time}</span><h3>{title}</h3></div><CopyButton text={draft[key]} onError={onError}/></div>
+        <input autoComplete="off" aria-label={title} value={draft[key]||''} readOnly={published} maxLength={120}
+          onChange={e=>{setDraft(d=>({...d,[key]:e.target.value}));onDirty(true)}}/>
+      </div>)}
+    </section>
+    {!published&&onRefresh&&<>
+      <div className="script-refresh-actions">
+        <span className="help">Outras falas, sem usar API:</span>
+        <button disabled={busy||changed} onClick={()=>onRefresh(['hook','caption'],{writerMode:'local'})}>Criar outro hook</button>
+        <button disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'local'})}>Criar outra fala inteira</button>
+        {changed&&<small className="help">Salve o roteiro antes de gerar novas frases.</small>}
+      </div>
+      <section className={'script-ai-action '+(writer?.enabled?'is-ready':'is-off')}>
+        <div><strong>{writer?.enabled?`${aiName} está configurado`:'ChatGPT ainda não está ativo'}</strong><small>{writer?.enabled?'Gera hook, desenvolvimento, CTA e legenda; o app audita o resultado antes de aceitar.':'Configure a chave uma vez para liberar a geração nesta etapa.'}</small></div>
+        {writer?.enabled
+          ?<button className="primary" disabled={busy||changed} onClick={()=>onRefresh(['hook','development','cta','caption'],{writerMode:'ai'})}><Sparkles size={16}/> Gerar roteiro com {aiName}</button>
+          :<button type="button" className="primary" disabled={busy} onClick={onConfigureWriter}><Sparkles size={16}/> Configurar ChatGPT</button>}
+      </section>
+    </>}
+  </div>;
 }
