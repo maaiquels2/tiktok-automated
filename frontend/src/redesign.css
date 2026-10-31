@@ -19,7 +19,11 @@
   --rd-primary-hover: #4327C9;
   --rd-primary-soft: #EEEAFE;
   --rd-primary-ink: #4327C9;
+  /* Cor de fundo de botao com texto branco: precisa de 4,5:1 nos dois temas. */
+  --rd-primary-fill: #5B3BE8;
+  --rd-primary-fill-hover: #4327C9;
   --rd-rec: #FF5A3C;
+  --rd-rec-fill: #CC3A1D;
   --rd-hero: #17141F;
   --rd-hero-ink: #FFFFFF;
   --rd-hero-2: #D9D3E6;
@@ -55,6 +59,8 @@
     --rd-primary-hover: #A48FFF;
     --rd-primary-soft: #2A2342;
     --rd-primary-ink: #C3B6FF;
+    --rd-primary-fill: #6F52EE;
+    --rd-primary-fill-hover: #5E42DB;
     --rd-hero: #2A2342;
     --rd-hero-2: #CFC6E6;
     --rd-preparar: #6E9BFF; --rd-preparar-soft: #1C2741; --rd-preparar-ink: #A9C3FF;
@@ -97,12 +103,12 @@ button,
 .primary,
 button.primary,
 a.primary {
-  background: var(--rd-primary);
-  border-color: var(--rd-primary);
+  background: var(--rd-primary-fill);
+  border-color: var(--rd-primary-fill);
   color: #FFFFFF;
 }
 @media (hover: hover) {
-  .primary:hover:not(:disabled) { background: var(--rd-primary-hover); border-color: var(--rd-primary-hover); }
+  .primary:hover:not(:disabled) { background: var(--rd-primary-fill-hover); border-color: var(--rd-primary-fill-hover); }
 }
 .icon-button { min-width: 44px; min-height: 44px; }
 input, select, textarea { border-radius: 10px; }
@@ -120,6 +126,11 @@ input:not([type=checkbox]):not([type=radio]):not([type=file]), select { min-heig
   position: sticky;
   top: 0;
   z-index: 40;
+}
+/* Entre o celular (barra inferior) e o desktop o cabecalho nao cabe numa linha: a navegacao desce para a segunda. */
+@media (min-width: 721px) and (max-width: 960px) {
+  .header.rd-header { flex-wrap: wrap; row-gap: 6px; }
+  .rd-header .mode-nav { order: 3; flex: 1 0 100%; margin-right: 0; }
 }
 .rd-brand {
   display: inline-flex;
@@ -378,7 +389,7 @@ button.rd-brand {
   color: var(--rd-primary-ink);
 }
 @media (hover: hover) {
-  .rd-campaign-actions > button:first-child:hover:not(:disabled) { background: var(--rd-primary); color: #FFFFFF; }
+  .rd-campaign-actions > button:first-child:hover:not(:disabled) { background: var(--rd-primary-fill); color: #FFFFFF; }
 }
 
 .rd-status {
@@ -522,7 +533,7 @@ button.rd-brand {
   letter-spacing: 0.06em;
   padding: 2px 6px;
   border-radius: 999px;
-  background: var(--rd-rec);
+  background: var(--rd-rec-fill);
   color: #FFFFFF;
 }
 
@@ -658,7 +669,7 @@ button.rd-brand {
   padding: 0 22px;
   border-radius: 14px;
   border: 0;
-  background: var(--rd-primary);
+  background: var(--rd-primary-fill);
   color: #FFFFFF;
   font-size: 16px;
   font-weight: 600;
@@ -669,7 +680,7 @@ button.rd-brand {
   text-decoration: none;
 }
 @media (hover: hover) {
-  .rd-cta:hover { background: var(--rd-primary-hover); color: #FFFFFF; }
+  .rd-cta:hover { background: var(--rd-primary-fill-hover); color: #FFFFFF; }
 }
 .rd-prompt-actions .copy-button { min-height: 44px; padding: 0 16px; border-radius: 12px; }
 .rd-prompt-count { margin-left: auto; font-size: 13px; color: var(--rd-ink-3); }
@@ -909,8 +920,8 @@ button.rd-brand {
 .choice-card small { color: var(--rd-ink-3); font-size: 14px; line-height: 1.45; font-weight: 400; }
 .choice-card.is-auto { border-color: var(--rd-primary); background: var(--rd-primary-soft); }
 .choice-card.is-auto svg { color: var(--rd-primary-ink); }
-.quick-niches .rd-chip-tab[aria-checked="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; opacity: 1; }
-.quick-niches .rd-chip-tab[aria-pressed="true"] { background: var(--rd-primary); border-color: var(--rd-primary); color: #FFFFFF; }
+.quick-niches .rd-chip-tab[aria-checked="true"] { background: var(--rd-primary-fill); border-color: var(--rd-primary-fill); color: #FFFFFF; opacity: 1; }
+.quick-niches .rd-chip-tab[aria-pressed="true"] { background: var(--rd-primary-fill); border-color: var(--rd-primary-fill); color: #FFFFFF; }
 .rd-format-select { width: 100%; min-height: 40px; padding: 8px 10px; border-radius: 10px; }
 .rd-format-tip { margin: 0 0 10px; }
 .quick-niches .rd-chip-tab:disabled { opacity: .45; cursor: not-allowed; }

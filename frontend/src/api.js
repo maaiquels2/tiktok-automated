@@ -1,4 +1,37 @@
 import STAGE_RULES from './stageRules.json';
+
+// Mensagens de erro que o recarregamento da pagina resolve (conflito de versao, sessao, queda de rede).
+// A tela so oferece "Recarregar" para elas: recarregar nao resolve arquivo grande nem erro de validacao.
+const reloadable = new Set();
+export const reloadHelps = message => reloadable.has(message);
+
+export class ApiError extends Error {
+  constructor(message, { kind = 'server', status = 0 } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.kind = kind;
+    this.status = status;
+    if (['network', 'timeout', 'conflict', 'auth', 'server'].includes(kind)) reloadable.add(message);
+  }
+}
+
+// Erro sem corpo JSON (a pagina de erro do proxy, por exemplo): o que se sabe e o codigo HTTP.
+export function httpFailure(status, serverMessage) {
+  const kind = status === 409 ? 'conflict' : status === 401 || status === 403 ? 'auth' : status === 413 ? 'too_large'
+    : status === 429 ? 'rate' : status === 502 || status === 504 ? 'timeout' : status >= 500 ? 'server' : 'request';
+  if (serverMessage) return new ApiError(serverMessage, { kind, status });
+  const text = {
+    conflict: 'Os dados mudaram em outra janela. Recarregue e tente de novo.',
+    auth: 'Sua sessão expirou ou não tem permissão. Entre de novo.',
+    too_large: 'O arquivo é maior do que o servidor aceita. Envie um menor.',
+    rate: 'Muitas tentativas seguidas. Espere um pouco e tente de novo.',
+    timeout: 'O servidor demorou demais para responder. Tente de novo em instantes.',
+    server: `O servidor está com problema (erro ${status}). Tente de novo em instantes.`,
+    request: `O servidor recusou o pedido (erro ${status}).`,
+  }[kind];
+  return new ApiError(text, { kind, status });
+}
+
 export async function api(path, { timeoutMs, ...options } = {}) {
 
   const form = options.body instanceof FormData;
@@ -23,7 +56,10 @@ export async function api(path, { timeoutMs, ...options } = {}) {
 
   } catch (err) {
 
-    if (err.name === 'AbortError') throw new Error('A operação demorou demais e foi cancelada. Verifique sua conexão e tente novamente.');
+    if (err.name === 'AbortError') throw new ApiError('A operação demorou demais e foi cancelada. Verifique sua conexão e tente novamente.', { kind: 'timeout' });
+
+    // fetch rejeita com TypeError e o texto muda por navegador ("Failed to fetch", "Load failed"), em ingles.
+    if (err instanceof TypeError) throw new ApiError('Sem conexão com o servidor. Confira a internet ou se o aplicativo está aberto.', { kind: 'network' });
 
     throw err;
 
@@ -37,9 +73,8 @@ export async function api(path, { timeoutMs, ...options } = {}) {
 
   if (!response.ok) {
     // Quando a funcao da nuvem estoura o tempo, a Vercel devolve uma pagina
-    // de erro sem JSON; a mensagem generica escondia que foi demora.
-    if (!data.error && (response.status === 504 || response.status === 502)) throw new Error('O servidor demorou demais para responder. Tente de novo em instantes.');
-    throw new Error(data.error || 'Não foi possível acessar o aplicativo local.');
+    // de erro sem JSON; o codigo HTTP diz o que aconteceu.
+    throw httpFailure(response.status, data.error);
   }
 
   return data;

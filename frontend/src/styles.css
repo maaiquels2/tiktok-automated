@@ -82,7 +82,7 @@
   --ink-2: #f1ecff;
   --ink-3: #b5a9c9;
   --ink-4: #a095af;
-  --ink-5: #9a8aab;
+  --ink-5: #6b6578;
   --ink-6: #9b8aaa;
   --ink-7: #9a8aa9;
   --ink-8: #9269ca;
@@ -92,9 +92,9 @@
   --ink-12: #7c3aed;
   --ink-13: #93809f;
   --ink-14: #8b7f9e;
-  --ink-15: #8b7f99;
-  --ink-16: #8a8095;
-  --ink-17: #8b7f96;
+  --ink-15: #6b6578;
+  --ink-16: #6b6578;
+  --ink-17: #5f596c;
   --ink-18: #7544d0;
   --ink-19: #887c97;
   --ink-20: #754bc7;
@@ -103,9 +103,9 @@
   --ink-23: #b2554d;
   --ink-24: #b34c55;
   --ink-25: #7e6696;
-  --ink-26: #7d708c;
+  --ink-26: #5f596c;
   --ink-27: #6940bb;
-  --ink-28: #7a708a;
+  --ink-28: #5f596c;
   --ink-29: #5b35c0;
   --ink-30: #796b89;
   --ink-31: #7652a0;
@@ -346,7 +346,7 @@
     --ink-33: #aec5b5;
     --ink-34: #b9b0c2;
     --ink-35: #b9b1c2;
-    --ink-36: #8468cf;
+    --ink-36: #a58bea;
     --ink-37: #bbb2c3;
     --ink-38: #d06796;
     --ink-39: #b8b5c0;
@@ -359,7 +359,7 @@
     --ink-46: #d4b0af;
     --ink-47: #c1b8cc;
     --ink-48: #c2bbc9;
-    --ink-49: #7359bd;
+    --ink-49: #a58bea;
     --ink-50: #c2bad1;
     --ink-51: #c5bdd1;
     --ink-52: #b7d8c8;
@@ -584,8 +584,8 @@ p {
   color: var(--muted);
 }
 .primary {
-  background: var(--purple);
-  border-color: var(--purple);
+  background: var(--rd-primary-fill, var(--purple));
+  border-color: var(--rd-primary-fill, var(--purple));
   color: white;
   font-weight: 600;
 }
@@ -4186,8 +4186,14 @@ button.linkish {
   rows: 4;
   font-size: 13px;
 }
+/* Fixo no rodape so onde sobra tela: com 500 px de altura ele cobria as abas de cor num tablet ou notebook baixo. */
 .publish-register {
-  position: sticky;
+  position: static;
+}
+@media (min-width: 1100px) and (min-height: 960px) {
+  .publish-register { position: sticky; }
+}
+.publish-register {
   bottom: 8px;
   z-index: 6;
   margin-top: 4px;
@@ -4734,11 +4740,9 @@ button.linkish {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   font-size: 10px;
-  opacity: 0.75;
 }
 .budget-chip small {
   font-size: 11px;
-  opacity: 0.7;
 }
 .budget-chip.is-ok {
   border-color: var(--green);

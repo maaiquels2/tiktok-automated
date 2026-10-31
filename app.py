@@ -1319,7 +1319,9 @@ def create_app(config=None):
         values['generator']=values['generator'] or 'flow'
         for k in FIELDS:
             if k in payload:
-                limit=5000 if k=='details' else 1500 if k=='movements' else 500
+                limit=5000 if k=='details' else 1500 if k=='movements' else 120 if k=='name' else 500
+                if k=='name' and isinstance(payload[k],str) and payload[k].strip()==(existing or {}).get(k):
+                    limit=500  # nome antigo, maior que o limite novo, continua valendo ate ser trocado
                 if not isinstance(payload[k],str) or len(payload[k])>limit:
                     raise Invalid(f'Campo {k}: texto inválido ou muito longo.')
                 values[k]=payload[k].strip()

@@ -778,6 +778,24 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post('/lan-unlock',data={'pin':pin},**self.lan('192.168.0.60')).status_code,303)
         self.assertEqual(self.client.get('/api/campaigns',**self.lan('192.168.0.60')).status_code,200)
 
+    def test_campaign_name_is_limited_to_120_characters_but_an_older_long_name_can_still_be_saved(self):
+        too_long=dict(self.brief,name='A'*121)
+        refused=self.client.post('/api/campaigns',json=too_long,headers=self.headers)
+        self.assertEqual(refused.status_code,400)
+        self.assertIn('Campo name',refused.json['error'])
+        accepted=self.client.post('/api/campaigns',json=dict(self.brief,name='A'*120),headers=self.headers)
+        self.assertEqual(accepted.status_code,201,accepted.json)
+        # Um nome gravado antes do limite (ate 500) nao impede salvar o resto do briefing.
+        old_name='B'*300
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            conn.execute('UPDATE campaigns SET name=? WHERE id=?',(old_name,self.cid))
+            conn.commit()
+        current=self.client.get(f'/api/campaigns/{self.cid}').json
+        kept=self.client.patch(f'/api/campaigns/{self.cid}',json={'version':current['version'],'name':old_name,'benefit':'Tecido bem leve'},headers=self.headers)
+        self.assertEqual(kept.status_code,200,kept.json)
+        renamed=self.client.patch(f'/api/campaigns/{self.cid}',json={'version':kept.json['version'],'name':'C'*200},headers=self.headers)
+        self.assertEqual(renamed.status_code,400)
+
     def test_lan_cookie_is_derived_from_the_pin_and_an_existing_four_digit_pin_stays_valid(self):
         with tempfile.TemporaryDirectory() as pasta:
             root=Path(pasta)

@@ -917,7 +917,7 @@ export function VideoTimelinePreview({asset,variant,c}){
       <div className="beat-overlay"><span className="beat-label">{beat}</span><p>{overlay||'—'}</p></div>
     </div>
     <div className="timeline-scrub">
-      <input type="range" min={0} max={dur||15} step={0.05} value={Math.min(t,dur||15)} onChange={e=>{const v=Number(e.target.value);setT(v);if(videoRef.current)videoRef.current.currentTime=v;}}/>
+      <input type="range" aria-label="Posição no vídeo" aria-valuetext={`${t.toFixed(1)} de ${(dur||15).toFixed(0)} segundos`} min={0} max={dur||15} step={0.05} value={Math.min(t,dur||15)} onChange={e=>{const v=Number(e.target.value);setT(v);if(videoRef.current)videoRef.current.currentTime=v;}}/>
       <div className="timeline-marks">{marks.map(m=><span key={m} style={{left:`${(m/(dur||15))*100}%`}}>{m}s</span>)}</div>
       <small className="help">Marcadores 0 / 2 / 12 / 15s · beat ativo: <strong>{beat}</strong></small>
     </div>
@@ -1081,6 +1081,8 @@ const REQUIRED_BRIEF={name:'nome da campanha',product:'produto',color:'cores',mo
 export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [draft,setDraft]=useState({...emptyBrief,...campaign});
   const [briefError,setBriefError]=useState('');
+  const [missingKeys,setMissingKeys]=useState([]);
+  const formRef=useRef(null);
   const [nicheOptions,setNicheOptions]=useState(NICHES);
   const [nicheError,setNicheError]=useState(false);
   const [modelOptions,setModelOptions]=useState([]);
@@ -1144,20 +1146,30 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const field=(key,label,placeholder)=>(
     <div key={key} className={key==='product'?'product-field':''}>
       <label>{label}{REQUIRED_BRIEF[key]&&' *'}
-        <input autoComplete="off" value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={500}/>
+        <input autoComplete="off" data-field={key} value={draft[key]||''} onChange={e=>change(key,e.target.value)} placeholder={placeholder} required={['name','model_name'].includes(key)} maxLength={key==='name'?120:500} aria-invalid={missingKeys.includes(key)||undefined} aria-describedby={briefError&&missingKeys.includes(key)?'brief-error':undefined}/>
         {key==='color'&&<small className="help">Separe as cores por vírgulas para criar uma variação de cada uma.</small>}
       </label>
       {key==='product'&&(published?<ProductGallery photos={campaign?.product_assets||[]}/>:<ProductPhotoPicker saved={campaign?.product_assets||[]} files={photos} removed={removed} onFiles={value=>{setPhotos(value);onDirty?.(true)}} onRemoved={value=>{setRemoved(value);onDirty?.(true)}}/>)}
     </div>
   );
-  return <form className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);return}
+  // A mensagem de erro fica no fim do formulario e o botao de salvar e fixo no rodape: sem levar a pessoa ao
+  // primeiro campo com problema, o clique parecia nao fazer nada.
+  const showProblem=selector=>setTimeout(()=>{
+    const el=formRef.current?.querySelector(selector);
+    if(!el)return;
+    el.scrollIntoView({block:'center',behavior:'smooth'});
+    if(typeof el.focus==='function')el.focus({preventScroll:true});
+  },0);
+  return <form ref={formRef} className="brief-form" onSubmit={e=>{e.preventDefault();if(!draft.niche){setNicheError(true);showProblem('.niche-pick');return}
     const missing=Object.entries(REQUIRED_BRIEF).filter(([key])=>!String(draft[key]||'').trim());
     if(missing.length){
       setBriefError('Preencha antes de salvar: '+missing.map(([,label])=>label).join(', ')+'.');
+      setMissingKeys(missing.map(([key])=>key));
       if(missing.some(([key])=>advanced.some(([k])=>k===key)))setShowAdvanced(true);
+      showProblem(`[data-field="${missing[0][0]}"]`);
       return;
     }
-    setBriefError('');onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
+    setBriefError('');setMissingKeys([]);onSave(Object.fromEntries(Object.keys(emptyBrief).map(k=>[k,draft[k]||''])),photos,removed,descriptionPhoto);setDescriptionPhoto(null)}}>
     <fieldset disabled={busy||published}>
       {/* Antes era um <select>: a lista nativa do navegador não mostra
           imagem, e ficava difícil lembrar qual roupa cada moda usa. */}
@@ -1331,7 +1343,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         </div>
       )}
     </fieldset>
-    {briefError&&<p className="rd-alert" role="alert">{briefError}</p>}
+    {briefError&&<p id="brief-error" className="rd-alert" role="alert">{briefError}</p>}
     <div className="form-actions">
       {onCancel&&<button type="button" disabled={busy} onClick={onCancel}>Cancelar</button>}
       <button className="primary" disabled={busy||!draft.name?.trim()||!draft.model_name?.trim()||!draft.niche}>{campaign?.id?'Salvar':'Criar campanha'}</button>

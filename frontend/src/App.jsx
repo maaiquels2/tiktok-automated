@@ -4,7 +4,7 @@ import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState 
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors, BookOpen, BookmarkPlus } from 'lucide-react';
 import Canvas from './Canvas';
 import { AboveDialogs } from './aboveDialogs.jsx';
-import { api, health, openBrowserFree, reached, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
+import { api, reloadHelps, health, openBrowserFree, reached, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, swatchFor, nextStepLabel } from './ui';
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS, AiUsage, SaveToLibrary} from './components';
@@ -47,6 +47,7 @@ export default function App(){
   const [studioAuditReport,setStudioAuditReport]=useState(null);
   const [mode,setMode]=useState('home'); // home | produce | results
   const [homeView,setHomeView]=useState('ativas'); // ativas | publicadas (so no Inicio)
+  const [homeLimit,setHomeLimit]=useState(60); // cartoes desenhados de uma vez: com centenas de campanhas o Inicio passava de 6 mil nos do DOM
   const [resultsTab,setResultsTab]=useState('agora'); // agora | studio | lote | playbook | historico | campanha
   const bootHash=useRef(true);
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
@@ -777,7 +778,8 @@ export default function App(){
           {loading&&<div className="empty-state"><RefreshCw className="spinning"/><h1>Carregando campanhas…</h1></div>}
           {!loading&&!campaigns.length&&<div className="empty-state"><div className="empty-icon"><FolderHeart size={34}/></div><h1>Crie sua primeira campanha</h1><p>Do briefing à publicação, depois analise em Resultados.</p><button className="primary" onClick={newCampaign}><Plus size={17}/> Nova campanha</button></div>}
           {!loading&&campaigns.length>0&&!listed.length&&<div className="notice">{homeView==='publicadas'?'Nenhuma campanha publicada ainda.':'Nenhuma campanha em andamento. Crie uma nova ou veja as publicadas.'}</div>}
-          {!loading&&listed.length>0&&<div className="rd-card-grid">{listed.map(homeCard)}</div>}
+          {!loading&&listed.length>0&&<div className="rd-card-grid">{listed.slice(0,homeLimit).map(homeCard)}</div>}
+          {!loading&&listed.length>homeLimit&&<button type="button" className="rd-show-more" onClick={()=>setHomeLimit(n=>n+60)}>Mostrar mais ({listed.length-homeLimit} restantes)</button>}
         </section>
       </div>
       <aside className="rd-home-aside">
@@ -934,7 +936,7 @@ export default function App(){
       <button type="button" aria-current={mode==='produce'?'page':undefined} disabled={busy||!c} onClick={()=>goMode('produce')}><Clapperboard size={22} aria-hidden="true"/>Produzir</button>
       <button type="button" aria-current={mode==='results'?'page':undefined} disabled={busy} onClick={()=>goMode('results','agora')}><BarChart3 size={22} aria-hidden="true"/>Resultados</button>
     </nav>
-    {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button><button onClick={()=>{if(discard())location.reload()}}>Recarregar</button></div>}
+    {error&&<div className="toast error" role="alert"><AlertCircle size={19}/><span>{error}</span><button className="icon-button" onClick={()=>setError('')} aria-label="Fechar erro"><X size={16}/></button>{reloadHelps(error)&&<button onClick={()=>{if(discard())location.reload()}}>Recarregar</button>}</div>}
     {notice&&!error&&<AboveDialogs><div className="toast" role="status"><Check size={19}/>{notice}</div></AboveDialogs>}
     {modal&&<Dialog title={modal.type==='create'?'Nova campanha':modal.title} onClose={()=>{if(!busy){setModal(null);setError('')}}}>
       <Suspense fallback={<p className="help">Carregando…</p>}>
