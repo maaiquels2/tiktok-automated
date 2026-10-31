@@ -2322,9 +2322,7 @@ def create_app(config=None):
         """Parte de attach() que so mexe em banco/estado - igual pro arquivo
         recebido pelo servidor (attach) ou mandado direto pro Storage pelo
         navegador (attach_uploaded)."""
-        # Lido uma vez aqui para o touch(cid, c['version']) no final: o ramo
-        # kind=='reference' nao teria outra forma de obter a versao atual.
-        c=campaign(cid)
+        # A versao da campanha sobe na Gravacao da rota que chama attach(); aqui so entram os registros.
         slot=(slot or '').strip()
         if kind in {'image','video'}:
             db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=? AND slot=?',(cid,kind,slot))
@@ -2358,7 +2356,6 @@ def create_app(config=None):
             if set(slots).issubset(present):
                 state(cid,'video_ready')
             db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'",(cid,))
-        touch(cid, c['version'])
 
     def attach(cid,kind,path,original,metadata,ext,mime,slot=''):
         rel_path=f'campanha-{cid:04d}/{kind}-{uuid.uuid4().hex}{ext}'
@@ -2397,32 +2394,31 @@ def create_app(config=None):
                 metadata,ext,mime=inspect_media(temp,kind)
             except (ValueError,EOFError) as exc:
                 raise Invalid(str(exc)) from exc
-            c=start(cid,request.form)
-            editable(c)
-            slot=''
-            if kind=='image':
-                need_asset(cid,'reference')
-                current=detail(cid)
-                if not current['prompts'].get('image') and not current.get('variants'):
-                    raise Invalid('Gere o prompt de imagem antes de anexar o resultado.',409)
-                slots=image_slots_for(c)
-                slot=(request.form.get('color') or request.form.get('slot') or '').strip()
-                if len(slots)==1 and not slot:
-                    slot=slots[0]
-                if slot not in slots:
-                    raise Invalid('Informe a cor desta imagem (' + ', '.join(s for s in slots if s) + ').',409)
-            if kind=='video':
-                need_asset(cid,'image',True)
-                if STATES.index(c['status'])<3:
-                    raise Invalid('Revise o roteiro antes de anexar o vídeo.',409)
-                slots=image_slots_for(c)
-                slot=(request.form.get('color') or request.form.get('slot') or '').strip()
-                if len(slots)==1 and not slot:
-                    slot=slots[0]
-                if slot not in slots:
-                    raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
-            destination=attach(cid,kind,temp,Path(uploaded.filename.replace('\\','/')).name[:240],metadata,ext,mime,slot)
-            db().commit()
+            with writer.write(cid,request.form) as c:
+                editable(c)
+                slot=''
+                if kind=='image':
+                    need_asset(cid,'reference')
+                    current=detail(cid)
+                    if not current['prompts'].get('image') and not current.get('variants'):
+                        raise Invalid('Gere o prompt de imagem antes de anexar o resultado.',409)
+                    slots=image_slots_for(c)
+                    slot=(request.form.get('color') or request.form.get('slot') or '').strip()
+                    if len(slots)==1 and not slot:
+                        slot=slots[0]
+                    if slot not in slots:
+                        raise Invalid('Informe a cor desta imagem (' + ', '.join(s for s in slots if s) + ').',409)
+                if kind=='video':
+                    need_asset(cid,'image',True)
+                    if STATES.index(c['status'])<3:
+                        raise Invalid('Revise o roteiro antes de anexar o vídeo.',409)
+                    slots=image_slots_for(c)
+                    slot=(request.form.get('color') or request.form.get('slot') or '').strip()
+                    if len(slots)==1 and not slot:
+                        slot=slots[0]
+                    if slot not in slots:
+                        raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
+                destination=attach(cid,kind,temp,Path(uploaded.filename.replace('\\','/')).name[:240],metadata,ext,mime,slot)
         except Exception:
             db().rollback()
             if destination:
@@ -2481,32 +2477,31 @@ def create_app(config=None):
                 metadata,_ext,mime=inspect_media(temp,kind)
             except (ValueError,EOFError) as exc:
                 raise Invalid(str(exc)) from exc
-            c=start(cid,data)
-            editable(c)
-            slot=''
-            if kind=='image':
-                need_asset(cid,'reference')
-                current=detail(cid)
-                if not current['prompts'].get('image') and not current.get('variants'):
-                    raise Invalid('Gere o prompt de imagem antes de anexar o resultado.',409)
-                slots=image_slots_for(c)
-                slot=(data.get('color') or data.get('slot') or '').strip()
-                if len(slots)==1 and not slot:
-                    slot=slots[0]
-                if slot not in slots:
-                    raise Invalid('Informe a cor desta imagem (' + ', '.join(s for s in slots if s) + ').',409)
-            if kind=='video':
-                need_asset(cid,'image',True)
-                if STATES.index(c['status'])<3:
-                    raise Invalid('Revise o roteiro antes de anexar o vídeo.',409)
-                slots=image_slots_for(c)
-                slot=(data.get('color') or data.get('slot') or '').strip()
-                if len(slots)==1 and not slot:
-                    slot=slots[0]
-                if slot not in slots:
-                    raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
-            attach_uploaded(cid,kind,rel_path,original[:240],metadata,mime,len(file_bytes),slot)
-            db().commit()
+            with writer.write(cid,data) as c:
+                editable(c)
+                slot=''
+                if kind=='image':
+                    need_asset(cid,'reference')
+                    current=detail(cid)
+                    if not current['prompts'].get('image') and not current.get('variants'):
+                        raise Invalid('Gere o prompt de imagem antes de anexar o resultado.',409)
+                    slots=image_slots_for(c)
+                    slot=(data.get('color') or data.get('slot') or '').strip()
+                    if len(slots)==1 and not slot:
+                        slot=slots[0]
+                    if slot not in slots:
+                        raise Invalid('Informe a cor desta imagem (' + ', '.join(s for s in slots if s) + ').',409)
+                if kind=='video':
+                    need_asset(cid,'image',True)
+                    if STATES.index(c['status'])<3:
+                        raise Invalid('Revise o roteiro antes de anexar o vídeo.',409)
+                    slots=image_slots_for(c)
+                    slot=(data.get('color') or data.get('slot') or '').strip()
+                    if len(slots)==1 and not slot:
+                        slot=slots[0]
+                    if slot not in slots:
+                        raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
+                attach_uploaded(cid,kind,rel_path,original[:240],metadata,mime,len(file_bytes),slot)
         except Exception:
             db().rollback()
             raise
@@ -2518,49 +2513,47 @@ def create_app(config=None):
     def register_device_video(cid):
         """Register a video kept in the phone gallery without receiving its bytes."""
         data=body()
-        c=start(cid,data)
-        editable(c)
-        need_asset(cid,'image',True)
-        if STATES.index(c['status'])<STATES.index('script_ready'):
-            raise Invalid('Revise o roteiro antes de selecionar o vídeo.',409)
-        name=data.get('original_name')
-        mime=data.get('mime') or 'video/mp4'
-        meta=data.get('metadata') or {}
-        try:
-            size=int(data.get('size') or 0)
-            duration=float(meta.get('duration') or 0)
-            width=int(meta.get('width') or 0)
-            height=int(meta.get('height') or 0)
-        except (TypeError,ValueError):
-            raise Invalid('Não foi possível ler os dados do vídeo.')
-        if not isinstance(name,str) or not name.strip() or len(name)>240:
-            raise Invalid('Nome do vídeo inválido.')
-        if not name.casefold().endswith('.mp4') or mime not in {'video/mp4','application/mp4',''}:
-            raise Invalid('Selecione um vídeo MP4.')
-        if size<=0 or size>250*1024*1024:
-            raise Invalid('O vídeo deve ter até 250 MB.')
-        if duration<=0 or width<=0 or height<=0:
-            raise Invalid('O navegador não conseguiu validar duração e dimensões do vídeo.')
-        slots=image_slots_for(c)
-        slot=(data.get('color') or data.get('slot') or '').strip()
-        if len(slots)==1 and not slot:
-            slot=slots[0]
-        if slot not in slots:
-            raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
-        clean_meta={'duration':round(duration,3),'width':width,'height':height,'device_only':True}
-        db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=\'video\' AND slot=?',(cid,slot))
-        db().execute('''INSERT INTO device_videos(campaign_id,slot,original_name,mime,size,metadata,approved_at,approved_by)
-                        VALUES(?,?,?,?,?,?,NULL,'')
-                        ON CONFLICT(campaign_id,slot) DO UPDATE SET
-                          original_name=excluded.original_name,mime=excluded.mime,size=excluded.size,
-                          metadata=excluded.metadata,approved_at=NULL,approved_by='',created_at=CURRENT_TIMESTAMP''',
-                     (cid,slot,name.strip(),mime or 'video/mp4',size,json.dumps(clean_meta)))
-        present={r.get('slot') or '' for r in assets_of(cid,'video')}
-        present.update(r.get('slot') or '' for r in device_videos_of(cid))
-        if set(slots).issubset(present):
-            state(cid,'video_ready')
-        touch(cid, c['version'])
-        db().commit()
+        with writer.write(cid,data) as c:
+            editable(c)
+            need_asset(cid,'image',True)
+            if STATES.index(c['status'])<STATES.index('script_ready'):
+                raise Invalid('Revise o roteiro antes de selecionar o vídeo.',409)
+            name=data.get('original_name')
+            mime=data.get('mime') or 'video/mp4'
+            meta=data.get('metadata') or {}
+            try:
+                size=int(data.get('size') or 0)
+                duration=float(meta.get('duration') or 0)
+                width=int(meta.get('width') or 0)
+                height=int(meta.get('height') or 0)
+            except (TypeError,ValueError):
+                raise Invalid('Não foi possível ler os dados do vídeo.')
+            if not isinstance(name,str) or not name.strip() or len(name)>240:
+                raise Invalid('Nome do vídeo inválido.')
+            if not name.casefold().endswith('.mp4') or mime not in {'video/mp4','application/mp4',''}:
+                raise Invalid('Selecione um vídeo MP4.')
+            if size<=0 or size>250*1024*1024:
+                raise Invalid('O vídeo deve ter até 250 MB.')
+            if duration<=0 or width<=0 or height<=0:
+                raise Invalid('O navegador não conseguiu validar duração e dimensões do vídeo.')
+            slots=image_slots_for(c)
+            slot=(data.get('color') or data.get('slot') or '').strip()
+            if len(slots)==1 and not slot:
+                slot=slots[0]
+            if slot not in slots:
+                raise Invalid('Informe a cor deste vídeo (' + ', '.join(s for s in slots if s) + ').',409)
+            clean_meta={'duration':round(duration,3),'width':width,'height':height,'device_only':True}
+            db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE campaign_id=? AND kind=\'video\' AND slot=?',(cid,slot))
+            db().execute('''INSERT INTO device_videos(campaign_id,slot,original_name,mime,size,metadata,approved_at,approved_by)
+                            VALUES(?,?,?,?,?,?,NULL,'')
+                            ON CONFLICT(campaign_id,slot) DO UPDATE SET
+                              original_name=excluded.original_name,mime=excluded.mime,size=excluded.size,
+                              metadata=excluded.metadata,approved_at=NULL,approved_by='',created_at=CURRENT_TIMESTAMP''',
+                         (cid,slot,name.strip(),mime or 'video/mp4',size,json.dumps(clean_meta)))
+            present={r.get('slot') or '' for r in assets_of(cid,'video')}
+            present.update(r.get('slot') or '' for r in device_videos_of(cid))
+            if set(slots).issubset(present):
+                state(cid,'video_ready')
         return jsonify(detail(cid)),201
 
 
@@ -2906,18 +2899,17 @@ def create_app(config=None):
     @app.post('/api/campaigns/<int:cid>/reference-from-library')
     def reference_from_library(cid):
         data = body()
-        c = start(cid, data)
-        editable(c)
-        niche = (data.get('niche') or c.get('niche') or '').strip()
-        from services import model_library as ml
-        if niche not in ml.NICHE_IDS:
-            raise Invalid('Escolha um nicho valido.')
-        # also persist niche on campaign
-        db().execute('UPDATE campaigns SET niche=? WHERE id=?', (niche, cid))
-        ok = attach_library_reference(cid, c.get('model_name') or '', niche)
-        if not ok:
-            raise Invalid('Ainda nao ha foto padrao para este nicho. Envie em Inicio > Fotos da modelo.', 404)
-        db().commit()
+        with writer.write(cid, data) as c:
+            editable(c)
+            niche = (data.get('niche') or c.get('niche') or '').strip()
+            from services import model_library as ml
+            if niche not in ml.NICHE_IDS:
+                raise Invalid('Escolha um nicho valido.')
+            # also persist niche on campaign
+            db().execute('UPDATE campaigns SET niche=? WHERE id=?', (niche, cid))
+            ok = attach_library_reference(cid, c.get('model_name') or '', niche)
+            if not ok:
+                raise Invalid('Ainda nao ha foto padrao para este nicho. Envie em Inicio > Fotos da modelo.', 404)
         return jsonify(detail(cid))
 
     @app.get('/api/references')
@@ -2930,25 +2922,24 @@ def create_app(config=None):
         data=body()
         if type(data.get('asset_id')) is not int:
             raise Invalid('Selecione uma referência válida.')
-        c=start(cid,data)
-        editable(c)
-        row=db().execute("SELECT a.*,c.model_name FROM assets a JOIN campaigns c ON c.id=a.campaign_id WHERE a.id=? AND a.kind='reference'",(data['asset_id'],)).fetchone()
-        if not row:
-            raise Invalid('Referência não encontrada.',404)
-        if row['model_name'].casefold()!=c['model_name'].casefold():
-            raise Invalid('A referência precisa pertencer à mesma modelo do briefing.')
         fd,temp=tempfile.mkstemp(dir=app.config['MEDIA_DIR'],suffix='.upload')
         os.close(fd)
         temp=Path(temp)
         destination=None
         try:
-            suffix=Path(row['path']).suffix
-            if cloud_mode:
-                temp.write_bytes(read_asset(row))
-            else:
-                shutil.copyfile(path_for(row),temp)
-            destination=attach(cid,'reference',temp,row['original_name'],json.loads(row['metadata']),suffix,row['mime'])
-            db().commit()
+            with writer.write(cid,data) as c:
+                editable(c)
+                row=db().execute("SELECT a.*,c.model_name FROM assets a JOIN campaigns c ON c.id=a.campaign_id WHERE a.id=? AND a.kind='reference'",(data['asset_id'],)).fetchone()
+                if not row:
+                    raise Invalid('Referência não encontrada.',404)
+                if row['model_name'].casefold()!=c['model_name'].casefold():
+                    raise Invalid('A referência precisa pertencer à mesma modelo do briefing.')
+                suffix=Path(row['path']).suffix
+                if cloud_mode:
+                    temp.write_bytes(read_asset(row))
+                else:
+                    shutil.copyfile(path_for(row),temp)
+                destination=attach(cid,'reference',temp,row['original_name'],json.loads(row['metadata']),suffix,row['mime'])
         except Exception:
             db().rollback()
             if destination:
@@ -3886,7 +3877,7 @@ def create_app(config=None):
                 'Misturar vídeos não está disponível na versão online. '
                 'Use essa função no aplicativo local, no seu computador.', 409)
         data = body()
-        c = start(cid, data)
+        c = writer.read(cid, data)
         editable(c)
         clips = data.get('clips')
         if not isinstance(clips, list) or len(clips) < 2:
@@ -3963,21 +3954,22 @@ def create_app(config=None):
             metadata['mixed_from'] = [row['id'] for row, _ in resolved]
             metadata['mix_seconds'] = [round(s, 3) for _, s in resolved]
             metadata['color'] = target_slot
-            destination = attach(
-                cid, 'video', temp_path,
-                f"mix-{target_slot or 'video'}.mp4",
-                metadata, ext, mime, target_slot,
-            )
-            # mixed video is not auto-approved
-            db().execute(
-                "UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video' AND slot=?",
-                (cid, target_slot),
-            )
-            if STATES.index(c['status']) >= 5:
-                # kick back to video_ready if was past video approval
-                db().execute("UPDATE campaigns SET status='video_ready' WHERE id=?", (cid,))
-                db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'", (cid,))
-            db().commit()
+            # So aqui abre a gravacao, com a versao lida antes do ffmpeg: se a campanha mudou nesse meio tempo, 409.
+            with writer.write(cid, expected_version=c['version']):
+                destination = attach(
+                    cid, 'video', temp_path,
+                    f"mix-{target_slot or 'video'}.mp4",
+                    metadata, ext, mime, target_slot,
+                )
+                # mixed video is not auto-approved
+                db().execute(
+                    "UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video' AND slot=?",
+                    (cid, target_slot),
+                )
+                if STATES.index(c['status']) >= 5:
+                    # kick back to video_ready if was past video approval
+                    db().execute("UPDATE campaigns SET status='video_ready' WHERE id=?", (cid,))
+                    db().execute("UPDATE assets SET approved_at=NULL WHERE campaign_id=? AND kind='video'", (cid,))
         except Invalid:
             db().rollback()
             if destination:

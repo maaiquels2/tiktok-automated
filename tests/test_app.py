@@ -114,6 +114,7 @@ class WorkflowTests(unittest.TestCase):
             'size':18*1024*1024,'metadata':{'duration':15.0,'width':1080,'height':1920},
         })
         self.assertEqual(response.status_code,201,response.json)
+        self.assertEqual(response.json['version'],current['version']+1)
         self.assertEqual(response.json['status'],'video_ready')
         self.assertFalse(any(a['kind']=='video' for a in response.json['assets']))
         self.assertEqual(response.json['device_videos'][0]['original_name'],'grok-video.mp4')
@@ -142,6 +143,89 @@ class WorkflowTests(unittest.TestCase):
         },headers=self.headers)
         self.assertEqual(changed.status_code,200,changed.json)
         self.assertEqual(changed.json['device_videos'],[])
+
+    def test_each_attachment_raises_the_version_once_and_a_stale_one_leaves_no_file(self):
+        def version():
+            return self.get()['version']
+        start=version()
+        self.assertEqual(self.upload('reference').status_code,201)
+        self.assertEqual(version(),start+1)
+        self.assertEqual(self.post('/generate').status_code,200)
+        before=version()
+        self.assertEqual(self.upload('image').status_code,201)
+        self.assertEqual(version(),before+1)
+        # Uma tela com a versao velha tenta anexar: 409, sem arquivo novo e sem mexer na versao.
+        folder=self.config['MEDIA_DIR']/f'campanha-{self.cid:04d}'
+        files=sorted(p.name for p in folder.iterdir())
+        stale=self.client.post(f'/api/campaigns/{self.cid}/assets',headers=self.headers,
+            data={'kind':'image','version':str(before),'file':(io.BytesIO(image_bytes()),'velha.png')})
+        self.assertEqual(stale.status_code,409)
+        self.assertEqual(sorted(p.name for p in folder.iterdir()),files)
+        self.assertEqual(version(),before+1)
+        self.assertEqual(list(self.config['MEDIA_DIR'].glob('*.upload')),[])
+
+    def test_library_reference_and_reused_reference_raise_the_version_once(self):
+        self.assertEqual(self.upload_library_photo('Micaela','praia').status_code,200)
+        start=self.get()['version']
+        stale=self.post('/reference-from-library',{'niche':'praia','version':start-1})
+        self.assertEqual(stale.status_code,409)
+        self.assertEqual(self.get()['version'],start)
+        response=self.post('/reference-from-library',{'niche':'praia','version':start})
+        self.assertEqual((response.status_code,response.json['version']),(200,start+1))
+        self.assertEqual([a['kind'] for a in response.json['assets']],['reference'])
+        # Reaproveitar a referencia numa campanha nova da mesma modelo.
+        other=self.client.post('/api/campaigns',json={**self.brief,'name':'Outra'},headers=self.headers).json
+        reference=self.get()['assets'][0]['id']
+        before=other['version']
+        reused=self.client.post(f"/api/campaigns/{other['id']}/reference",json={'asset_id':reference,'version':before},headers=self.headers)
+        self.assertEqual((reused.status_code,reused.json['version']),(200,before+1))
+        again=self.client.post(f"/api/campaigns/{other['id']}/reference",json={'asset_id':reference,'version':before},headers=self.headers)
+        self.assertEqual(again.status_code,409)
+
+    def two_videos(self):
+        """Campanha com dois videos ativos (o segundo e um registro irmao do primeiro) e um mix que so grava um MP4 valido."""
+        self.script_ready()
+        self.assertEqual(self.upload('video',mp4_metadata()).status_code,201)
+        first=next(a for a in self.get()['assets'] if a['kind']=='video')['id']
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            conn.execute("INSERT INTO assets(campaign_id,kind,path,original_name,mime,size,metadata,slot) "
+                         "SELECT campaign_id,kind,path,original_name,mime,size,metadata,'Outro' FROM assets WHERE id=?",(first,))
+            second=conn.execute('SELECT MAX(id) FROM assets').fetchone()[0]
+            conn.commit()
+        return [{'asset_id':first},{'asset_id':second}]
+
+    def test_mix_videos_attaches_the_mix_and_raises_the_version_once(self):
+        clips=self.two_videos()
+        start=self.get()['version']
+        def fake_mix(sources,target,width,height):
+            Path(target).write_bytes(mp4_metadata())
+        with patch('app.find_ffmpeg',return_value='ffmpeg'),patch('app.mix_clips',side_effect=fake_mix):
+            response=self.post('/videos/mix',{'clips':clips,'slot':'Mix','duration':15,'version':start})
+        self.assertEqual(response.status_code,201,response.json)
+        self.assertEqual(response.json['version'],start+1)
+        self.assertTrue(any(a['kind']=='video' and a.get('slot')=='Mix' for a in response.json['assets']))
+        self.assertEqual(list(self.config['MEDIA_DIR'].glob('*.mix.mp4')),[])
+
+    def test_late_409_when_the_campaign_changes_while_the_videos_are_mixed(self):
+        import time
+        clips=self.two_videos()
+        videos_before=[a['id'] for a in self.get()['assets'] if a['kind']=='video']
+        files_before=sorted(p.name for p in (self.config['MEDIA_DIR']/f'campanha-{self.cid:04d}').glob('video-*'))
+        def slow_mix(sources,target,width,height):
+            time.sleep(1.0)
+            Path(target).write_bytes(mp4_metadata())
+        def mixar():
+            return self.app.test_client().post(f'/api/campaigns/{self.cid}/videos/mix',
+                json={'clips':clips,'slot':'Mix','duration':15},headers=self.headers)
+        with patch('app.find_ffmpeg',return_value='ffmpeg'),patch('app.mix_clips',side_effect=slow_mix):
+            rota,edicao=self.edit_during(mixar)
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(rota.status_code,409,rota.json)
+        depois=self.get()
+        self.assertEqual([a['id'] for a in depois['assets'] if a['kind']=='video'],videos_before)
+        self.assertEqual(depois['name'],'Mudou no meio')
+        self.assertEqual(list(self.config['MEDIA_DIR'].glob('*.mix.mp4')),[])
+        self.assertEqual(sorted(p.name for p in (self.config['MEDIA_DIR']/f'campanha-{self.cid:04d}').glob('video-*')),files_before)
 
     def test_no_skips_and_no_patch_bypass(self):
         self.assertEqual(self.move('published').status_code,409)
