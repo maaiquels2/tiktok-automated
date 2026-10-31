@@ -4391,6 +4391,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.get()['layout'],layout)
         self.assertEqual(self.get()['status'],'image_ready')
 
+    def test_layout_of_a_missing_campaign_is_a_404_and_a_saved_layout_does_not_raise_the_version(self):
+        version=self.get()['version']
+        self.assertEqual(self.client.patch('/api/campaigns/999/layout',json={'layout':{'model':{'x':1,'y':2}}},headers=self.headers).status_code,404)
+        saved=self.client.patch(f'/api/campaigns/{self.cid}/layout',json={'layout':{'model':{'x':1,'y':2}}},headers=self.headers)
+        self.assertEqual(saved.status_code,200)
+        self.assertEqual(self.get()['version'],version)
+
     def test_block_external_origins_and_malformed_requests(self):
         self.assertEqual(self.client.post('/api/campaigns',json=self.brief).status_code,403)
         self.assertEqual(self.client.post('/api/campaigns',json=self.brief,headers={**self.headers,'Origin':'https://evil.example'}).status_code,403)

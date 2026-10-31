@@ -801,39 +801,8 @@ def create_app(config=None):
         if c['status']=='published':
             raise Invalid('Esta campanha já foi publicada. Crie outra para um novo conteúdo.',409)
 
-    # Gravacao da Campanha (services/campaign_write.py): as rotas migram de start/touch para ela, uma a uma.
+    # Gravacao da Campanha (services/campaign_write.py): toda gravacao versionada de uma Campanha que ja existe passa por writer.read/write. Criar, duplicar e apagar abrem a propria transacao.
     writer=CampaignWriter(db,lambda message,status: Invalid(message,status))
-
-    def start(cid,payload=None):
-        # Rotas que ainda nao migraram para writer.write(): abrem a gravacao aqui (lock de escrita no SQLite) e
-        # conferem a versao. As rotas de IA ja usam a Gravacao da Campanha.
-        db().execute('BEGIN IMMEDIATE')
-        c=campaign(cid)
-        if payload and 'version' in payload:
-            try:
-                version=int(payload['version'])
-            except (TypeError,ValueError):
-                raise Invalid('Versão inválida.')
-            if version!=c['version']:
-                raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.',409)
-        return c
-
-    def touch(cid, expected_version=None):
-        # Sem expected_version (fluxos que nao leram a campanha com start()
-        # antes), mantem o incremento incondicional de sempre.
-        if expected_version is None:
-            db().execute('UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=?',(cid,))
-            return
-        # Com expected_version, o UPDATE so aplica se a versao ainda for a
-        # mesma lida no inicio da requisicao -- funciona igual em SQLite e
-        # Postgres, sem depender do lock de BEGIN IMMEDIATE (que na nuvem
-        # nao existe: e um no-op do adaptador Postgres).
-        cur = db().execute(
-            'UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=? AND version=?',
-            (cid, expected_version),
-        )
-        if cur.rowcount == 0:
-            raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.', 409)
 
     def asset(cid,kind,slot=None):
         if slot is None:
@@ -1791,7 +1760,7 @@ def create_app(config=None):
         for pos in positions.values():
             if not isinstance(pos,dict) or set(pos)!={'x','y'} or any(type(v) not in (int,float) or not math.isfinite(v) or abs(v)>100000 for v in pos.values()):
                 raise Invalid('Posição inválida.')
-        start(cid)
+        writer.read(cid)
         db().execute('UPDATE campaigns SET layout=? WHERE id=?',(json.dumps(positions),cid))
         db().commit()
         return jsonify(layout=positions)
@@ -2438,8 +2407,7 @@ def create_app(config=None):
         kind=data.get('kind')
         if kind not in {'reference','image','video','product','description'}:
             raise Invalid('Escolha o tipo de mídia.')
-        c=start(cid,data)
-        editable(c)
+        editable(writer.read(cid,data))
         filename=(data.get('filename') or '').strip()
         ext=Path(filename).suffix.lower()
         if not re.match(r'^\.[a-z0-9]{1,9}$',ext):
@@ -3289,7 +3257,7 @@ def create_app(config=None):
             return entrada if isinstance(entrada,dict) else None
 
         def guardar(nome,chave,entrada):
-            """Grava (ou apaga, com None) uma entrada. Sem touch(): como as falas da IA, nao troca a versao da
+            """Grava (ou apaga, com None) uma entrada. Sem subir a versao: como as falas da IA, nao troca a versao da
             campanha, que deixaria a tela aberta com um 409 na proxima edicao."""
             checklist=read_checklist(cid)
             tabela=checklist.get(nome) if isinstance(checklist.get(nome),dict) else {}
