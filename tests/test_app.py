@@ -392,6 +392,99 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('performance',checklist)
         self.assertEqual(checklist['performance']['Azul']['views_7d'],1200)
 
+    def publish_ready(self):
+        self.video_approved()
+        self.assertEqual(self.move('ready_to_publish').status_code,200)
+        return {k:True for k in ['account','product','caption','review','published']}
+
+    def slot(self):
+        return self.get()['checklist']['slots']['Azul']
+
+    def test_publish_slot_records_format_and_prompt_version(self):
+        checks=self.publish_ready()
+        response=self.post('/publish-slot',dict(color='Azul',checklist=checks))
+        self.assertEqual(response.status_code,200,response.json)
+        slot=self.slot()
+        self.assertTrue(slot['published'])
+        self.assertEqual(slot['format'],'fala')
+        self.assertEqual(slot['format_source'],'campanha')
+        self.assertIn(slot['prompt_version'],('completo','guia'))
+        self.assertEqual(slot['prompt_version_source'],'prompt_salvo')
+        self.assertEqual(slot['generator'],'flow')
+        self.assertEqual(slot['tagged_via'],'publish_slot')
+        self.assertTrue(slot['tagged_at'].endswith('Z'))
+
+    def test_publish_slot_takes_the_operators_choice_and_rejects_unknown_values(self):
+        checks=self.publish_ready()
+        bad=self.post('/publish-slot',dict(color='Azul',checklist=checks,prompt_version='curto'))
+        self.assertEqual(bad.status_code,400)
+        self.assertNotIn('Azul',self.get()['checklist'].get('slots',{}))
+        self.assertEqual(self.post('/publish-slot',dict(color='Azul',checklist=checks,format='inventado')).status_code,400)
+        ok=self.post('/publish-slot',dict(color='Azul',checklist=checks,format='recebi_em_casa',prompt_version='guia'))
+        self.assertEqual(ok.status_code,200,ok.json)
+        slot=self.slot()
+        self.assertEqual((slot['format'],slot['format_source']),('recebi_em_casa','operador'))
+        self.assertEqual((slot['prompt_version'],slot['prompt_version_source']),('guia','operador'))
+
+    def test_recebi_em_casa_does_not_borrow_the_saved_video_prompt(self):
+        from services import publish_tags
+        tags=publish_tags.build({},'Vídeo vertical 9:16, 15 segundos',chosen_format='recebi_em_casa')
+        self.assertEqual(tags['format'],'recebi_em_casa')
+        self.assertEqual((tags['prompt_version'],tags['prompt_version_source']),(None,None))
+
+    def test_saved_link_does_not_retro_tag_a_slot_published_before_the_tags(self):
+        checks=self.publish_ready()
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            old={'slots':{'Azul':{'published':True,'url':'','checks':checks}}}
+            conn.execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(old),self.cid))
+            conn.commit()
+        link='https://www.tiktok.com/@teste/video/321'
+        self.assertEqual(self.post('/published-link',dict(color='Azul',published_url=link)).status_code,200)
+        slot=self.slot()
+        self.assertEqual(slot['url'],link)
+        self.assertNotIn('format',slot)
+        self.assertNotIn('tagged_via',slot)
+
+    def test_publish_slot_keeps_what_the_saved_link_already_wrote(self):
+        checks=self.publish_ready()
+        link='https://www.tiktok.com/@teste/video/123'
+        self.assertEqual(self.post('/published-link',dict(color='Azul',published_url=link)).status_code,200)
+        first=self.slot()
+        self.assertEqual(first['tagged_via'],'published_link')
+        self.assertTrue(first['published_at'])
+        self.assertEqual(self.post('/publish-slot',dict(color='Azul',checklist=checks,format='espelho')).status_code,200)
+        slot=self.slot()
+        self.assertEqual(slot['published_at'],first['published_at'])
+        # A primeira etiqueta vale: o formato pode mudar depois, a publicacao ja foi feita.
+        self.assertEqual((slot['format'],slot['tagged_via'],slot['tagged_at']),(first['format'],'published_link',first['tagged_at']))
+        self.assertEqual(slot['url'],link)
+        again=self.post('/published-link',dict(color='Azul',published_url=link+'4'))
+        self.assertEqual(again.status_code,200)
+        self.assertEqual(self.slot()['format'],first['format'])
+
+    def test_publish_tags_tell_every_format_apart(self):
+        from services import publish_tags
+        fmt=lambda mode,**extra:publish_tags.campaign_format(dict(video_mode=mode,**extra))
+        ids=[fmt(''),fmt('espelho'),fmt('comentario'),fmt('unboxing'),fmt('pov'),fmt('asmr'),fmt('movimento'),fmt('teste')]
+        self.assertEqual(ids,['fala','espelho','comentario','unboxing','pov','asmr','movimento','teste'])
+        self.assertEqual(fmt('celular no espelho'),'espelho')
+        # Beleza sem escolha vai para a mesa: o id vem do que o app gerou, nao do campo vazio.
+        self.assertEqual(fmt('',product='creme facial'),'mesa')
+        self.assertTrue(set(ids)<=set(publish_tags.FORMAT_IDS))
+
+    def test_publish_tags_read_the_prompt_version_and_skip_sequences(self):
+        from services import publish_tags
+        self.assertEqual(publish_tags.prompt_version('Vídeo vertical 9:16, 15 segundos'),'guia')
+        self.assertEqual(publish_tags.prompt_version('Cena: quarto claro. Falas…'),'completo')
+        self.assertIsNone(publish_tags.prompt_version(''))
+        seq=publish_tags.build(dict(sequence_clips='2',sequence_arc='motivos'),'Vídeo vertical 9:16')
+        self.assertIsNone(seq['prompt_version'])
+        self.assertEqual((seq['sequence_clips'],seq['sequence_arc']),('2','motivos'))
+        chosen=publish_tags.build(dict(sequence_clips='2'),'',chosen_version='completo')
+        self.assertEqual((chosen['prompt_version'],chosen['prompt_version_source']),('completo','operador'))
+        with self.assertRaises(publish_tags.TagError):
+            publish_tags.build({},'',chosen_format='nao-existe')
+
     def test_objection_drives_the_hook_and_the_middle_beat(self):
         campaign=dict(model_name='Micaela',product='legging cintura alta',outfit='legging',color='preto',
                       audience='mulheres que treinam',benefit='tem cós largo',angle='mostrar o cós',
@@ -4387,3 +4480,75 @@ class VisionDeadlineTests(unittest.TestCase):
         self.assertEqual(mime,'image/jpeg')
         with Image.open(io.BytesIO(dados)) as img:
             self.assertLessEqual(max(img.size),copywriter.VISION_MAX_SIDE)
+
+
+class CloudSpeechBankTests(unittest.TestCase):
+    """Banco de falas na nuvem contra um Storage falso que responde como o Supabase de verdade: arquivo que
+    nao existe volta como HTTP 400 com statusCode "404" no corpo (nao como HTTP 404)."""
+
+    FALAS=dict(hook='Gente, achei a calça perfeita pro meu dia a dia.',
+               development='Olha o cós, ele marca a cintura sem apertar e o tecido não fica transparente contra a luz.',
+               cta='Se você curtiu, corre pro carrinho laranja e garante a sua.')
+
+    def setUp(self):
+        import urllib.error
+        self.temp=tempfile.TemporaryDirectory()
+        root=Path(self.temp.name)
+        self.objects={}
+        env={'FABRICA_SUPABASE_URL':'https://fake.supabase.co','FABRICA_SUPABASE_SERVICE_KEY':'service-key'}
+        with patch.dict(os.environ,env):
+            self.app=create_app(dict(TESTING=True,CLOUD_MODE=True,AUTH_REQUIRED=False,
+                                     DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'profiles'))
+        self.client=self.app.test_client()
+        self.headers={'X-Local-App':'fabrica-tiktok'}
+        prefix='https://fake.supabase.co/storage/v1/object/fabrica-media/'
+
+        def fake_urlopen(req,timeout=None):
+            url=req.full_url
+            key=url[len(prefix):].split('?',1)[0]
+            resp=Mock()
+            resp.__enter__=Mock(return_value=resp)
+            resp.__exit__=Mock(return_value=False)
+            if req.get_method() in ('POST','PUT'):
+                self.objects[key]=req.data
+                resp.read.return_value=b'{}'
+                return resp
+            if key not in self.objects:
+                body={'statusCode':'404','error':'not_found','message':'Object not found'}
+                raise urllib.error.HTTPError(url,400,'Bad Request',{},io.BytesIO(json.dumps(body).encode()))
+            resp.read.return_value=self.objects[key]
+            return resp
+
+        patcher=patch('urllib.request.urlopen',side_effect=fake_urlopen)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_first_save_creates_the_bank_file_in_storage(self):
+        response=self.client.post('/api/speech-bank',json=self.FALAS,headers=self.headers)
+        self.assertEqual(response.status_code,201,response.json)
+        saved=json.loads(self.objects['app-settings/banco_falas.json'].decode('utf-8'))
+        self.assertEqual([i['hook'] for i in saved['items']],[self.FALAS['hook']])
+        listed=self.client.get('/api/speech-bank',headers=self.headers)
+        self.assertEqual(listed.status_code,200,listed.json)
+        self.assertEqual(listed.json['total'],1)
+
+    def test_empty_bank_lists_without_error_and_duplicate_is_refused(self):
+        self.assertEqual(self.client.get('/api/speech-bank',headers=self.headers).json['total'],0)
+        self.assertEqual(self.client.post('/api/speech-bank',json=self.FALAS,headers=self.headers).status_code,201)
+        again=self.client.post('/api/speech-bank',json=self.FALAS,headers=self.headers)
+        self.assertEqual(again.status_code,409)
+
+    def test_a_real_storage_failure_still_refuses_to_overwrite_the_bank(self):
+        import urllib.error
+        self.client.post('/api/speech-bank',json=self.FALAS,headers=self.headers)
+        before=self.objects['app-settings/banco_falas.json']
+        def broken(req,timeout=None):
+            raise urllib.error.HTTPError(req.full_url,500,'Server Error',{},io.BytesIO(b'{"message":"falhou"}'))
+        outra=dict(self.FALAS,hook='Outro gancho totalmente diferente para o teste.')
+        with patch('urllib.request.urlopen',side_effect=broken):
+            response=self.client.post('/api/speech-bank',json=outra,headers=self.headers)
+        self.assertEqual(response.status_code,502)
+        self.assertEqual(self.objects['app-settings/banco_falas.json'],before)

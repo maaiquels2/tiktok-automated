@@ -30,7 +30,7 @@ from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import ai_budget, copywriter, formats, generators, prompt_library, speech_bank, stages
+from services import ai_budget, copywriter, formats, generators, prompt_library, publish_tags, speech_bank, stages
 from services import variants as variacao
 from services.prompts import with_article
 
@@ -932,9 +932,18 @@ def create_app(config=None):
             with urllib.request.urlopen(req,timeout=60) as resp:
                 return resp.read()
         except urllib.error.HTTPError as exc:
-            if exc.code==404:
+            # O Supabase responde objeto que nao existe com HTTP 400 e statusCode "404" no corpo, nao com HTTP 404.
+            # Sem isto o banco de falas, que so nasce no primeiro "Guardar", falhava na leitura e nunca era criado.
+            try:
+                raw=exc.read()
+                payload=json.loads(raw.decode('utf-8'))
+            except Exception:
+                raw,payload=b'',{}
+            payload=payload if isinstance(payload,dict) else {}
+            if exc.code==404 or str(payload.get('statusCode'))=='404':
                 raise Invalid('Arquivo não encontrado no armazenamento. Anexe a mídia novamente.',404) from exc
-            raise Invalid(f'Falha ao ler do armazenamento: {_storage_error_detail(exc)}',502) from exc
+            detail=payload.get('message') or payload.get('error') or raw.decode('utf-8','replace')[:200] or str(exc)
+            raise Invalid(f'Falha ao ler do armazenamento: {detail}',502) from exc
 
     def _storage_sign(key,expires_in=3600,download_name=None):
         """Gera um link temporario e direto para o arquivo, sem passar pelo servidor."""
@@ -3634,8 +3643,10 @@ def create_app(config=None):
         if color:
             key = color
             info = slots.get(key) if isinstance(slots.get(key), dict) else {}
-            info = {**info, 'url': url, 'published': True, 'published_at': info.get('published_at') or __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z'}
-            slots[key] = info
+            novo = {'url': url, 'published': True, 'published_at': info.get('published_at') or __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+            # Cor ja publicada nao ganha etiqueta aqui: so o primeiro registro conhece o que foi ao ar.
+            tags = {} if info.get('published') else slot_tags(cid, color, data, 'published_link')
+            slots[key] = publish_tags.merge_into_slot(info, novo, tags)
             checklist['slots'] = slots
         db().execute(
             'UPDATE campaigns SET published_url=?, checklist=? WHERE id=?',
@@ -3704,6 +3715,16 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+    def slot_tags(cid,color,data,via):
+        """Formato e versao do prompt da cor que vai ao ar (services/publish_tags.py). Escolha invalida: 400."""
+        full=detail(cid)
+        variant=next((v for v in full['variants'] if (v['color'] or '')==color),None)
+        video_prompt=(variant['prompts'] if variant else full['prompts']).get('video','')
+        try:
+            return publish_tags.build(full,video_prompt,data.get('format'),data.get('prompt_version'),via=via)
+        except publish_tags.TagError as exc:
+            raise Invalid(str(exc)) from exc
+
     @app.post('/api/campaigns/<int:cid>/publish-slot')
     def publish_slot(cid):
         """Register one color/product publish; campaign finishes when all slots are done."""
@@ -3742,11 +3763,16 @@ def create_app(config=None):
             parsed=urlsplit(url)
             if parsed.scheme!='https' or not (parsed.hostname=='tiktok.com' or (parsed.hostname or '').endswith('.tiktok.com')):
                 raise Invalid('Use um link HTTPS do TikTok.')
+        tags=slot_tags(cid,color,data,'publish_slot')
         checklist=json.loads(c['checklist'] or '{}')
         if not isinstance(checklist,dict):
             checklist={}
         slot_map=checklist.get('slots') if isinstance(checklist.get('slots'),dict) else {}
-        slot_map[color or 'default']=dict(published=True,url=url,checks=checks)
+        # Mescla com o slot que ja existia (o link salvo antes traz published_at) e grava as etiquetas uma vez.
+        before=slot_map.get(color or 'default')
+        saved_url=before.get('url','') if isinstance(before,dict) else ''
+        slot_map[color or 'default']=publish_tags.merge_into_slot(
+            before,dict(published=True,url=url or saved_url,checks=checks),tags)
         checklist['slots']=slot_map
         # all done?
         needed=[s if s else 'default' for s in slots]

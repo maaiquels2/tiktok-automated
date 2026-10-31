@@ -721,6 +721,14 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
     </>)}
   </section>;
 }
+// Ids aceitos por services/publish_tags.py: 'fala' é o "Com fala" (video_mode vazio) e Recebi em casa não fica gravado na campanha.
+const PUBLISH_FORMATS=[...FORMAT_OPTIONS.map(([id,label])=>[id||'fala',label]),['recebi_em_casa','Recebi em casa (2 cenas)']];
+function publishTagsText(slot){
+  if(!slot?.format)return '';
+  const label=(PUBLISH_FORMATS.find(([id])=>id===slot.format)||[,slot.format])[1];
+  const version=slot.prompt_version==='guia'?'Guia do Grok':slot.prompt_version==='completo'?'Completo':slot.sequence_clips?`sequência de ${slot.sequence_clips}`:'';
+  return ` (${label}${version?` · ${version}`:''})`;
+}
 export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRefreshVariant,onSaveCaption,onRefreshCaption}){
   const videos=c.assets.filter(a=>a.kind==='video');
   const variants=c.variants?.length?c.variants:[{color:c.color||'Produto',prompts:c.prompts,id:'main'}];
@@ -730,6 +738,9 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
     return pending?.color || variants[0]?.color || '';
   });
   const [publishedUrl,setPublishedUrl]=useState('');
+  // Vazio = o app lê o formato da campanha e a versão do prompt salvo; escolha aqui só se o vídeo aprovado veio de outro.
+  const [pubFormat,setPubFormat]=useState('');
+  const [pubVersion,setPubVersion]=useState('');
   const [captionDraft,setCaptionDraft]=useState('');
   const [editingCaption,setEditingCaption]=useState(false);
   useEffect(()=>{
@@ -750,7 +761,7 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
         {variants.map(v=>{
           const key=v.color||'default';
           const ok=!!slotMap[key]?.published;
-          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setPublishedUrl(slotMap[key]?.url||'')}}>
+          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setPublishedUrl(slotMap[key]?.url||'');setPubFormat('');setPubVersion('')}}>
             {ok?'✓ ':''}{v.color||'Produto'}
           </button>;
         })}
@@ -806,11 +817,27 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
           return url?<a key={v.color||'default'} href={url} target="_blank" rel="noreferrer">Ver {v.color||'publicação'} <ExternalLink size={14}/></a>:null;
         })}</div>
       </div>:
-      done?<div className="notice success"><Check size={16}/> Cor <strong>{variant?.color}</strong> já registrada. Escolha a próxima ({remaining} restante{remaining===1?'':'s'}).</div>:
+      done?<div className="notice success"><Check size={16}/> Cor <strong>{variant?.color}</strong> já registrada{publishTagsText(slotMap[variant?.color||'default'])}. Escolha a próxima ({remaining} restante{remaining===1?'':'s'}).</div>:
       <div className="publish-register">
         <label className="publish-link-field">Link do vídeo (opcional)<input autoComplete="off" type="url" value={publishedUrl} onChange={e=>setPublishedUrl(e.target.value)} placeholder="https://www.tiktok.com/@…/video/…"/></label>
+        <div className="publish-tags">
+          <label>Formato publicado
+            <select aria-label="Formato publicado" value={pubFormat} disabled={busy||immutable} onChange={e=>setPubFormat(e.target.value)}>
+              <option value="">Automático (formato da campanha)</option>
+              {PUBLISH_FORMATS.map(([id,label])=><option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <label>Versão do prompt
+            <select aria-label="Versão do prompt publicada" value={pubVersion} disabled={busy||immutable} onChange={e=>setPubVersion(e.target.value)}>
+              <option value="">Automático (prompt salvo)</option>
+              <option value="completo">Completo</option>
+              <option value="guia">Guia do Grok</option>
+            </select>
+          </label>
+          <p className="help">Serve para comparar venda por formato. Escolha a versão se o vídeo aprovado veio da outra.</p>
+        </div>
         <button className="primary full" disabled={busy||immutable}
-          onClick={()=>onPublishSlot({color:variant?.color,checklist:PUBLISH_CHECKS,published_url:publishedUrl})}>
+          onClick={()=>onPublishSlot({color:variant?.color,checklist:PUBLISH_CHECKS,published_url:publishedUrl,...(pubFormat?{format:pubFormat}:{}),...(pubVersion?{prompt_version:pubVersion}:{})})}>
           Marcar como publicado · {variant?.color}
         </button>
       </div>}

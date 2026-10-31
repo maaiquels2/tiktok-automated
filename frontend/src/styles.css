@@ -4213,6 +4213,18 @@ button.linkish {
   height: 15px;
   margin-top: 1px;
 }
+.publish-tags {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.publish-tags label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
 .publish-link-field {
   margin: 8px 0 10px;
   font-size: 13px;
