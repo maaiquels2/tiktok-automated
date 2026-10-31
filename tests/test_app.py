@@ -3248,6 +3248,37 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(campanha['details'],'Tecido leve, azul')
         self.assertEqual(campanha['benefit'],'Tecido leve')  # nao foi sobrescrito
 
+    def test_analyze_product_photo_raises_the_version_once_when_it_fills_fields(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        version=self.get()['version']
+        with patch('services.copywriter.analyze_product',return_value=({'movements':'girar'},'')):
+            response=self.client.post(f'/api/campaigns/{self.cid}/analyze-product',
+                data={'description_photo':(io.BytesIO(image_bytes()),'descricao.png')},headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        self.assertEqual(response.json['version'],version+1)
+        with patch('services.copywriter.analyze_product',return_value=({'movements':'outra coisa'},'')):
+            again=self.client.post(f'/api/campaigns/{self.cid}/analyze-product',
+                data={'description_photo':(io.BytesIO(image_bytes()),'descricao.png')},headers=self.headers)
+        self.assertEqual(again.json['analysis']['filled'],[])  # nada vazio sobrou: nada grava, a versao nao anda
+        self.assertEqual(self.get()['version'],version+1)
+
+    def test_late_409_when_the_campaign_changes_during_the_product_analysis(self):
+        import time
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        def lenta(images,settings,context=''):
+            time.sleep(1.0)
+            return {'movements':'girar; agachar'},''
+        def analisar():
+            return self.app.test_client().post(f'/api/campaigns/{self.cid}/analyze-product',
+                data={'description_photo':(io.BytesIO(image_bytes()),'descricao.png')},headers=self.headers)
+        with patch('services.copywriter.analyze_product',side_effect=lenta):
+            rota,edicao=self.edit_during(analisar)
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(rota.status_code,409,rota.json)
+        depois=self.get()
+        self.assertEqual(depois['name'],'Mudou no meio')
+        self.assertNotEqual(depois['movements'],'girar; agachar')
+
     def test_analyze_product_photo_uses_saved_product_photo_too(self):
         self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
         form={'briefing':json.dumps({**self.brief,'version':self.get()['version']}),'removed':'[]'}
@@ -4369,6 +4400,28 @@ class WorkflowTests(unittest.TestCase):
         self.move('ready_to_publish')
         self.move('published',checklist={k:True for k in ['account','product','caption','review','published']})
         self.assertEqual(self.save_look(photos=[image_bytes()]).status_code,409)
+
+    def test_briefing_saves_raise_the_version_once_and_refused_saves_leave_it_alone(self):
+        version=self.get()['version']
+        edit=self.client.patch(f'/api/campaigns/{self.cid}',json={'name':'Nome novo','version':version},headers=self.headers)
+        self.assertEqual((edit.status_code,edit.json['version']),(200,version+1))
+        look=self.save_look({'version':version+1},[image_bytes()])
+        self.assertEqual((look.status_code,look.json['version']),(200,version+2))
+        # Recusada pela versao velha, por foto invalida e por foto que nao e da campanha: a versao nao anda.
+        self.assertEqual(self.save_look({'version':version},[image_bytes()]).status_code,409)
+        self.assertEqual(self.save_look({'version':version+2},[image_bytes(),b'bad image']).status_code,400)
+        self.assertEqual(self.save_look({'version':version+2},removed=[999]).status_code,409)
+        self.assertEqual(self.get()['version'],version+2)
+
+    def test_a_refused_photo_save_leaves_no_file_and_no_row_behind(self):
+        version=self.get()['version']
+        self.upload('reference')
+        folder=self.config['MEDIA_DIR']/f'campanha-{self.cid:04d}'
+        before=sorted(p.name for p in folder.glob('product-*'))
+        self.assertEqual(self.save_look({'version':version},[image_bytes(),image_bytes()]).status_code,409)
+        self.assertEqual(sorted(p.name for p in folder.glob('product-*')),before)
+        self.assertEqual(self.get()['product_assets'],[])
+        self.assertEqual(list(self.config['MEDIA_DIR'].glob('*.upload')),[])
 
     def test_script_uses_product_attributes_instead_of_generic_copy(self):
         campaign=dict(model_name='Micaela',product='legging de treino cintura alta com bolso lateral',outfit='legging roxa',

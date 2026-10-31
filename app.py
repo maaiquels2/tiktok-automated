@@ -1477,17 +1477,15 @@ def create_app(config=None):
             if values['model_name']!=c['model_name']:
                 clear_after(cid,['reference'])
         db().execute(f"UPDATE campaigns SET {','.join(k+'=?' for k in FIELDS)} WHERE id=?",(*[values[k] for k in FIELDS],cid))
-        touch(cid, c['version'])
 
     @app.patch('/api/campaigns/<int:cid>')
     def update_campaign(cid):
         data=body()
         if 'status' in data:
             raise Invalid('Use as ações de revisão para avançar etapas.',409)
-        c=start(cid,data)
-        editable(c)
-        apply_brief(cid,c,fields(data,c))
-        db().commit()
+        with writer.write(cid,data) as c:
+            editable(c)
+            apply_brief(cid,c,fields(data,c))
         return jsonify(detail(cid))
 
     @app.post('/api/campaigns/<int:cid>/look')
@@ -1521,35 +1519,34 @@ def create_app(config=None):
                     raise Invalid(str(exc)) from exc
                 staged[-1].update(metadata=metadata,ext=ext,mime=mime,
                     original=Path(upload.filename.replace('\\','/')).name[:240])
-            c=start(cid,data)
-            editable(c)
-            values=fields(data,c)
-            current={r['id'] for r in db().execute('SELECT id FROM product_assets WHERE campaign_id=? AND active=1',(cid,))}
-            if set(removed)-current:
-                raise Invalid('Uma das fotos não pertence a esta campanha ou já foi removida.',409)
-            if len(current-set(removed))+len(staged)>8:
-                raise Invalid('Use até 8 fotos do produto por campanha.')
-            for aid in set(removed):
-                db().execute('UPDATE product_assets SET active=0 WHERE id=? AND campaign_id=?',(aid,cid))
-            folder=app.config['MEDIA_DIR']/f'campanha-{cid:04d}'
-            if staged and not cloud_mode:
-                folder.mkdir(exist_ok=True)
-            for item in staged:
-                rel_path=f"campanha-{cid:04d}/product-{uuid.uuid4().hex}{item['ext']}"
-                if cloud_mode:
-                    data=item['temp'].read_bytes()
-                    _storage_put(rel_path,data,item['mime'])
-                    item['temp'].unlink(missing_ok=True)
-                    size=len(data)
-                else:
-                    destination=app.config['MEDIA_DIR']/rel_path
-                    destinations.append(destination)
-                    shutil.move(str(item['temp']),destination)
-                    size=destination.stat().st_size
-                db().execute('INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
-                    (cid,rel_path,item['original'],item['mime'],size,json.dumps(item['metadata'])))
-            apply_brief(cid,c,values,photos_changed=bool(staged or removed))
-            db().commit()
+            with writer.write(cid,data) as c:
+                editable(c)
+                values=fields(data,c)
+                current={r['id'] for r in db().execute('SELECT id FROM product_assets WHERE campaign_id=? AND active=1',(cid,))}
+                if set(removed)-current:
+                    raise Invalid('Uma das fotos não pertence a esta campanha ou já foi removida.',409)
+                if len(current-set(removed))+len(staged)>8:
+                    raise Invalid('Use até 8 fotos do produto por campanha.')
+                for aid in set(removed):
+                    db().execute('UPDATE product_assets SET active=0 WHERE id=? AND campaign_id=?',(aid,cid))
+                folder=app.config['MEDIA_DIR']/f'campanha-{cid:04d}'
+                if staged and not cloud_mode:
+                    folder.mkdir(exist_ok=True)
+                for item in staged:
+                    rel_path=f"campanha-{cid:04d}/product-{uuid.uuid4().hex}{item['ext']}"
+                    if cloud_mode:
+                        data=item['temp'].read_bytes()
+                        _storage_put(rel_path,data,item['mime'])
+                        item['temp'].unlink(missing_ok=True)
+                        size=len(data)
+                    else:
+                        destination=app.config['MEDIA_DIR']/rel_path
+                        destinations.append(destination)
+                        shutil.move(str(item['temp']),destination)
+                        size=destination.stat().st_size
+                    db().execute('INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
+                        (cid,rel_path,item['original'],item['mime'],size,json.dumps(item['metadata'])))
+                apply_brief(cid,c,values,photos_changed=bool(staged or removed))
         except Exception:
             db().rollback()
             for destination in destinations:
@@ -1598,21 +1595,20 @@ def create_app(config=None):
                     temp.unlink(missing_ok=True)
                 staged.append({'rel_path':rel_path,'metadata':metadata,'mime':mime,
                     'original':original[:240],'size':len(file_bytes)})
-            c=start(cid,briefing)
-            editable(c)
-            values=fields(briefing,c)
-            current={r['id'] for r in db().execute('SELECT id FROM product_assets WHERE campaign_id=? AND active=1',(cid,))}
-            if set(removed)-current:
-                raise Invalid('Uma das fotos não pertence a esta campanha ou já foi removida.',409)
-            if len(current-set(removed))+len(staged)>8:
-                raise Invalid('Use até 8 fotos do produto por campanha.')
-            for aid in set(removed):
-                db().execute('UPDATE product_assets SET active=0 WHERE id=? AND campaign_id=?',(aid,cid))
-            for item in staged:
-                db().execute('INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
-                    (cid,item['rel_path'],item['original'],item['mime'],item['size'],json.dumps(item['metadata'])))
-            apply_brief(cid,c,values,photos_changed=bool(staged or removed))
-            db().commit()
+            with writer.write(cid,briefing) as c:
+                editable(c)
+                values=fields(briefing,c)
+                current={r['id'] for r in db().execute('SELECT id FROM product_assets WHERE campaign_id=? AND active=1',(cid,))}
+                if set(removed)-current:
+                    raise Invalid('Uma das fotos não pertence a esta campanha ou já foi removida.',409)
+                if len(current-set(removed))+len(staged)>8:
+                    raise Invalid('Use até 8 fotos do produto por campanha.')
+                for aid in set(removed):
+                    db().execute('UPDATE product_assets SET active=0 WHERE id=? AND campaign_id=?',(aid,cid))
+                for item in staged:
+                    db().execute('INSERT INTO product_assets(campaign_id,path,original_name,mime,size,metadata) VALUES(?,?,?,?,?,?)',
+                        (cid,item['rel_path'],item['original'],item['mime'],item['size'],json.dumps(item['metadata'])))
+                apply_brief(cid,c,values,photos_changed=bool(staged or removed))
         except Exception:
             db().rollback()
             raise
@@ -1647,8 +1643,9 @@ def create_app(config=None):
         preenchidos=list(payload.keys())
         if payload:
             values=fields(payload,c)
-            apply_brief(cid,c,values,photos_changed=False)
-            db().commit()
+            # Duas fases: a campanha foi lida antes da chamada da IA; se alguem a mudou nesse meio tempo, 409.
+            with writer.write(cid,expected_version=c['version']):
+                apply_brief(cid,c,values,photos_changed=False)
         result=detail(cid)
         result['analysis']={'filled':preenchidos,'suggested':campos}
         return jsonify(result)
