@@ -23,7 +23,6 @@ from flask import Flask, g, jsonify, redirect, request, send_file, send_from_dir
 from werkzeug.exceptions import HTTPException
 from werkzeug.security import check_password_hash, generate_password_hash
 from services.video_mix import mix_clips, find_ffmpeg
-from services import tiktok_auth, tiktok_publish
 import hmac
 import secrets
 from services.media import inspect_media
@@ -281,7 +280,6 @@ def create_app(config=None):
                             "SELECT 1 FROM information_schema.tables WHERE table_schema=current_schema() "
                             "AND table_name='rate_limits'").fetchone():
                         conn.execute(RATE_LIMITS_SQL)
-                        conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT \'\')')
                         conn.execute('ALTER TABLE rate_limits ENABLE ROW LEVEL SECURITY')
                         conn.commit()
                     # Biblioteca de prompts aprovados e uso da IA por campanha.
@@ -362,7 +360,6 @@ def create_app(config=None):
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
             ''')
             conn.execute(RATE_LIMITS_SQL)
-            conn.execute('CREATE TABLE IF NOT EXISTS tiktok_connections (user_id INTEGER PRIMARY KEY, open_id TEXT NOT NULL, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_in INTEGER NOT NULL, scope TEXT NOT NULL DEFAULT \'\', connected_at TEXT NOT NULL DEFAULT \'\')')
             conn.execute(prompt_library.LIBRARY_SQL)
             conn.execute(prompt_library.USAGE_SQL)
             prompt_library.seed(conn)
@@ -1282,86 +1279,6 @@ def create_app(config=None):
         if not re.fullmatch(r'tiktok[A-Za-z0-9]+\.txt', name):
             return jsonify(error='Nao encontrado.'), 404
         return send_from_directory(app.config['FRONTEND_DIR'], name, mimetype='text/plain')
-
-    @app.get('/api/tiktok/connect')
-    def tiktok_connect():
-        try:
-            state = secrets.token_urlsafe(24)
-            session['tiktok_state'] = state
-            url = tiktok_auth.authorize_url(state)
-        except tiktok_auth.TikTokAuthError as e:
-            raise Invalid(e.args[0], 500)
-        except Exception as e:
-            app.logger.exception('Falha ao iniciar login com TikTok')
-            raise Invalid(f'Nao foi possivel iniciar a conexao com o TikTok ({type(e).__name__}: {str(e)[:160]}). Avise o suporte.', 500)
-        return redirect(url)
-
-    @app.get('/api/tiktok/callback')
-    def tiktok_callback():
-        if request.args.get('error'):
-            return redirect('/#/inicio?tiktok=recusado')
-        expected = session.pop('tiktok_state', None)
-        state = request.args.get('state', '')
-        if not expected or not hmac.compare_digest(state, expected):
-            raise Invalid('Conexao com TikTok expirou. Tente conectar de novo.', 400)
-        try:
-            data = tiktok_auth.exchange_code(request.args.get('code', ''))
-        except tiktok_auth.TikTokAuthError as e:
-            raise Invalid(e.args[0], 502)
-        user_id = session.get('user_id') or 0
-        try:
-            now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())
-            db().execute('INSERT INTO tiktok_connections(user_id,open_id,access_token,refresh_token,expires_in,scope,connected_at) '
-                         'VALUES(?,?,?,?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET open_id=excluded.open_id, '
-                         'access_token=excluded.access_token, refresh_token=excluded.refresh_token, '
-                         'expires_in=excluded.expires_in, scope=excluded.scope, connected_at=excluded.connected_at',
-                         (user_id, str(data.get('open_id', '')), str(data['access_token']),
-                          str(data.get('refresh_token', '')), int(data.get('expires_in') or 0), str(data.get('scope', '')), now))
-            db().commit()
-        except Exception as e:
-            app.logger.exception('Falha ao salvar conexao com TikTok')
-            raise Invalid(f'Nao foi possivel salvar a conexao com o TikTok ({type(e).__name__}: {str(e)[:160]}). Avise o suporte.', 500)
-        return redirect('/#/inicio?tiktok=conectado')
-
-    @app.get('/api/tiktok/status')
-    def tiktok_status():
-        user_id = session.get('user_id') or 0
-        row = db().execute('SELECT open_id, scope, connected_at FROM tiktok_connections WHERE user_id=?', (user_id,)).fetchone()
-        if not row:
-            return jsonify(connected=False)
-        return jsonify(connected=True, open_id=row[0], scope=row[1], connected_at=str(row[2]))
-
-    def _tiktok_token():
-        user_id = session.get('user_id') or 0
-        row = db().execute('SELECT access_token FROM tiktok_connections WHERE user_id=?', (user_id,)).fetchone()
-        if not row:
-            raise Invalid('Conecte sua conta do TikTok antes de publicar.', 409)
-        return row[0]
-
-    @app.post('/api/tiktok/publish/init')
-    def tiktok_publish_init():
-        data = request.get_json(silent=True) or {}
-        try:
-            size = int(data.get('size') or 0)
-        except (TypeError, ValueError):
-            raise Invalid('Tamanho do video invalido.', 400)
-        caption = str(data.get('caption') or '').strip()
-        try:
-            out = tiktok_publish.init_video(_tiktok_token(), caption, size)
-        except tiktok_publish.TikTokPublishError as e:
-            raise Invalid(e.args[0], 502)
-        return jsonify(publish_id=out['publish_id'], upload_url=out['upload_url'])
-
-    @app.get('/api/tiktok/publish/status')
-    def tiktok_publish_status():
-        publish_id = request.args.get('publish_id', '').strip()
-        if not publish_id:
-            raise Invalid('publish_id obrigatorio.', 400)
-        try:
-            out = tiktok_publish.status(_tiktok_token(), publish_id)
-        except tiktok_publish.TikTokPublishError as e:
-            raise Invalid(e.args[0], 502)
-        return jsonify(out)
 
     @app.get('/termos')
     @app.get('/privacidade')

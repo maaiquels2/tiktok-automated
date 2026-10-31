@@ -392,6 +392,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('performance',checklist)
         self.assertEqual(checklist['performance']['Azul']['views_7d'],1200)
 
+    def test_the_tiktok_api_publish_feature_is_gone(self):
+        # "Publicar no TikTok" pela API, a conta conectada e a legenda desse formulario foram retirados: a
+        # publicacao continua manual, no TikTok Studio, com a legenda da propria campanha.
+        for path in ('/api/tiktok/connect','/api/tiktok/callback','/api/tiktok/status','/api/tiktok/publish/status'):
+            self.assertEqual(self.client.get(path,headers=self.headers).status_code,404,path)
+        self.assertEqual(self.client.post('/api/tiktok/publish/init',json={},headers=self.headers).status_code,404)
+        names={r.rule for r in self.app.url_map.iter_rules()}
+        self.assertFalse([r for r in names if r.startswith('/api/tiktok')])
+
     def publish_ready(self):
         self.video_approved()
         self.assertEqual(self.move('ready_to_publish').status_code,200)
