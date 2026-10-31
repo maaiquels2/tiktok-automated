@@ -60,7 +60,14 @@ class CampaignWriter:
         """
         campaign = None
         if expected_version is None:
-            campaign = self.read(cid, payload)
+            # Pega o lock de escrita (SQLite) antes de ler: outras gravacoes mexem no checklist sem subir a versao,
+            # e uma leitura feita antes do lock podia ser apagada pela rota. No Postgres o BEGIN nao faz nada.
+            self._begin()
+            try:
+                campaign = self.read(cid, payload)
+            except BaseException:
+                self._db().rollback()
+                raise
             expected_version = campaign['version']
         self._claim(cid, expected_version)
         db = self._db()
@@ -71,11 +78,15 @@ class CampaignWriter:
             raise
         db.commit()
 
-    def _claim(self, cid, expected_version):
+    def _begin(self):
         db = self._db()
         # SQLite: pega o lock de escrita agora, nao na primeira escrita que sobrar. Na nuvem BEGIN e no-op.
         if not getattr(db, 'in_transaction', False):
             db.execute('BEGIN IMMEDIATE')
+
+    def _claim(self, cid, expected_version):
+        db = self._db()
+        self._begin()
         claimed = db.execute(
             'UPDATE campaigns SET updated_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=? AND version=?',
             (cid, expected_version))

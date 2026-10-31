@@ -8,6 +8,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 import uuid
 from contextlib import closing
@@ -206,6 +207,32 @@ class SqliteContract(Contract, unittest.TestCase):
         conn = sqlite3.connect(self.path, timeout=20)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def test_write_takes_the_write_lock_before_it_reads(self):
+        # So no SQLite: la o lock vem do BEGIN IMMEDIATE. Outra gravacao muda a campanha sem subir a versao (como as
+        # falas da sequencia no checklist); quem abre a Gravacao depois tem de ler o que ela deixou, nao a copia
+        # de antes do lock. No Postgres o BEGIN nao faz nada e essa janela continua existindo.
+        cid = self.seed()
+        holder = self.connect()
+        holder.execute('BEGIN IMMEDIATE')
+        holder.execute('UPDATE campaigns SET name=? WHERE id=?', ('Mudou sem subir a versao', cid))
+        seen = {}
+
+        def open_write():
+            conn = self.connect()
+            try:
+                with self.writer(conn).write(cid, {}) as campaign:
+                    seen['name'] = campaign['name']
+            finally:
+                conn.close()
+
+        thread = threading.Thread(target=open_write)
+        thread.start()
+        time.sleep(0.3)
+        holder.commit()
+        holder.close()
+        thread.join(30)
+        self.assertEqual(seen.get('name'), 'Mudou sem subir a versao')
 
 
 def _postgres_url():

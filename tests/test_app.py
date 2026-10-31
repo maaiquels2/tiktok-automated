@@ -4411,6 +4411,76 @@ class WorkflowTests(unittest.TestCase):
         assistant.open_flow_for_image.assert_called_once_with(self.cid)
         assistant.open_tiktok_studio.assert_not_called()
 
+    def assert_bumps(self,call,times=1):
+        before=self.get()['version']
+        response=call()
+        self.assertIn(response.status_code,(200,201),response.json)
+        self.assertEqual(self.get()['version'],before+times)
+
+    def test_stage_and_script_writes_raise_the_version_once_and_a_no_op_edit_does_not(self):
+        self.image_ready()
+        self.assert_bumps(lambda: self.move('image_approved'))
+        self.assert_bumps(lambda: self.move('script_ready'))
+        edit=lambda: self.client.patch(f'/api/campaigns/{self.cid}/prompts',json={'prompts':{'caption':'Legenda nova do teste'}},headers=self.headers)
+        self.assert_bumps(edit)
+        self.assert_bumps(edit,times=0)   # mesmo texto: nada muda, nada grava, a versao nao anda
+        self.assert_bumps(lambda: self.post('/video-mode',{'video_mode':'movimento'}))
+        self.assert_bumps(lambda: self.post('/prompts/refresh-video'))
+        self.assert_bumps(lambda: self.post('/prompts/improve-video'))
+        self.assert_bumps(lambda: self.post('/experiment',{'experiment':'ganchos'}))
+        self.assert_bumps(lambda: self.post('/performance',{'color':'Azul','metrics':{'views_24h':100}}))
+        self.assert_bumps(lambda: self.post('/insights',{}))
+        self.assert_bumps(lambda: self.post('/published-link',{'published_url':'https://www.tiktok.com/@a/video/1'}))
+
+    def test_publish_slot_raises_the_version_once(self):
+        self.video_approved()
+        self.move('ready_to_publish')
+        checks={k:True for k in ['account','product','caption','review','published']}
+        self.assert_bumps(lambda: self.post('/publish-slot',{'color':'Azul','checklist':checks,'published_url':'https://www.tiktok.com/@a/video/1'}))
+
+    def test_late_409_when_the_campaign_changes_while_the_studio_metrics_are_fetched(self):
+        import time
+        self.script_ready()
+        def slow_fetch(cid,video_url=None,caption_hint=None):
+            time.sleep(1.0)
+            return {'metrics':{'views_24h':321},'message':'ok'}
+        assistant=Mock()
+        assistant.fetch_studio_metrics.side_effect=slow_fetch
+        self.app.extensions['browser_assistant']=assistant
+        def buscar():
+            return self.app.test_client().post(f'/api/campaigns/{self.cid}/performance/fetch',json={},headers=self.headers)
+        rota,edicao=self.edit_during(buscar)
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(rota.status_code,409,rota.json)
+        depois=self.get()
+        self.assertEqual(depois['name'],'Mudou no meio')
+        self.assertNotIn('performance',depois['checklist'])
+
+    def test_story_arc_lines_saved_while_the_studio_metrics_are_fetched_are_not_erased(self):
+        # As falas da sequencia moram no mesmo JSON do checklist e nao sobem a versao: o fetch nao pode devolver
+        # ao banco o checklist que leu antes do Playwright.
+        import threading,time
+        self.puffer_campaign()
+        def slow_fetch(cid,video_url=None,caption_hint=None):
+            time.sleep(1.0)
+            return {'metrics':{'views_24h':321},'message':'ok'}
+        assistant=Mock()
+        assistant.fetch_studio_metrics.side_effect=slow_fetch
+        self.app.extensions['browser_assistant']=assistant
+        resultado={}
+        def buscar():
+            resultado['fetch']=self.app.test_client().post(f'/api/campaigns/{self.cid}/performance/fetch',json={},headers=self.headers)
+        fio=threading.Thread(target=buscar)
+        fio.start()
+        time.sleep(0.5)
+        salvou=self.app.test_client().post(f'/api/campaigns/{self.cid}/story-arc',json=dict(arc='motivos',clips=2,lines=self.ARC_AI_LINES),headers=self.headers)
+        fio.join(60)
+        self.assertEqual(salvou.status_code,200,salvou.json)
+        self.assertEqual(resultado['fetch'].status_code,200,resultado['fetch'].json)
+        checklist=self.get()['checklist']
+        self.assertIn('story_arc_manual',checklist)
+        self.assertIn('performance',checklist)
+
     def test_published_requires_completed_manual_checklist(self):
         self.video_approved()
         self.move('ready_to_publish')

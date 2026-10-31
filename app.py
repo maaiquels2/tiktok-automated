@@ -2293,7 +2293,7 @@ def create_app(config=None):
     @app.patch('/api/campaigns/<int:cid>/variants/<int:vid>/prompts')
     def edit_prompts(cid,vid=None):
         data=body()
-        c=start(cid,data)
+        c=writer.read(cid,data)
         editable(c)
         # Sem vid edita a campanha principal (que e a 1a cor quando ha varias).
         slot=main_slot(cid) if vid is None else slot_for(cid,vid,'')
@@ -2312,10 +2312,10 @@ def create_app(config=None):
         if set(changed)&{'hook','development','cta'}:
             merged['video']=variacao.video_prompt(c,slot['color'],slot['index'],merged)
             changed['video']=merged['video']
-        rewind(cid,c,changed)
-        save_slot(cid,slot,merged)
-        touch(cid, c['version'])
-        db().commit()
+        # A versao so sobe quando algo mudou de fato (acima, sem mudanca, a rota ja respondeu sem gravar).
+        with writer.write(cid,expected_version=c['version']):
+            rewind(cid,c,changed)
+            save_slot(cid,slot,merged)
         return jsonify(detail(cid))
 
     def _attach_record(cid,kind,rel_path,original,metadata,mime,size,slot=''):
@@ -3153,20 +3153,18 @@ def create_app(config=None):
     def new_video_prompt(cid,vid,improve):
         """Recria (completo) ou melhora (enxuto) o prompt de video de uma cor."""
         data=body()
-        c=start(cid,data)
-        editable(c)
-        verb='melhorar' if improve else 'recriar'
-        slot=slot_for(cid,vid,f'Escolha a cor cujo prompt de vídeo deseja {verb}.')
-        prompts=dict(slot['prompts'])
-        if slot['id'] is None and not prompts.get('video'):
-            raise Invalid('Gere os textos pelo briefing primeiro.',409)
-        prompts['video']=(compact_video_prompt(cid,prompts,slot['color']) if improve
-                          else rebuild_video_prompt(cid,c,prompts,slot['color'],slot['index']))
-        # Campanha de uma cor: o video dela nao tem slot de cor.
-        invalidate_video_slot(cid,c,slot['color'] if slot['id'] is not None else None)
-        save_slot(cid,slot,prompts)
-        touch(cid,c['version'])
-        db().commit()
+        with writer.write(cid,data) as c:
+            editable(c)
+            verb='melhorar' if improve else 'recriar'
+            slot=slot_for(cid,vid,f'Escolha a cor cujo prompt de vídeo deseja {verb}.')
+            prompts=dict(slot['prompts'])
+            if slot['id'] is None and not prompts.get('video'):
+                raise Invalid('Gere os textos pelo briefing primeiro.',409)
+            prompts['video']=(compact_video_prompt(cid,prompts,slot['color']) if improve
+                              else rebuild_video_prompt(cid,c,prompts,slot['color'],slot['index']))
+            # Campanha de uma cor: o video dela nao tem slot de cor.
+            invalidate_video_slot(cid,c,slot['color'] if slot['id'] is not None else None)
+            save_slot(cid,slot,prompts)
         return jsonify(detail(cid))
 
     @app.post('/api/campaigns/<int:cid>/prompts/refresh-video')
@@ -3202,23 +3200,21 @@ def create_app(config=None):
         mesma_base={'','movimento'}|{k for k,v in formats.FORMATS.items() if v['base'] in ('','movimento')}
         if mode not in mesma_base:
             raise Invalid('Aqui dá para alternar entre os formatos com a modelo de frente. POV, Espelho e Abrindo o pacote mudam a imagem-base: troque em Definir look.',409)
-        c=start(cid,data)
-        editable(c)
-        if formats.video_mode(c)=='pov':
-            raise Invalid('Esta campanha é POV: a imagem-base é em primeira pessoa. Para mudar o formato, use Definir look.',409)
-        guia=data.get('prompt_style')=='guia'
-        db().execute('UPDATE campaigns SET video_mode=? WHERE id=?',(mode,cid))
-        c={**c,'video_mode':mode}
-        for slot in slots(cid):
-            prompts=dict(slot['prompts'])
-            if not prompts.get('video'):
-                continue
-            prompts['video']=(compact_video_prompt(cid,prompts,slot['color']) if guia
-                              else rebuild_video_prompt(cid,c,prompts,slot['color'],slot['index']))
-            save_slot(cid,slot,prompts)
-        invalidate_video_slot(cid,c)
-        touch(cid,c['version'])
-        db().commit()
+        with writer.write(cid,data) as c:
+            editable(c)
+            if formats.video_mode(c)=='pov':
+                raise Invalid('Esta campanha é POV: a imagem-base é em primeira pessoa. Para mudar o formato, use Definir look.',409)
+            guia=data.get('prompt_style')=='guia'
+            db().execute('UPDATE campaigns SET video_mode=? WHERE id=?',(mode,cid))
+            c={**c,'video_mode':mode}
+            for slot in slots(cid):
+                prompts=dict(slot['prompts'])
+                if not prompts.get('video'):
+                    continue
+                prompts['video']=(compact_video_prompt(cid,prompts,slot['color']) if guia
+                                  else rebuild_video_prompt(cid,c,prompts,slot['color'],slot['index']))
+                save_slot(cid,slot,prompts)
+            invalidate_video_slot(cid,c)
         return jsonify(detail(cid))
 
     # Sequencia de 3 partes para o Extend Video do Grok + montagem no CapCut
@@ -3381,21 +3377,19 @@ def create_app(config=None):
         UMA coisa.
         """
         data = body()
-        c = start(cid, data)
-        etiqueta = (data.get('experiment') or '').strip()
-        if len(etiqueta) > 80:
-            raise Invalid('Nome do teste muito longo (máximo 80 caracteres).')
-        checklist = json.loads(c['checklist'] or '{}')
-        if not isinstance(checklist, dict):
-            checklist = {}
-        if etiqueta:
-            checklist['experiment'] = etiqueta
-        else:
-            checklist.pop('experiment', None)
-        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',
-                     (json.dumps(checklist, ensure_ascii=False), cid))
-        touch(cid, c['version'])
-        db().commit()
+        with writer.write(cid, data) as c:
+            etiqueta = (data.get('experiment') or '').strip()
+            if len(etiqueta) > 80:
+                raise Invalid('Nome do teste muito longo (máximo 80 caracteres).')
+            checklist = json.loads(c['checklist'] or '{}')
+            if not isinstance(checklist, dict):
+                checklist = {}
+            if etiqueta:
+                checklist['experiment'] = etiqueta
+            else:
+                checklist.pop('experiment', None)
+            db().execute('UPDATE campaigns SET checklist=? WHERE id=?',
+                         (json.dumps(checklist, ensure_ascii=False), cid))
         return jsonify(detail(cid))
 
     @app.get('/api/experiments')
@@ -3451,52 +3445,50 @@ def create_app(config=None):
     def save_performance(cid):
         """Merge user-entered metrics into checklist.performance[color]."""
         data=body()
-        c=start(cid,data)
-        # Metrics allowed on published campaigns (learning loop).
-        color=text_in(data,'color')
-        metrics=data.get('metrics')
-        if not isinstance(metrics,dict):
-            raise Invalid('Informe metrics como objeto.')
-        slots=image_slots_for(c)
-        if not color and slots==['']:
-            color=''
-        elif not color:
-            raise Invalid('Escolha a cor/produto das métricas.')
-        if color and slots!=[''] and color not in slots:
-            raise Invalid('Cor inválida para esta campanha.')
-        key=color or 'default'
-        # 'orders', 'product_clicks' e 'revenue' sao o placar que interessa a
-        # afiliado: o Studio nao entrega nenhum dos tres, entao eles entram a
-        # mao. Sem isso o app so sabe medir atencao, e otimizar atencao empurra
-        # o conteudo para o que prende e nao para o que vende.
-        allowed=('views_24h','views_7d','watch_pct','likes','comments','saves','shares',
-                 'orders','product_clicks','revenue','notes')
-        clean={}
-        for k in allowed:
-            if k not in metrics:
-                continue
-            v=metrics[k]
-            if k=='notes':
-                if not isinstance(v,str) or len(v)>2000:
-                    raise Invalid('notes inválido.')
-                clean[k]=v.strip()
-            else:
-                try:
-                    clean[k]=float(v)
-                except (TypeError,ValueError):
-                    raise Invalid(f'Métrica inválida: {k}')
-        checklist=json.loads(c['checklist'] or '{}')
-        if not isinstance(checklist,dict):
-            checklist={}
-        perf=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
-        prev=perf.get(key) if isinstance(perf.get(key),dict) else {}
-        merged={**prev,**clean,'updated_at':__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'}
-        merged['revenue_per_1k']=_revenue_per_1k(merged)
-        perf[key]=merged
-        checklist['performance']=perf
-        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
-        touch(cid, c['version'])
-        db().commit()
+        with writer.write(cid,data) as c:
+            # Metrics allowed on published campaigns (learning loop).
+            color=text_in(data,'color')
+            metrics=data.get('metrics')
+            if not isinstance(metrics,dict):
+                raise Invalid('Informe metrics como objeto.')
+            slots=image_slots_for(c)
+            if not color and slots==['']:
+                color=''
+            elif not color:
+                raise Invalid('Escolha a cor/produto das métricas.')
+            if color and slots!=[''] and color not in slots:
+                raise Invalid('Cor inválida para esta campanha.')
+            key=color or 'default'
+            # 'orders', 'product_clicks' e 'revenue' sao o placar que interessa a
+            # afiliado: o Studio nao entrega nenhum dos tres, entao eles entram a
+            # mao. Sem isso o app so sabe medir atencao, e otimizar atencao empurra
+            # o conteudo para o que prende e nao para o que vende.
+            allowed=('views_24h','views_7d','watch_pct','likes','comments','saves','shares',
+                     'orders','product_clicks','revenue','notes')
+            clean={}
+            for k in allowed:
+                if k not in metrics:
+                    continue
+                v=metrics[k]
+                if k=='notes':
+                    if not isinstance(v,str) or len(v)>2000:
+                        raise Invalid('notes inválido.')
+                    clean[k]=v.strip()
+                else:
+                    try:
+                        clean[k]=float(v)
+                    except (TypeError,ValueError):
+                        raise Invalid(f'Métrica inválida: {k}')
+            checklist=json.loads(c['checklist'] or '{}')
+            if not isinstance(checklist,dict):
+                checklist={}
+            perf=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
+            prev=perf.get(key) if isinstance(perf.get(key),dict) else {}
+            merged={**prev,**clean,'updated_at':__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'}
+            merged['revenue_per_1k']=_revenue_per_1k(merged)
+            perf[key]=merged
+            checklist['performance']=perf
+            db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
         return jsonify(detail(cid))
 
 
@@ -3504,7 +3496,7 @@ def create_app(config=None):
     def fetch_performance(cid):
         """Playwright: Studio content -> analytics cards -> checklist.performance[color]."""
         data = body()
-        c = start(cid, data)
+        c = writer.read(cid, data)
         color = (data.get('color') or '').strip() or (image_slots_for(c)[0] if image_slots_for(c) else 'default')
         # prefer published url for this color
         checklist = json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'), str) else (c.get('checklist') or {})
@@ -3578,11 +3570,15 @@ def create_app(config=None):
         # exibir o numero do ultimo video consultado -- o que destruia
         # exatamente a comparacao entre cores que a campanha existe para fazer.
         entry['revenue_per_1k'] = _revenue_per_1k(entry)
-        perf[color or 'default'] = entry
-        checklist['performance'] = perf
-        db().execute('UPDATE campaigns SET checklist=? WHERE id=?', (json.dumps(checklist, ensure_ascii=False), cid))
-        touch(cid, c['version'])
-        db().commit()
+        # So aqui abre a gravacao, com a versao lida antes do Playwright: se a campanha mudou nesse meio tempo, 409.
+        with writer.write(cid, expected_version=c['version']):
+            # Relido aqui: outras gravacoes (as falas da sequencia) mexem no mesmo JSON sem subir a versao, e o
+            # checklist lido antes do Playwright as apagaria. Entra so a medicao desta cor.
+            fresh = read_checklist(cid)
+            fresh_perf = fresh.get('performance') if isinstance(fresh.get('performance'), dict) else {}
+            fresh_perf[color or 'default'] = entry
+            fresh['performance'] = fresh_perf
+            db().execute('UPDATE campaigns SET checklist=? WHERE id=?', (json.dumps(fresh, ensure_ascii=False), cid))
         out = detail(cid)
         out['_fetch'] = {'message': result.get('message'), 'metrics': cleaned, 'analytics_url': entry.get('analytics_url')}
         return jsonify(out)
@@ -3592,39 +3588,37 @@ def create_app(config=None):
     def save_published_link(cid):
         """Attach/update TikTok URL for metrics even when campaign is already published."""
         data = body()
-        c = start(cid, data)
-        url = text_in(data, 'published_url', 'url')
-        color = text_in(data, 'color')
-        if not url or len(url) > 2000:
-            raise Invalid('Cole o link HTTPS da publicacao no TikTok.')
-        parsed = urlsplit(url)
-        host = (parsed.hostname or '').lower()
-        if parsed.scheme != 'https' or not (host == 'tiktok.com' or host.endswith('.tiktok.com')):
-            raise Invalid('Use um link HTTPS do TikTok (ex.: https://www.tiktok.com/@conta/video/123).')
-        if '/video/' not in parsed.path and 'vm.tiktok.com' not in host:
-            # allow short links on vm.tiktok.com; otherwise prefer /video/
-            if 'vm.tiktok.com' not in host:
-                raise Invalid('Use o link do video (deve conter /video/...).')
-        checklist = json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'), str) else (c.get('checklist') or {})
-        if not isinstance(checklist, dict):
-            checklist = {}
-        slots = checklist.get('slots') if isinstance(checklist.get('slots'), dict) else {}
-        if color:
-            key = color
-            info = slots.get(key) if isinstance(slots.get(key), dict) else {}
-            novo = {'url': url, 'published': True, 'published_at': info.get('published_at') or __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z'}
-            # Cor ja publicada nao ganha etiqueta aqui: so o primeiro registro conhece o que foi ao ar.
-            falta = bool(info.get('tagged_at')) and info.get('duration_s') is None
-            tags = slot_tags(cid, color, data, 'published_link') if (not info.get('published') or falta) else {}
-            slots[key] = publish_tags.merge_into_slot(info, novo, tags)
-            checklist['slots'] = slots
-        db().execute(
-            'UPDATE campaigns SET published_url=?, checklist=? WHERE id=?',
-            (url, json.dumps(checklist, ensure_ascii=False), cid),
-        )
-        # do not force status=published if still in pipeline — only store the link
-        touch(cid, c['version'])
-        db().commit()
+        with writer.write(cid, data) as c:
+            url = text_in(data, 'published_url', 'url')
+            color = text_in(data, 'color')
+            if not url or len(url) > 2000:
+                raise Invalid('Cole o link HTTPS da publicacao no TikTok.')
+            parsed = urlsplit(url)
+            host = (parsed.hostname or '').lower()
+            if parsed.scheme != 'https' or not (host == 'tiktok.com' or host.endswith('.tiktok.com')):
+                raise Invalid('Use um link HTTPS do TikTok (ex.: https://www.tiktok.com/@conta/video/123).')
+            if '/video/' not in parsed.path and 'vm.tiktok.com' not in host:
+                # allow short links on vm.tiktok.com; otherwise prefer /video/
+                if 'vm.tiktok.com' not in host:
+                    raise Invalid('Use o link do video (deve conter /video/...).')
+            checklist = json.loads(c['checklist'] or '{}') if isinstance(c.get('checklist'), str) else (c.get('checklist') or {})
+            if not isinstance(checklist, dict):
+                checklist = {}
+            slots = checklist.get('slots') if isinstance(checklist.get('slots'), dict) else {}
+            if color:
+                key = color
+                info = slots.get(key) if isinstance(slots.get(key), dict) else {}
+                novo = {'url': url, 'published': True, 'published_at': info.get('published_at') or __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z'}
+                # Cor ja publicada nao ganha etiqueta aqui: so o primeiro registro conhece o que foi ao ar.
+                falta = bool(info.get('tagged_at')) and info.get('duration_s') is None
+                tags = slot_tags(cid, color, data, 'published_link') if (not info.get('published') or falta) else {}
+                slots[key] = publish_tags.merge_into_slot(info, novo, tags)
+                checklist['slots'] = slots
+            db().execute(
+                'UPDATE campaigns SET published_url=?, checklist=? WHERE id=?',
+                (url, json.dumps(checklist, ensure_ascii=False), cid),
+            )
+            # do not force status=published if still in pipeline — only store the link
         return jsonify(detail(cid))
 
     @app.post('/api/campaigns/<int:cid>/insights')
@@ -3632,57 +3626,55 @@ def create_app(config=None):
         """Run local analyzer; save checklist.insights[color or all]."""
         from services.insights import analyze_variant
         data=body()
-        c=start(cid,data)
-        pass  # insights ok when published
-        color=text_in(data,'color')
-        slots=image_slots_for(c)
-        checklist=json.loads(c['checklist'] or '{}')
-        if not isinstance(checklist,dict):
-            checklist={}
-        perf_map=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
-        insights=checklist.get('insights') if isinstance(checklist.get('insights'),dict) else {}
-        variants=c.get('variants') or []
-        # build list of (color_key, prompts dict)
-        targets=[]
-        if color:
-            if slots!=[''] and color not in slots and not any((v.get('color')==color) for v in variants):
-                raise Invalid('Cor inválida para esta campanha.')
-            targets.append(color)
-        else:
-            if variants:
-                targets=[v.get('color') or 'default' for v in variants]
-            elif slots and slots!=['']:
-                targets=list(slots)
+        with writer.write(cid,data) as c:
+            pass  # insights ok when published
+            color=text_in(data,'color')
+            slots=image_slots_for(c)
+            checklist=json.loads(c['checklist'] or '{}')
+            if not isinstance(checklist,dict):
+                checklist={}
+            perf_map=checklist.get('performance') if isinstance(checklist.get('performance'),dict) else {}
+            insights=checklist.get('insights') if isinstance(checklist.get('insights'),dict) else {}
+            variants=c.get('variants') or []
+            # build list of (color_key, prompts dict)
+            targets=[]
+            if color:
+                if slots!=[''] and color not in slots and not any((v.get('color')==color) for v in variants):
+                    raise Invalid('Cor inválida para esta campanha.')
+                targets.append(color)
             else:
-                targets=['default']
-        prompts_by={}
-        for v in variants:
-            prompts_by[v.get('color') or 'default']=v.get('prompts') or {}
-        if not prompts_by:
-            prompts_by['default']=c.get('prompts') or {}
-        product=c.get('product') or ''
-        benefit=c.get('benefit') or ''
-        audience=c.get('audience') or ''
-        for key in targets:
-            p=prompts_by.get(key) or prompts_by.get('default') or c.get('prompts') or {}
-            metrics=perf_map.get(key) if isinstance(perf_map.get(key),dict) else None
-            card=analyze_variant(
-                hook=p.get('hook') or '',
-                development=p.get('development') or '',
-                cta=p.get('cta') or '',
-                caption=p.get('caption') or '',
-                product=product,
-                benefit=benefit,
-                audience=audience,
-                metrics=metrics,
-            )
-            card['updated_at']=__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'
-            card['color']=key if key!='default' else (color or '')
-            insights[key]=card
-        checklist['insights']=insights
-        db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
-        touch(cid, c['version'])
-        db().commit()
+                if variants:
+                    targets=[v.get('color') or 'default' for v in variants]
+                elif slots and slots!=['']:
+                    targets=list(slots)
+                else:
+                    targets=['default']
+            prompts_by={}
+            for v in variants:
+                prompts_by[v.get('color') or 'default']=v.get('prompts') or {}
+            if not prompts_by:
+                prompts_by['default']=c.get('prompts') or {}
+            product=c.get('product') or ''
+            benefit=c.get('benefit') or ''
+            audience=c.get('audience') or ''
+            for key in targets:
+                p=prompts_by.get(key) or prompts_by.get('default') or c.get('prompts') or {}
+                metrics=perf_map.get(key) if isinstance(perf_map.get(key),dict) else None
+                card=analyze_variant(
+                    hook=p.get('hook') or '',
+                    development=p.get('development') or '',
+                    cta=p.get('cta') or '',
+                    caption=p.get('caption') or '',
+                    product=product,
+                    benefit=benefit,
+                    audience=audience,
+                    metrics=metrics,
+                )
+                card['updated_at']=__import__('datetime').datetime.utcnow().replace(microsecond=0).isoformat()+'Z'
+                card['color']=key if key!='default' else (color or '')
+                insights[key]=card
+            checklist['insights']=insights
+            db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
         return jsonify(detail(cid))
 
     def slot_video_duration(full,color):
@@ -3708,62 +3700,60 @@ def create_app(config=None):
     def publish_slot(cid):
         """Register one color/product publish; campaign finishes when all slots are done."""
         data=body()
-        c=start(cid,data)
-        editable(c)
-        if c['status'] not in {'ready_to_publish','video_approved','published'}:
-            raise Invalid('Prepare a publicação antes de registrar no Studio.',409)
-        # Reconcile the legacy approval bug before changing state or checking
-        # the selected slot. This also repairs the one-video case when the
-        # campaign was already advanced to video_approved.
-        approved_videos=need_videos(cid,True)
-        if c['status']=='video_approved':
-            state(cid,'ready_to_publish',True)
-            c=campaign(cid)
-        color=(data.get('color') or '').strip()
-        slots=image_slots_for(c)
-        if not color:
-            raise Invalid('Escolha a cor/produto para publicar.')
-        if color not in slots and slots!=['']:
-            raise Invalid('Cor inválida para esta campanha.')
-        # require approved video for that slot
-        target_slot=color if slots!=[''] else ''
-        row=next((item for item in approved_videos if (item.get('slot') or '')==target_slot),None)
-        if not row:
-            raise Invalid(f'Aprove o vídeo da cor {color or "única"} antes de publicar.',409)
-        if not row.get('device_only'):
-            path_for(row)
-        checks=data.get('checklist',{})
-        if not isinstance(checks,dict) or any(checks.get(k) is not True for k in ['account','product','caption','review','published']):
-            raise Invalid('Confirme conta, produto, legenda, revisão e publicação desta cor.',409)
-        url=data.get('published_url','')
-        if not isinstance(url,str) or len(url)>2000:
-            raise Invalid('Link da publicação inválido.')
-        if url:
-            parsed=urlsplit(url)
-            if parsed.scheme!='https' or not (parsed.hostname=='tiktok.com' or (parsed.hostname or '').endswith('.tiktok.com')):
-                raise Invalid('Use um link HTTPS do TikTok.')
-        tags=slot_tags(cid,color,data,'publish_slot')
-        checklist=json.loads(c['checklist'] or '{}')
-        if not isinstance(checklist,dict):
-            checklist={}
-        slot_map=checklist.get('slots') if isinstance(checklist.get('slots'),dict) else {}
-        # Mescla com o slot que ja existia (o link salvo antes traz published_at) e grava as etiquetas uma vez.
-        before=slot_map.get(color or 'default')
-        saved_url=before.get('url','') if isinstance(before,dict) else ''
-        slot_map[color or 'default']=publish_tags.merge_into_slot(
-            before,dict(published=True,url=url or saved_url,checks=checks),tags)
-        checklist['slots']=slot_map
-        # all done?
-        needed=[s if s else 'default' for s in slots]
-        done=all(isinstance(slot_map.get(s),dict) and slot_map[s].get('published') for s in needed)
-        db().execute('UPDATE campaigns SET checklist=?,published_url=? WHERE id=?',
-                     (json.dumps(checklist,ensure_ascii=False), url or c.get('published_url') or '', cid))
-        if done:
-            state(cid,'published',True)
+        with writer.write(cid,data) as c:
+            editable(c)
+            if c['status'] not in {'ready_to_publish','video_approved','published'}:
+                raise Invalid('Prepare a publicação antes de registrar no Studio.',409)
+            # Reconcile the legacy approval bug before changing state or checking
+            # the selected slot. This also repairs the one-video case when the
+            # campaign was already advanced to video_approved.
+            approved_videos=need_videos(cid,True)
+            if c['status']=='video_approved':
+                state(cid,'ready_to_publish',True)
+                c=campaign(cid)
+            color=(data.get('color') or '').strip()
+            slots=image_slots_for(c)
+            if not color:
+                raise Invalid('Escolha a cor/produto para publicar.')
+            if color not in slots and slots!=['']:
+                raise Invalid('Cor inválida para esta campanha.')
+            # require approved video for that slot
+            target_slot=color if slots!=[''] else ''
+            row=next((item for item in approved_videos if (item.get('slot') or '')==target_slot),None)
+            if not row:
+                raise Invalid(f'Aprove o vídeo da cor {color or "única"} antes de publicar.',409)
+            if not row.get('device_only'):
+                path_for(row)
+            checks=data.get('checklist',{})
+            if not isinstance(checks,dict) or any(checks.get(k) is not True for k in ['account','product','caption','review','published']):
+                raise Invalid('Confirme conta, produto, legenda, revisão e publicação desta cor.',409)
+            url=data.get('published_url','')
+            if not isinstance(url,str) or len(url)>2000:
+                raise Invalid('Link da publicação inválido.')
+            if url:
+                parsed=urlsplit(url)
+                if parsed.scheme!='https' or not (parsed.hostname=='tiktok.com' or (parsed.hostname or '').endswith('.tiktok.com')):
+                    raise Invalid('Use um link HTTPS do TikTok.')
+            tags=slot_tags(cid,color,data,'publish_slot')
+            checklist=json.loads(c['checklist'] or '{}')
+            if not isinstance(checklist,dict):
+                checklist={}
+            slot_map=checklist.get('slots') if isinstance(checklist.get('slots'),dict) else {}
+            # Mescla com o slot que ja existia (o link salvo antes traz published_at) e grava as etiquetas uma vez.
+            before=slot_map.get(color or 'default')
+            saved_url=before.get('url','') if isinstance(before,dict) else ''
+            slot_map[color or 'default']=publish_tags.merge_into_slot(
+                before,dict(published=True,url=url or saved_url,checks=checks),tags)
+            checklist['slots']=slot_map
+            # all done?
+            needed=[s if s else 'default' for s in slots]
+            done=all(isinstance(slot_map.get(s),dict) and slot_map[s].get('published') for s in needed)
             db().execute('UPDATE campaigns SET checklist=?,published_url=? WHERE id=?',
-                         (json.dumps(checklist,ensure_ascii=False), url or '', cid))
-        touch(cid, c['version'])
-        db().commit()
+                         (json.dumps(checklist,ensure_ascii=False), url or c.get('published_url') or '', cid))
+            if done:
+                state(cid,'published',True)
+                db().execute('UPDATE campaigns SET checklist=?,published_url=? WHERE id=?',
+                             (json.dumps(checklist,ensure_ascii=False), url or '', cid))
         return jsonify(detail(cid))
 
 
@@ -3989,78 +3979,76 @@ def create_app(config=None):
     @app.post('/api/campaigns/<int:cid>/transition')
     def transition(cid):
         data=body()
-        c=start(cid,data)
-        editable(c)
-        target=data.get('target')
-        if not stages.is_next(c['status'],target):
-            raise Invalid('Conclua a etapa atual antes de avançar.',409)
-        soft_warnings=None
-        if target in {'image_ready','video_ready'}:
-            raise Invalid('Anexe a mídia para chegar a esta etapa.',409)
-        if data.get('confirmed') is not True:
-            raise Invalid('A revisão humana precisa ser confirmada.',409)
-        if target=='image_approved':
-            need_asset(cid,'reference')
-            rows=need_asset(cid,'image')  # all color slots
-            if isinstance(rows, list):
-                for a in rows:
-                    db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
-            else:
-                db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(rows['id'],))
-        elif target=='script_ready':
-            need_asset(cid,'image',True)
-            gaps=stages.script_gaps(detail(cid))
-            if gaps and gaps[0][0]:
-                raise Invalid(f"Complete o roteiro da cor {gaps[0][0]} antes de avançar.",409)
-            if gaps:
-                raise Invalid('Gere e revise todos os textos primeiro.',409)
-        elif target=='video_approved':
-            need_asset(cid,'image',True)
-            rows=need_videos(cid)
-            # Duration/resolution are advisory only — do not block approval.
-            expected=generators.of(c).resolution
-            warnings=[]
-            for a in rows:
-                meta=json.loads(a['metadata']) if isinstance(a['metadata'],str) else a['metadata']
-                label=a.get('slot') or 'video'
-                dur=meta.get('duration') or 0
-                wh=(meta.get('width'),meta.get('height'))
-                if wh!=expected or not 14.5<=dur<=15.5:
-                    warnings.append(f"{label}: {dur}s {wh[0]}x{wh[1]} (alvo 15s {expected[0]}x{expected[1]})")
-                # Approve every active file, including the single-video case.
-                # This must not live inside the soft-warning branch: a valid
-                # video has no warning, and a multi-colour campaign needs every
-                # colour marked independently.
-                if a.get('device_only'):
-                    db().execute("UPDATE device_videos SET approved_at=CURRENT_TIMESTAMP,approved_by=? WHERE campaign_id=? AND slot=?",
-                                 ((data.get('approved_by') or '').strip()[:80],cid,a.get('slot') or ''))
+        with writer.write(cid,data) as c:
+            editable(c)
+            target=data.get('target')
+            if not stages.is_next(c['status'],target):
+                raise Invalid('Conclua a etapa atual antes de avançar.',409)
+            soft_warnings=None
+            if target in {'image_ready','video_ready'}:
+                raise Invalid('Anexe a mídia para chegar a esta etapa.',409)
+            if data.get('confirmed') is not True:
+                raise Invalid('A revisão humana precisa ser confirmada.',409)
+            if target=='image_approved':
+                need_asset(cid,'reference')
+                rows=need_asset(cid,'image')  # all color slots
+                if isinstance(rows, list):
+                    for a in rows:
+                        db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
                 else:
-                    db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
-            if warnings:
-                # Keep the note after state() resets the transition checklist.
-                soft_warnings=warnings
-        elif target in {'ready_to_publish','published'}:
-            need_videos(cid,True)
-            need_asset(cid,'image',True)
-        if target=='published':
-            checks=data.get('checklist',{})
-            if not isinstance(checks,dict) or any(checks.get(k) is not True for k in ['account','product','caption','review','published']):
-                raise Invalid('Confirme a conta, o produto, a legenda, a revisão e a publicação no Studio.',409)
-            url=data.get('published_url','')
-            if not isinstance(url,str) or len(url)>2000:
-                raise Invalid('Link da publicação inválido.')
-            if url:
-                parsed=urlsplit(url)
-                if parsed.scheme!='https' or not (parsed.hostname=='tiktok.com' or (parsed.hostname or '').endswith('.tiktok.com')):
-                    raise Invalid('Use um link HTTPS do TikTok.')
-        state(cid,target,True)
-        if soft_warnings:
-            patch_checklist(cid,{'video_soft_warnings':soft_warnings})
-        if target=='published':
-            patch_checklist(cid,checks)
-            db().execute('UPDATE campaigns SET published_url=? WHERE id=?',(url,cid))
-        touch(cid, c['version'])
-        db().commit()
+                    db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(rows['id'],))
+            elif target=='script_ready':
+                need_asset(cid,'image',True)
+                gaps=stages.script_gaps(detail(cid))
+                if gaps and gaps[0][0]:
+                    raise Invalid(f"Complete o roteiro da cor {gaps[0][0]} antes de avançar.",409)
+                if gaps:
+                    raise Invalid('Gere e revise todos os textos primeiro.',409)
+            elif target=='video_approved':
+                need_asset(cid,'image',True)
+                rows=need_videos(cid)
+                # Duration/resolution are advisory only — do not block approval.
+                expected=generators.of(c).resolution
+                warnings=[]
+                for a in rows:
+                    meta=json.loads(a['metadata']) if isinstance(a['metadata'],str) else a['metadata']
+                    label=a.get('slot') or 'video'
+                    dur=meta.get('duration') or 0
+                    wh=(meta.get('width'),meta.get('height'))
+                    if wh!=expected or not 14.5<=dur<=15.5:
+                        warnings.append(f"{label}: {dur}s {wh[0]}x{wh[1]} (alvo 15s {expected[0]}x{expected[1]})")
+                    # Approve every active file, including the single-video case.
+                    # This must not live inside the soft-warning branch: a valid
+                    # video has no warning, and a multi-colour campaign needs every
+                    # colour marked independently.
+                    if a.get('device_only'):
+                        db().execute("UPDATE device_videos SET approved_at=CURRENT_TIMESTAMP,approved_by=? WHERE campaign_id=? AND slot=?",
+                                     ((data.get('approved_by') or '').strip()[:80],cid,a.get('slot') or ''))
+                    else:
+                        db().execute('UPDATE assets SET approved_at=CURRENT_TIMESTAMP WHERE id=?',(a['id'],))
+                if warnings:
+                    # Keep the note after state() resets the transition checklist.
+                    soft_warnings=warnings
+            elif target in {'ready_to_publish','published'}:
+                need_videos(cid,True)
+                need_asset(cid,'image',True)
+            if target=='published':
+                checks=data.get('checklist',{})
+                if not isinstance(checks,dict) or any(checks.get(k) is not True for k in ['account','product','caption','review','published']):
+                    raise Invalid('Confirme a conta, o produto, a legenda, a revisão e a publicação no Studio.',409)
+                url=data.get('published_url','')
+                if not isinstance(url,str) or len(url)>2000:
+                    raise Invalid('Link da publicação inválido.')
+                if url:
+                    parsed=urlsplit(url)
+                    if parsed.scheme!='https' or not (parsed.hostname=='tiktok.com' or (parsed.hostname or '').endswith('.tiktok.com')):
+                        raise Invalid('Use um link HTTPS do TikTok.')
+            state(cid,target,True)
+            if soft_warnings:
+                patch_checklist(cid,{'video_soft_warnings':soft_warnings})
+            if target=='published':
+                patch_checklist(cid,checks)
+                db().execute('UPDATE campaigns SET published_url=? WHERE id=?',(url,cid))
         return jsonify(detail(cid))
 
     @app.get('/api/campaigns/<int:cid>/package.<fmt>')
