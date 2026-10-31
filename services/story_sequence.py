@@ -19,7 +19,7 @@ import re
 from services.prompt_improve import (
     clean, quote, touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
-from services import formats, persuasion, script_budget
+from services import formats, generators, persuasion, script_budget
 from services.formats import video_mode as _video_mode
 from services.prompts import (
     light_scene, bold_move, close_target, dominant_motor, focus_parts, mirror_hands, video_style, with_em,
@@ -237,6 +237,7 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
         'mode': mode or 'fala',
         'total_seconds': total,
         'clips': clips,
+        'notices': generators.flow_notices(c, 'Estas partes', extend=True),
         'tips': tips,
         'capcut': capcut,
         'text': re.sub(r'[ \t]+\n', '\n', text),

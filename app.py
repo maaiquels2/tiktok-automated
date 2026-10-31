@@ -1151,7 +1151,7 @@ def create_app(config=None):
         # transicao apagava registro de publicacao e metricas em silencio.
         previous=read_checklist(cid)
         row=db().execute('SELECT published_url FROM campaigns WHERE id=?',(cid,)).fetchone()
-        kept={k:v for k,v in previous.items() if k in ('performance','insights')}
+        kept={k:v for k,v in previous.items() if k in ('performance','insights','story_arc_ai','story_arc_manual')}
         if index>=STATES.index('ready_to_publish') and isinstance(previous.get('slots'),dict):
             kept['slots']=previous['slots']
         keep_url=((row['published_url'] if row else '') or '') if index>=STATES.index('published') else ''
@@ -3345,21 +3345,46 @@ def create_app(config=None):
             clips=int(data.get('clips') or 0)
         except (TypeError,ValueError):
             raise Invalid('Escolha 2 ou 3 clipes.')
+        def guardado(nome,chave):
+            """Entrada guardada no checklist (lida do banco agora, nao da copia do inicio da requisicao)."""
+            tabela=read_checklist(cid).get(nome)
+            entrada=tabela.get(chave) if isinstance(tabela,dict) else None
+            return entrada if isinstance(entrada,dict) else None
+
+        def guardar(nome,chave,entrada):
+            """Grava (ou apaga, com None) uma entrada. Sem touch(): como as falas da IA, nao troca a versao da
+            campanha, que deixaria a tela aberta com um 409 na proxima edicao."""
+            checklist=read_checklist(cid)
+            tabela=checklist.get(nome) if isinstance(checklist.get(nome),dict) else {}
+            if entrada is None:
+                tabela.pop(chave,None)
+            else:
+                tabela[chave]=entrada
+            checklist[nome]=tabela
+            db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
+            db().commit()
+
         try:
-            # Fatos so para esta sequencia (nao gravados): editar o Detalhes do briefing apaga a imagem
-            # aprovada e os prompts, e campanha antiga muitas vezes so tem o texto padrao da moda ali.
-            extra=data.get('facts')
-            if extra is not None:
-                if not isinstance(extra,str) or len(extra)>500:
-                    raise Invalid('Fatos inválidos: escreva até 500 caracteres, separados por vírgula.')
-                if extra.strip():
-                    c={**c,'details':', '.join(p for p in (extra.strip(),c.get('details') or '') if p)}
             arc=str(data.get('arc') or '')
-            # Falas escritas pela IA ficam guardadas no checklist, por arco, clipes e cor, junto com os fatos usados:
-            # reabrir a etapa de video reaproveita sem gastar de novo, e nada do briefing, da imagem ou do status muda.
+            # Falas guardadas no checklist, por arco, clipes e cor: as que a IA escreveu (story_arc_ai) e as que o
+            # operador editou (story_arc_manual, que vencem). Reabrir a etapa de video reaproveita sem gastar de novo,
+            # e nada do briefing, da imagem ou do status muda.
             chave=f'{arc}|{clips}|{color}'
-            guardadas=((json.loads(c.get('checklist') or '{}') if isinstance(c.get('checklist'),str)
-                        else (c.get('checklist') or {})) or {}).get('story_arc_ai') or {}
+            if data.get('discard'):
+                guardar('story_arc_manual',chave,None)
+            salvo_manual,salvo_ia=guardado('story_arc_manual',chave),guardado('story_arc_ai',chave)
+            # Fatos so para esta sequencia (nao gravados no briefing: editar o Detalhes apaga a imagem aprovada e
+            # os prompts, e campanha antiga muitas vezes so tem o texto padrao da moda ali). Ficam junto das falas
+            # guardadas: sem eles, ao recarregar os fatos mudam e as falas guardadas seriam ignoradas.
+            extra=data.get('facts')
+            if extra is not None and (not isinstance(extra,str) or len(extra)>500):
+                raise Invalid('Fatos inválidos: escreva até 500 caracteres, separados por vírgula.')
+            extra=(extra or '').strip()
+            if not extra:
+                extra=((salvo_manual or salvo_ia or {}).get('extra_facts') or '').strip()
+            if extra:
+                c={**c,'details':', '.join(p for p in (extra,c.get('details') or '') if p)}
+            fatos_agora=[f['text'] for f in arc_facts(c)[:3]]
             lines,extra_resposta=data.get('lines'),{}
             if data.get('ai'):
                 settings=writer_settings_cached()
@@ -3368,20 +3393,23 @@ def create_app(config=None):
                 falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings)
                 if falas:
                     lines,extra_resposta=falas,{'written_by':'ai'}
-                    linha=db().execute('SELECT checklist FROM campaigns WHERE id=?',(cid,)).fetchone()
-                    checklist=json.loads((linha['checklist'] if linha else '') or '{}')
-                    if not isinstance(checklist,dict):
-                        checklist={}
-                    checklist.setdefault('story_arc_ai',{})[chave]={'facts':fatos,'lines':falas}
-                    db().execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps(checklist,ensure_ascii=False),cid))
-                    db().commit()
+                    guardar('story_arc_ai',chave,{'facts':fatos,'lines':falas,'extra_facts':extra})
+                    guardar('story_arc_manual',chave,None)  # as falas novas da IA substituem as editadas
                 else:
                     extra_resposta={'ai_error':motivo or 'a IA não respondeu'}
-            elif lines is None and isinstance(guardadas.get(chave),dict):
-                salvo=guardadas[chave]
-                if salvo.get('facts')==[f['text'] for f in arc_facts(c)[:3]] and salvo.get('lines'):
-                    lines,extra_resposta=salvo['lines'],{'written_by':'ai_saved'}
-            return jsonify({**build_story_arc(c,color,arc,clips,lines,base_image=base_image),**extra_resposta})
+            elif lines is None:
+                for entrada,rotulo in ((salvo_manual,'manual_saved'),(salvo_ia,'ai_saved')):
+                    if entrada and entrada.get('facts')==fatos_agora and entrada.get('lines'):
+                        lines,extra_resposta=entrada['lines'],{'written_by':rotulo}
+                        break
+            resposta={**build_story_arc(c,color,arc,clips,lines,base_image=base_image),**extra_resposta}
+            if data.get('lines') is not None and not data.get('ai'):
+                # Falas que o operador mandou (ja conferidas pelo montador): ficam guardadas.
+                editadas=[list(clip['lines']) for clip in resposta['clips']]
+                if all(len(parte)<=1500 for trio in editadas for parte in trio):
+                    guardar('story_arc_manual',chave,{'facts':fatos_agora,'lines':editadas,'extra_facts':extra})
+                    resposta['written_by']='manual'
+            return jsonify(resposta)
         except ArcError as error:
             raise Invalid(str(error),error.status)
 
@@ -3645,7 +3673,8 @@ def create_app(config=None):
             info = slots.get(key) if isinstance(slots.get(key), dict) else {}
             novo = {'url': url, 'published': True, 'published_at': info.get('published_at') or __import__('datetime').datetime.utcnow().isoformat(timespec='seconds')+'Z'}
             # Cor ja publicada nao ganha etiqueta aqui: so o primeiro registro conhece o que foi ao ar.
-            tags = {} if info.get('published') else slot_tags(cid, color, data, 'published_link')
+            falta = bool(info.get('tagged_at')) and info.get('duration_s') is None
+            tags = slot_tags(cid, color, data, 'published_link') if (not info.get('published') or falta) else {}
             slots[key] = publish_tags.merge_into_slot(info, novo, tags)
             checklist['slots'] = slots
         db().execute(
@@ -3715,13 +3744,22 @@ def create_app(config=None):
         db().commit()
         return jsonify(detail(cid))
 
+    def slot_video_duration(full,color):
+        """Duracao medida do video da cor (arquivo enviado ou so do aparelho), ou None se ainda nao ha video."""
+        target=color if image_slots_for(full)!=[''] else ''
+        rows=[a for a in full['assets'] if a.get('kind')=='video']+(full.get('device_videos') or [])
+        row=next((r for r in rows if (r.get('slot') or '')==target),None)
+        return publish_tags.video_duration(row)
+
     def slot_tags(cid,color,data,via):
-        """Formato e versao do prompt da cor que vai ao ar (services/publish_tags.py). Escolha invalida: 400."""
+        """Formato, tipo de video, duracao e versao do prompt da cor que vai ao ar (services/publish_tags.py).
+        Escolha invalida: 400."""
         full=detail(cid)
         variant=next((v for v in full['variants'] if (v['color'] or '')==color),None)
         video_prompt=(variant['prompts'] if variant else full['prompts']).get('video','')
         try:
-            return publish_tags.build(full,video_prompt,data.get('format'),data.get('prompt_version'),via=via)
+            return publish_tags.build(full,video_prompt,data.get('format'),data.get('prompt_version'),via=via,
+                                      chosen_kind=data.get('video_kind'),duration=slot_video_duration(full,color))
         except publish_tags.TagError as exc:
             raise Invalid(str(exc)) from exc
 

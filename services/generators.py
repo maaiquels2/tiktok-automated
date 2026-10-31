@@ -43,6 +43,26 @@ GROK = Generator('grok', 720, 1280, 4000)
 FLOW = Generator('flow', 1080, 1920, None)
 
 
+def flow_notices(campaign, what, clip_seconds=None, extend=False):
+    """Avisos para quem gera no Flow um video que o app monta pensando no Grok. Lista vazia no Grok.
+
+    O Veo 3.1 gera clipes de ate 8 s (o Gemini Omni Flash deixa escolher o comprimento) e o Extend do Flow so vale
+    para video gerado pelo Veo. Sao os limites que as paginas do Google dizem hoje; o app nao tem como saber qual
+    modelo a operadora usa, entao so avisa e deixa conferir.
+    """
+    if of(campaign) is not FLOW:
+        return []
+    out = []
+    if clip_seconds and clip_seconds > 8:
+        out.append(f'{what} pede clipes de {clip_seconds} s e esta campanha usa o Flow. Com o Veo 3.1 o Flow gera '
+                   'clipes de até 8 s (o Gemini Omni Flash permite escolher o comprimento): confira o limite do '
+                   'modelo que você usa no Flow antes de gerar, ou gere no Grok.')
+    if extend:
+        out.append('O Extend Video deste passo a passo é do Grok. No Flow a extensão só vale para vídeos gerados '
+                   'pelo Veo.')
+    return out
+
+
 def of(campaign):
     """Adapter do gerador da campanha. Sem gerador vale o padrao do banco (Flow)."""
     name = str((campaign or {}).get('generator') or 'flow').strip().casefold()

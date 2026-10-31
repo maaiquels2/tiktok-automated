@@ -189,6 +189,7 @@ def build_home_reveal(c, prompts, color):
         'color': color,
         'total_seconds': total,
         'clips': clips,
+        'notices': generators.flow_notices(c, 'A Cena 2', SCENE2_SECONDS),
         'tips': tips,
         'capcut': capcut,
         'text': text,

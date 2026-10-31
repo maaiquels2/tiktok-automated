@@ -462,6 +462,47 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(again.status_code,200)
         self.assertEqual(self.slot()['format'],first['format'])
 
+    def test_publish_slot_records_the_video_kind_and_the_measured_duration(self):
+        checks=self.publish_ready()
+        self.assertEqual(self.post('/publish-slot',dict(color='Azul',checklist=checks)).status_code,200)
+        slot=self.slot()
+        self.assertEqual((slot['video_kind'],slot['video_kind_source']),('unico','campanha'))
+        self.assertEqual(slot['duration_s'],15.0)
+
+    def test_publish_slot_takes_the_video_kind_the_operator_chose(self):
+        checks=self.publish_ready()
+        self.assertEqual(self.post('/publish-slot',dict(color='Azul',checklist=checks,video_kind='dez-clipes')).status_code,400)
+        conflito=self.post('/publish-slot',dict(color='Azul',checklist=checks,format='recebi_em_casa',video_kind='extend'))
+        self.assertEqual(conflito.status_code,400)
+        self.assertNotIn('Azul',self.get()['checklist'].get('slots',{}))
+        ok=self.post('/publish-slot',dict(color='Azul',checklist=checks,video_kind='extend'))
+        self.assertEqual(ok.status_code,200,ok.json)
+        slot=self.slot()
+        self.assertEqual((slot['video_kind'],slot['video_kind_source']),('extend','operador'))
+        # Extend: o prompt de video salvo nao e o que foi ao ar.
+        self.assertEqual((slot['prompt_version'],slot['prompt_version_source']),(None,None))
+
+    def test_publish_tags_kind_rules_and_late_duration(self):
+        from services import publish_tags
+        self.assertEqual(publish_tags.build({},'',chosen_format='recebi_em_casa')['video_kind'],'recebi_em_casa')
+        self.assertEqual(publish_tags.build(dict(sequence_clips='3'),'')['video_kind'],'sequencia')
+        self.assertEqual(publish_tags.build({},'')['video_kind'],'unico')
+        self.assertEqual(publish_tags.video_duration({'metadata':{'duration':14.96}}),15.0)
+        self.assertIsNone(publish_tags.video_duration({'metadata':{}}))
+        self.assertIsNone(publish_tags.video_duration(None))
+        # O link salvo antes de o video estar aprovado deixa a duracao em branco; o registro depois completa so ela.
+        antes=dict(published=True,format='espelho',tagged_at='2026-10-30T12:00:00Z',tagged_via='published_link',
+                   video_kind='unico',video_kind_source='campanha',duration_s=None)
+        depois=publish_tags.merge_into_slot(antes,dict(published=True),
+                                            publish_tags.build({},'',chosen_format='fala',duration=15.0))
+        self.assertEqual(depois['duration_s'],15.0)
+        self.assertEqual((depois['format'],depois['tagged_via'],depois['tagged_at']),('espelho','published_link','2026-10-30T12:00:00Z'))
+        # Slot publicado antes das etiquetas continua sem etiqueta nenhuma.
+        legado=publish_tags.merge_into_slot(dict(published=True,url='https://www.tiktok.com/@a/video/1'),dict(published=True),
+                                            publish_tags.build({},'',duration=15.0))
+        self.assertNotIn('duration_s',legado)
+        self.assertNotIn('video_kind',legado)
+
     def test_publish_tags_tell_every_format_apart(self):
         from services import publish_tags
         fmt=lambda mode,**extra:publish_tags.campaign_format(dict(video_mode=mode,**extra))
@@ -2494,6 +2535,98 @@ class WorkflowTests(unittest.TestCase):
         # Sem a escrita por IA ligada, o botao explica o que fazer.
         self.client.patch('/api/writer',json={'enabled':False},headers=self.headers)
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,ai=True)).status_code,409)
+
+    def test_story_arc_lines_edited_by_the_operator_are_saved_and_survive_a_transition(self):
+        # As falas editadas a mao sumiam ao recarregar: so as da IA ficavam guardadas.
+        self.puffer_campaign()
+        r=self.post('/story-arc',dict(arc='motivos',clips=2,lines=self.ARC_AI_LINES))
+        self.assertEqual(r.status_code,200,r.json)
+        self.assertEqual(r.json['written_by'],'manual')
+        with patch('services.copywriter._call_with_deadline') as chamada:
+            de_novo=self.post('/story-arc',dict(arc='motivos',clips=2))
+        chamada.assert_not_called()
+        self.assertEqual(de_novo.json['written_by'],'manual_saved')
+        self.assertEqual([c['lines'] for c in de_novo.json['clips']],self.ARC_AI_LINES)
+        # Uma transicao zerava o checklist: as falas guardadas tem de passar por ela.
+        antes=self.client.get(f'/api/campaigns/{self.cid}').json['version']
+        self.client.patch('/api/writer',json={'enabled':False},headers=self.headers)   # /generate nao chama a OpenAI
+        self.image_ready()
+        self.assertEqual(self.move('image_approved').status_code,200)
+        depois=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(depois.json['written_by'],'manual_saved')
+        self.assertEqual([c['lines'] for c in depois.json['clips']],self.ARC_AI_LINES)
+        # Outro arco ou outra quantidade de clipes nao usa estas falas.
+        self.assertNotIn('written_by',self.post('/story-arc',dict(arc='motivos',clips=3)).json)
+        self.assertGreater(self.client.get(f'/api/campaigns/{self.cid}').json['version'],antes)
+
+    def test_saving_arc_lines_does_not_bump_the_campaign_version(self):
+        # Subir a versao deixaria a tela aberta com "A campanha mudou em outra janela" na proxima edicao.
+        self.puffer_campaign()
+        versao=self.client.get(f'/api/campaigns/{self.cid}').json['version']
+        self.post('/story-arc',dict(arc='motivos',clips=2,lines=self.ARC_AI_LINES))
+        self.assertEqual(self.client.get(f'/api/campaigns/{self.cid}').json['version'],versao)
+
+    def test_story_arc_discard_goes_back_to_the_draft_and_ai_lines_replace_edits(self):
+        self.puffer_campaign()
+        self.post('/story-arc',dict(arc='motivos',clips=2,lines=self.ARC_AI_LINES))
+        descartou=self.post('/story-arc',dict(arc='motivos',clips=2,discard=True))
+        self.assertNotIn('written_by',descartou.json)
+        self.assertNotIn('written_by',self.post('/story-arc',dict(arc='motivos',clips=2)).json)
+        # Editou de novo e depois pediu a IA: as falas da IA passam a valer e as editadas saem.
+        self.post('/story-arc',dict(arc='motivos',clips=2,lines=self.ARC_AI_LINES))
+        outras=json.loads(json.dumps(self.ARC_AI_LINES))
+        outras[0][0]=outras[0][0].replace('Eu','Olha, eu',1)
+        with patch('services.copywriter._call_with_deadline',return_value=json.dumps({'clips':outras})):
+            ia=self.post('/story-arc',dict(arc='motivos',clips=2,ai=True))
+        self.assertEqual(ia.json['written_by'],'ai')
+        reaberto=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(reaberto.json['written_by'],'ai_saved')
+
+    def test_story_arc_saved_lines_keep_the_extra_facts_of_an_old_campaign(self):
+        # Campanha antiga com poucos fatos (aqui 'capuz' e o beneficio do brief de teste): o campo "Fatos so para
+        # esta sequencia" nao e gravado, e sem ele guardado as falas salvas seriam ignoradas ao recarregar.
+        self.puffer_campaign()
+        versao=self.client.get(f'/api/campaigns/{self.cid}').json['version']
+        editou=self.client.patch(f'/api/campaigns/{self.cid}',json=dict(details='capuz',version=versao),headers=self.headers)
+        self.assertEqual(editou.status_code,200,editou.json)
+        self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2)).status_code,409)   # so 2 fatos: capuz e o beneficio
+        extra='zíper frontal, bolsos laterais'
+        r=self.post('/story-arc',dict(arc='motivos',clips=2,facts=extra,lines=self.ARC_AI_LINES))
+        self.assertEqual(r.status_code,200,r.json)
+        sem_fatos=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(sem_fatos.status_code,200,sem_fatos.json)
+        self.assertEqual(sem_fatos.json['written_by'],'manual_saved')
+        self.assertEqual(sem_fatos.json['facts'],r.json['facts'])
+
+    def test_flow_campaigns_get_notices_for_long_clips_and_grok_campaigns_do_not(self):
+        from services import generators
+        self.assertEqual(generators.flow_notices({'generator':'grok'},'Esta sequência',15,extend=True),[])
+        self.assertEqual(generators.flow_notices({'generator':'flow'},'Esta cena',8),[])   # 8 s cabem no Veo 3.1
+        longo=generators.flow_notices({'generator':'flow'},'Esta sequência',15)
+        self.assertEqual(len(longo),1)
+        self.assertIn('15 s',longo[0])
+        self.assertIn('Flow',longo[0])
+        # Sem gerador, vale o padrao do app (Flow).
+        self.assertEqual(len(generators.flow_notices({},'Esta sequência',15)),1)
+        self.puffer_campaign()            # brief de teste: gerador flow
+        flow=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(flow.status_code,200,flow.json)
+        self.assertEqual(len(flow.json['notices']),1)
+        self.assertFalse(any('Grok corta' in p for clip in flow.json['clips'] for p in clip['problems']))
+        versao=self.client.get(f'/api/campaigns/{self.cid}').json['version']
+        trocou=self.client.patch(f'/api/campaigns/{self.cid}',json=dict(generator='grok',version=versao),headers=self.headers)
+        self.assertEqual(trocou.status_code,200,trocou.json)
+        grok=self.post('/story-arc',dict(arc='motivos',clips=2))
+        self.assertEqual(grok.json['notices'],[])
+
+    def test_flow_notice_in_the_extend_parts_and_the_home_reveal(self):
+        self.assertEqual(self.upload('reference').status_code,201)
+        self.assertEqual(self.post('/generate').status_code,200)
+        sequencia=self.client.get(f'/api/campaigns/{self.cid}/sequence').json
+        self.assertTrue(any('Extend' in n and 'Veo' in n for n in sequencia['notices']),sequencia['notices'])
+        casa=self.client.get(f'/api/campaigns/{self.cid}/home-reveal')
+        self.assertEqual(casa.status_code,200,casa.json)      # o vestido do brief de teste e roupa
+        self.assertTrue(any('Cena 2' in n for n in casa.json['notices']),casa.json['notices'])
 
     def test_story_arc_ignores_the_niche_default_text_in_details(self):
         # Teste real: "Destacar textura e modelagem" (texto padrao da moda casual) virava motivo da sequencia.

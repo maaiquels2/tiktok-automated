@@ -557,7 +557,7 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         full, opening, acoes = _full_prompt(source, i, clips, trio, facts_here, base_image, opening, w)
         words = sum(_count_words(part) for part in trio)
         problems = clip_problems(trio, i, clips, source)
-        if len(full) > GROK_LIMIT:
+        if generators.of(c) is generators.GROK and len(full) > GROK_LIMIT:  # o Flow nao tem limite de prompt
             problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em '
                             f'{generators.GROK.max_prompt_chars:,}'.replace(',', '.'))
         result.append(dict(
@@ -601,4 +601,5 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         + ['MONTAGEM NO CAPCUT\n' + '\n'.join(f'{i}. {step}' for i, step in enumerate(capcut, 1))])
     return dict(arc=arc, label=ARCS[arc]['label'], clips_count=clips, color=color, drafted=drafted,
                 total_seconds=total_seconds, facts=[f['text'] for f in facts[:3]], clips=result, tips=tips,
-                capcut=capcut, notes=notes, text=text)
+                capcut=capcut, notes=notes, notices=generators.flow_notices(c, 'Esta sequência', SECONDS_PER_CLIP),
+                text=text)

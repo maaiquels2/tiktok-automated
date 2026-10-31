@@ -156,6 +156,12 @@ export function Menu({label,trigger,items,align='end',iconOnly=false}){
 // fechamento) e o passo a passo do CapCut. So leitura: busca quando o usuario
 // abre e nao grava nada na campanha. Quem usa passa key com as falas, para o
 // painel recomecar quando o roteiro muda.
+// Avisos do servidor para quem gera no Flow um video montado pensando no Grok (services/generators.py).
+function SequenceNotices({items}){
+  if(!items?.length)return null;
+  return <div className="story-notices" role="status">{items.map(text=><p key={text} className="notice">{text}</p>)}</div>;
+}
+
 export function StorySequence({campaignId,variantId=null,onError}){
   const [open,setOpen]=useState(false);
   const [seq,setSeq]=useState(null);
@@ -175,6 +181,7 @@ export function StorySequence({campaignId,variantId=null,onError}){
     </button>
     {open&&seq&&<div className="story-sequence-body">
       <div className="section-title"><strong>3 partes · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
+      <SequenceNotices items={seq.notices}/>
       {seq.clips.map(clip=><div key={clip.index} className="variant-prompt story-clip">
         <div className="section-title"><strong>Parte {clip.index} · {clip.role} <small>{clip.kind==='image'?'imagem → vídeo':'Extend Video'} · ~{clip.seconds}s</small></strong><CopyButton text={clip.prompt} onError={onError}/></div>
         <small className="help">{clip.why}</small>
@@ -210,6 +217,7 @@ export function HomeReveal({campaignId,variantId=null,onError}){
     </button>
     {open&&seq&&<div className="story-sequence-body">
       <div className="section-title"><strong>2 cenas · cerca de {seq.total_seconds}s</strong><CopyButton text={seq.text} onError={onError} label="Copiar tudo"/></div>
+      <SequenceNotices items={seq.notices}/>
       {seq.clips.map(clip=><div key={clip.index} className="variant-prompt story-clip">
         <div className="section-title"><strong>Passo {clip.index} · {clip.role} <small>{clip.kind==='image'?'imagem':`vídeo · ${clip.seconds}s`}</small></strong><CopyButton text={clip.prompt} onError={onError}/></div>
         <small className="help">{clip.why} Anexe: {clip.attach}.</small>
@@ -231,6 +239,9 @@ const ARC_OPTIONS=[
   ['questionada','Questionada','“Sabe o que dizem por aí? Que ela não te valoriza”, e a resposta'],
 ];
 const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];
+// De onde vieram as falas mostradas (written_by do servidor): editadas por você ficam guardadas até descartar.
+const WRITTEN_BY={ai:'Falas escritas pela IA agora',ai_saved:'Falas escritas pela IA (guardadas)',
+  manual:'Suas falas editadas, guardadas',manual_saved:'Suas falas editadas (guardadas)'};
 // Espelho (validado no Grok) e os formatos com a modelo de frente falando (services/story_arcs.py). POV e so
 // movimento nao tem fala de frente; Na mesa nao e roupa.
 const ARC_FORMATS=FORMAT_RULES.arc_formats;
@@ -277,10 +288,10 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [facts,setFacts]=useState('');
   // ai=true so pelo botao proprio: gasta tokens. A montagem automatica ao abrir a etapa reaproveita as falas que
   // a IA ja escreveu (guardadas no servidor) e nunca chama a IA sozinha.
-  async function build(lines,ai=false){
+  async function build(lines,ai=false,discard=false){
     setLoading(ai?'ai':true);setMessage('');
     try{
-      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined});
+      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined,discard:discard||undefined});
       setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
     }catch(e){if(!ai)setData(null);setMessage(e.message)}
     finally{setLoading(false)}
@@ -320,9 +331,11 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
       </div>
       <small className="help">A IA escreve falas novas para cada clipe com os mesmos fatos e passa pela mesma conferência do rascunho. Gasta tokens da OpenAI (entra no teto de gasto) e fica guardada: reabrir a etapa não gasta de novo.</small>
       {data?.ai_error&&<p className="help story-arc-message" role="alert">A IA tentou e foi recusada: {data.ai_error}. Ficou o rascunho por regras.</p>}
-      {data?.written_by&&<p className="writer-badge is-ai"><strong>{data.written_by==='ai'?'Falas escritas pela IA agora':'Falas escritas pela IA (guardadas)'}</strong></p>}
+      {data?.written_by&&<p className={'writer-badge'+(data.written_by.startsWith('ai')?' is-ai':'')}><strong>{WRITTEN_BY[data.written_by]||'Falas guardadas'}</strong>
+        {data.written_by.startsWith('manual')&&<button type="button" disabled={!!loading} onClick={()=>build(undefined,false,true)}>Descartar minhas edições</button>}</p>}
       {data&&<>
         <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
+        <SequenceNotices items={data.notices}/>
         <small className="help">Motivos usados: {data.facts.join(' · ')}</small>
         {data.notes.map(note=><small key={note} className="help">{note}</small>)}
         {data.clips.map((clip,index)=>{
@@ -752,11 +765,16 @@ export function VideoMixer({c, busy, immutable, onError, onMix}){
 }
 // Ids aceitos por services/publish_tags.py: 'fala' é o "Com fala" (video_mode vazio) e Recebi em casa não fica gravado na campanha.
 const PUBLISH_FORMATS=[...FORMAT_OPTIONS.map(([id,label])=>[id||'fala',label]),['recebi_em_casa','Recebi em casa (2 cenas)']];
+// Como o vídeo foi montado (services/publish_tags.KINDS). Só a sequência vem da campanha; o resto o app não sabe.
+const PUBLISH_KINDS=[['unico','Clipe único'],['sequencia','Sequência de clipes'],['extend','Partes com Extend Video'],['recebi_em_casa','Recebi em casa (2 cenas)']];
 function publishTagsText(slot){
   if(!slot?.format)return '';
   const label=(PUBLISH_FORMATS.find(([id])=>id===slot.format)||[,slot.format])[1];
-  const version=slot.prompt_version==='guia'?'Guia do Grok':slot.prompt_version==='completo'?'Completo':slot.sequence_clips?`sequência de ${slot.sequence_clips}`:'';
-  return ` (${label}${version?` · ${version}`:''})`;
+  const kind=!slot.video_kind||slot.video_kind==='unico'?'':slot.video_kind==='sequencia'&&slot.sequence_clips?`sequência de ${slot.sequence_clips}`
+    :(PUBLISH_KINDS.find(([id])=>id===slot.video_kind)||[,slot.video_kind])[1];
+  const version=slot.prompt_version==='guia'?'Guia do Grok':slot.prompt_version==='completo'?'Completo':'';
+  const seconds=slot.duration_s?`${Math.round(slot.duration_s)} s`:'';
+  return ` (${[label,kind,version,seconds].filter(Boolean).join(' · ')})`;
 }
 export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRefreshVariant,onSaveCaption,onRefreshCaption}){
   const videos=c.assets.filter(a=>a.kind==='video');
@@ -770,6 +788,7 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
   // Vazio = o app lê o formato da campanha e a versão do prompt salvo; escolha aqui só se o vídeo aprovado veio de outro.
   const [pubFormat,setPubFormat]=useState('');
   const [pubVersion,setPubVersion]=useState('');
+  const [pubKind,setPubKind]=useState('');
   const [captionDraft,setCaptionDraft]=useState('');
   const [editingCaption,setEditingCaption]=useState(false);
   useEffect(()=>{
@@ -790,7 +809,7 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
         {variants.map(v=>{
           const key=v.color||'default';
           const ok=!!slotMap[key]?.published;
-          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setPublishedUrl(slotMap[key]?.url||'');setPubFormat('');setPubVersion('')}}>
+          return <button type="button" key={key} className={'slot-tab'+(active===v.color?' active':'')+(ok?' done':'')} disabled={busy} onClick={()=>{setActive(v.color);setPublishedUrl(slotMap[key]?.url||'');setPubFormat('');setPubVersion('');setPubKind('')}}>
             {ok?'✓ ':''}{v.color||'Produto'}
           </button>;
         })}
@@ -863,10 +882,16 @@ export function PublishQueue({c,busy,immutable,onError,onOpen,onPublishSlot,onRe
               <option value="guia">Guia do Grok</option>
             </select>
           </label>
-          <p className="help">Serve para comparar venda por formato. Escolha a versão se o vídeo aprovado veio da outra.</p>
+          <label>Tipo de vídeo
+            <select aria-label="Tipo de vídeo publicado" value={pubKind} disabled={busy||immutable} onChange={e=>setPubKind(e.target.value)}>
+              <option value="">Automático (sequência da campanha ou clipe único)</option>
+              {PUBLISH_KINDS.map(([id,label])=><option key={id} value={id}>{label}</option>)}
+            </select>
+          </label>
+          <p className="help">Serve para comparar venda por formato e por duração (o app mede a duração do vídeo aprovado). Escolha a versão se o vídeo aprovado veio da outra, e o tipo se ele foi montado com Extend ou Recebi em casa.</p>
         </div>
         <button className="primary full" disabled={busy||immutable}
-          onClick={()=>onPublishSlot({color:variant?.color,checklist:PUBLISH_CHECKS,published_url:publishedUrl,...(pubFormat?{format:pubFormat}:{}),...(pubVersion?{prompt_version:pubVersion}:{})})}>
+          onClick={()=>onPublishSlot({color:variant?.color,checklist:PUBLISH_CHECKS,published_url:publishedUrl,...(pubFormat?{format:pubFormat}:{}),...(pubVersion?{prompt_version:pubVersion}:{}),...(pubKind?{video_kind:pubKind}:{})})}>
           Marcar como publicado · {variant?.color}
         </button>
       </div>}
