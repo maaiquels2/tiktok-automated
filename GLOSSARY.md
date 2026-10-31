@@ -80,6 +80,10 @@ _Avoid_: pendências, readiness
 A volta de etapa causada por uma edição: prompt de imagem novo descarta imagens e vídeos; falas novas depois das imagens descartam só os vídeos.
 _Avoid_: reset, rewind
 
+**Gravação da Campanha**:
+Um bloco de escrita que lê a Campanha na versão esperada e só vale se ninguém a mudou nesse meio tempo: ou tudo o que a rota gravou vale, ou nada vale e a tela recebe um aviso de que a Campanha mudou em outra janela. Sobe a versão da Campanha uma vez, ao abrir.
+_Avoid_: transação, lock, bloqueio
+
 **Gerador**:
 A ferramenta de IA que transforma a imagem e o prompt em vídeo: Grok Imagine ou Google Flow.
 _Avoid_: motor, engine, plataforma

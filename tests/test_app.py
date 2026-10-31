@@ -469,6 +469,73 @@ class WorkflowTests(unittest.TestCase):
             linhas=conn.execute('SELECT COUNT(*) FROM ai_usage WHERE campaign_id=?',(self.cid,)).fetchone()[0]
         self.assertGreaterEqual(linhas,1)
 
+    def edit_during(self,call):
+        """Roda ``call`` (uma rota lenta de IA) numa thread e, no meio, edita a mesma campanha. Devolve (rota, edicao)."""
+        import threading,time
+        resultado={}
+        antes=self.get()
+        def rodar():
+            resultado['rota']=call()
+        fio=threading.Thread(target=rodar)
+        fio.start()
+        time.sleep(0.5)
+        edicao=self.app.test_client().patch(f'/api/campaigns/{self.cid}',json={'name':'Mudou no meio','version':antes['version']},headers=self.headers)
+        fio.join(60)
+        return resultado['rota'],edicao
+
+    def test_late_409_after_the_ai_call_in_variants_generate_leaves_nothing_behind(self):
+        self.ligar_escrita()
+        self.assertEqual(self.upload('reference').status_code,201)
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'color':'azul, branco'},headers=self.headers)
+        with self.slow_ai(1.0):
+            rota,edicao=self.edit_during(lambda: self.app.test_client().post(f'/api/campaigns/{self.cid}/variants/generate',json={},headers=self.headers))
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(rota.status_code,409,rota.json)
+        depois=self.get()
+        self.assertEqual(depois['variants'],[])
+        self.assertEqual(depois['prompts'],{})
+        self.assertEqual(depois['name'],'Mudou no meio')
+
+    def test_late_409_after_the_ai_call_in_a_script_refresh_leaves_nothing_behind(self):
+        self.assertEqual(self.upload('reference').status_code,201)
+        self.assertEqual(self.post('/generate').status_code,200)
+        self.ligar_escrita()
+        antes=self.get()
+        with self.slow_ai(1.0):
+            rota,edicao=self.edit_during(lambda: self.app.test_client().post(f'/api/campaigns/{self.cid}/prompts/refresh',json={'fields':['hook','caption']},headers=self.headers))
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(rota.status_code,409,rota.json)
+        depois=self.get()
+        self.assertEqual(depois['prompts'],antes['prompts'])
+        self.assertEqual(depois['name'],'Mudou no meio')
+
+    def test_late_409_after_the_ai_call_in_refresh_all_leaves_nothing_behind(self):
+        import time
+        self.assertEqual(self.upload('reference').status_code,201)
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'color':'azul, branco'},headers=self.headers)
+        self.assertEqual(self.post('/variants/generate').status_code,200)
+        self.ligar_escrita()
+        antes=self.get()
+        copies=[
+            {'hook':'Eu quase descartei esse vestido até reparar melhor no acabamento',
+             'development':'A costura ficou bonita no corpo, e o tecido leve acompanhou meus passos sem tirar a aparência arrumada da produção.',
+             'cta':'Se gostou do acabamento, confere agora no carrinho.'},
+            {'hook':'Eu precisava de uma peça que acompanhasse dois momentos do dia',
+             'development':'Com esse caimento, montei uma produção para o trabalho e outra para sair, aproveitando o mesmo vestido de maneiras diferentes.',
+             'cta':'Veja no carrinho qual versão combina com você.'},
+        ]
+        gerados={str(v['id']):copies[i] for i,v in enumerate(antes['variants'])}
+        def lento(briefs,settings):
+            time.sleep(1.0)
+            return gerados,''
+        with patch('services.copywriter.write_scripts_in_groups',side_effect=lento):
+            rota,edicao=self.edit_during(lambda: self.app.test_client().post(f'/api/campaigns/{self.cid}/variants/refresh-all',json={'fields':['hook','development','cta'],'writer_mode':'ai'},headers=self.headers))
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(rota.status_code,409,rota.json)
+        depois=self.get()
+        self.assertEqual([v['prompts'] for v in depois['variants']],[v['prompts'] for v in antes['variants']])
+        self.assertEqual(depois['name'],'Mudou no meio')
+
     def test_campaign_list_can_be_paginated_and_does_not_carry_the_saved_arc_lines(self):
         for i in range(4):
             self.client.post('/api/campaigns',json={**self.brief,'name':f'Extra {i}'},headers=self.headers)

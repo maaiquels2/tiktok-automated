@@ -30,6 +30,8 @@ from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
 from services import ai_budget, copywriter, formats, generators, package_zip, prompt_library, publish_tags, speech_bank, stages
+from services.campaign_write import CampaignWriter
+from services.cloud_db import CloudConnection
 from services import variants as variacao
 from services.prompts import with_article
 
@@ -125,86 +127,6 @@ def create_app(config=None):
                       CLOUD_MODE=cloud_mode,AUTH_REQUIRED=auth_required)
     db_path = app.config['DATA_DIR']/'fabrica_tiktok.db'
 
-    class _CloudRow(dict):
-        """Uma linha vinda do Postgres que aceita tanto row['coluna'] quanto
-        row[0], do jeito que o sqlite3.Row ja se comportava no app local."""
-        def __getitem__(self, key):
-            if isinstance(key, int):
-                return list(self.values())[key]
-            return dict.__getitem__(self, key)
-
-    def _adapt_sql(query):
-        text = query.strip()
-        upper = text.upper()
-        if upper.startswith('BEGIN'):
-            return 'BEGIN', False
-        if 'INSERT OR IGNORE INTO' in upper:
-            text = re.sub(r'INSERT\s+OR\s+IGNORE\s+INTO', 'INSERT INTO', text, flags=re.IGNORECASE)
-            text = text.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
-        want_id = bool(re.match(r'insert\s+into\s+(campaigns|users)\b', text, re.IGNORECASE)) and 'RETURNING' not in text.upper()
-        # As colunas de data/hora do schema sao TEXT (formato 'YYYY-MM-DD HH24:MI:SS'),
-        # mas o CURRENT_TIMESTAMP puro do Postgres retorna timestamptz, o que quebra
-        # COALESCE(coluna_text, CURRENT_TIMESTAMP) com erro de tipo incompativel.
-        text = re.sub(
-            r'\bCURRENT_TIMESTAMP\b',
-            "to_char(now() at time zone 'utc','YYYY-MM-DD HH24:MI:SS')",
-            text,
-            flags=re.IGNORECASE,
-        )
-        text = text.replace('?', '%s')
-        if want_id:
-            text = text.rstrip().rstrip(';') + ' RETURNING id'
-        return text, want_id
-
-    class _CloudCursor:
-        def __init__(self, cursor):
-            self._cursor = cursor
-            self.lastrowid = None
-        def execute(self, query, params=()):
-            text, want_id = _adapt_sql(query)
-            if text == 'BEGIN':
-                return self
-            self._cursor.execute(text, tuple(params))
-            if want_id:
-                row = self._cursor.fetchone()
-                self.lastrowid = row['id'] if row else None
-            return self
-        def fetchone(self):
-            row = self._cursor.fetchone()
-            return _CloudRow(row) if row is not None else None
-        def fetchall(self):
-            return [_CloudRow(r) for r in self._cursor.fetchall()]
-        def __iter__(self):
-            return iter(self.fetchall())
-        @property
-        def rowcount(self):
-            return self._cursor.rowcount
-
-    class _CloudConnection:
-        """Faz uma conexao psycopg2 (Postgres/Supabase) responder a mesma
-        'linguagem' que o resto do app ja fala com sqlite3: .execute(sql,params)
-        com '?' no lugar de '%s', .commit()/.rollback()/.close(), e cursores que
-        aceitam tanto row['coluna'] quanto row[0]."""
-        def __init__(self, pg_conn):
-            self._conn = pg_conn
-        def execute(self, query, params=()):
-            cursor = _CloudCursor(self._conn.cursor())
-            return cursor.execute(query, params)
-        def commit(self):
-            self._conn.commit()
-        def rollback(self):
-            self._conn.rollback()
-        def close(self):
-            self._conn.close()
-        def __enter__(self):
-            return self
-        def __exit__(self, exc_type, exc, tb):
-            if exc_type is None:
-                self.commit()
-            else:
-                self.rollback()
-            return False
-
     def connect():
         if cloud_mode:
             import psycopg2
@@ -219,7 +141,7 @@ def create_app(config=None):
                 dsn, cursor_factory=RealDictCursor,
                 connect_timeout=10, options='-c statement_timeout=30000',
             )
-            return _CloudConnection(pg_conn)
+            return CloudConnection(pg_conn)
         conn = sqlite3.connect(db_path,timeout=20)
         conn.row_factory = sqlite3.Row
         conn.execute('PRAGMA foreign_keys=ON')
@@ -879,12 +801,13 @@ def create_app(config=None):
         if c['status']=='published':
             raise Invalid('Esta campanha já foi publicada. Crie outra para um novo conteúdo.',409)
 
-    def start(cid,payload=None,lock=True):
-        # lock=False e das rotas que chamam a IA: elas leem sem travar o banco (a chamada leva segundos) e so abrem
-        # a gravacao depois, com relock(). Antes, uma geracao segurava o lock do SQLite do comeco ao fim e as outras
-        # gravacoes esperavam ate cair em 500.
-        if lock:
-            db().execute('BEGIN IMMEDIATE')
+    # Gravacao da Campanha (services/campaign_write.py): as rotas migram de start/touch para ela, uma a uma.
+    writer=CampaignWriter(db,lambda message,status: Invalid(message,status))
+
+    def start(cid,payload=None):
+        # Rotas que ainda nao migraram para writer.write(): abrem a gravacao aqui (lock de escrita no SQLite) e
+        # conferem a versao. As rotas de IA ja usam a Gravacao da Campanha.
+        db().execute('BEGIN IMMEDIATE')
         c=campaign(cid)
         if payload and 'version' in payload:
             try:
@@ -894,19 +817,6 @@ def create_app(config=None):
             if version!=c['version']:
                 raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.',409)
         return c
-
-    def relock(cid,expected_version):
-        """Abre a gravacao depois de uma chamada longa (IA) e confere de novo se a campanha mudou nesse tempo.
-        Chamar antes da primeira escrita que sobra; se mudou, 409 e nada do que a rota gravou fica."""
-        if not getattr(db(),'in_transaction',False):
-            db().execute('BEGIN IMMEDIATE')
-        row=db().execute('SELECT version FROM campaigns WHERE id=?',(cid,)).fetchone()
-        if not row:
-            db().rollback()
-            raise Invalid('Campanha não encontrada.',404)
-        if row['version']!=expected_version:
-            db().rollback()
-            raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.',409)
 
     def touch(cid, expected_version=None):
         # Sem expected_version (fluxos que nao leram a campanha com start()
@@ -2314,7 +2224,7 @@ def create_app(config=None):
 
     @app.post('/api/campaigns/<int:cid>/generate')
     def generate_prompts(cid):
-        c=start(cid,body(),lock=False)
+        c=writer.read(cid,body())
         editable(c)
         missing=[label for key,label in [('outfit','roupa'),('color','cor'),('product','produto'),('audience','público'),('benefit','benefício')] if not c[key]]
         if missing:
@@ -2339,24 +2249,22 @@ def create_app(config=None):
         # Duas abas podem calcular em paralelo no Postgres, mas somente a
         # primeira ainda verá a versão esperada; a outra recebe 409 antes de
         # tocar nas cores e não causa mais violação da chave única.
-        relock(cid,c['version'])
-        touch(cid, c['version'])
-        db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
-        if variants:
-            for variant in variants:
-                db().execute(
-                    'INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?) '
-                    'ON CONFLICT(campaign_id,color) DO UPDATE SET prompts=excluded.prompts',
-                    (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
-            save_prompts(cid,variants[0]['prompts'])
-        else:
-            save_prompts(cid,pack)
-        db().commit()
+        with writer.write(cid,expected_version=c['version']):
+            db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
+            if variants:
+                for variant in variants:
+                    db().execute(
+                        'INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?) '
+                        'ON CONFLICT(campaign_id,color) DO UPDATE SET prompts=excluded.prompts',
+                        (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
+                save_prompts(cid,variants[0]['prompts'])
+            else:
+                save_prompts(cid,pack)
         return jsonify(detail(cid))
 
     @app.post('/api/campaigns/<int:cid>/variants/generate')
     def generate_prompt_variants(cid):
-        c=start(cid,body(),lock=False)
+        c=writer.read(cid,body())
         editable(c)
         missing=[label for key,label in [('outfit','roupa'),('color','cor'),('product','produto'),('audience','público'),('benefit','benefício')] if not c[key]]
         if missing:
@@ -2374,16 +2282,14 @@ def create_app(config=None):
         briefs=[{**current,'color':variant['color']} for variant in variants]
         for index,(variant,brief,result) in enumerate(zip(variants,briefs,write_scripts_parallel(briefs))):
             variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result,index=index)
-        relock(cid,c['version'])
-        touch(cid, c['version'])
-        db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
-        for variant in variants:
-            db().execute(
-                'INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?) '
-                'ON CONFLICT(campaign_id,color) DO UPDATE SET prompts=excluded.prompts',
-                (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
-        save_prompts(cid,variants[0]['prompts'])
-        db().commit()
+        with writer.write(cid,expected_version=c['version']):
+            db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
+            for variant in variants:
+                db().execute(
+                    'INSERT INTO campaign_variants(campaign_id,color,prompts) VALUES(?,?,?) '
+                    'ON CONFLICT(campaign_id,color) DO UPDATE SET prompts=excluded.prompts',
+                    (cid,variant['color'],json.dumps(variant['prompts'],ensure_ascii=False)))
+            save_prompts(cid,variants[0]['prompts'])
         return jsonify(detail(cid))
 
     @app.patch('/api/campaigns/<int:cid>/prompts')
@@ -3072,7 +2978,7 @@ def create_app(config=None):
     def refresh_script(cid,vid=None):
         """Gera outra fala (gancho, meio, chamada ou legenda) da campanha ou de uma cor."""
         data=body()
-        c=start(cid,data,lock=False)
+        c=writer.read(cid,data)
         editable(c)
         slot=slot_for(cid,vid,'Escolha a cor do roteiro que deseja atualizar.')
         current=slot['prompts']
@@ -3093,11 +2999,7 @@ def create_app(config=None):
         # keep existing image prompt if present
         if current.get('image'):
             merged['image']=current['image']
-        if writer_mode=='local':
-            relock(cid,c['version'])
-            patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
-                                             'local_audit': copywriter.audit(merged, c)}})
-        else:
+        if writer_mode!='local':
             writer_campaign={**with_learning(c),'color':slot['color'],'previous_script':{k:current.get(k,'') for k in ('hook','development','cta')}}
             rewritten,_=write_with_llm(writer_campaign,merged,cid,required=writer_mode=='ai',index=slot['index'])
             merged={**merged,**{k:rewritten[k] for k in fields if k in rewritten}}
@@ -3108,11 +3010,12 @@ def create_app(config=None):
                     current.get('video'), merged.get('hook',''),
                     merged.get('development',''), merged.get('cta',''))
                 merged['video']=patched or rewritten.get('video',merged.get('video'))
-        relock(cid,c['version'])
-        save_slot(cid,slot,merged)
-        rewind(cid,c,fields)
-        touch(cid, c['version'])
-        db().commit()
+        with writer.write(cid,expected_version=c['version']):
+            if writer_mode=='local':
+                patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
+                                                 'local_audit': copywriter.audit(merged, c)}})
+            save_slot(cid,slot,merged)
+            rewind(cid,c,fields)
         return jsonify(detail(cid))
 
     @app.post('/api/campaigns/<int:cid>/variants/refresh-all')
@@ -3124,7 +3027,7 @@ def create_app(config=None):
         updated campaign when the provider omits or fails one variation.
         """
         data=body()
-        c=start(cid,data,lock=False)
+        c=writer.read(cid,data)
         editable(c)
         fields=data.get('fields') or ['hook','development','cta']
         allowed={'hook','development','cta'}
@@ -3189,31 +3092,29 @@ def create_app(config=None):
             raise Invalid('O ChatGPT repetiu o mesmo roteiro entre as cores: '
                           +'; '.join(diversity_issues)+'. Nenhuma cor foi alterada.',422)
 
-        relock(cid,c['version'])
         saved=[]
-        for row,current,merged,key in prepared:
-            script=written.get(key)
-            merged={**merged,**{field:script[field] for field in fields}}
-            patched=sync_video_spoken_lines(
-                current.get('video'), merged.get('hook',''),
-                merged.get('development',''), merged.get('cta',''))
-            if patched is not None:
-                merged['video']=patched
-            else:
-                merged['video']=variacao.video_prompt(campaign,row['color'],row['index'],merged)
-            save_slot(cid,row,merged)
-            saved.append((row,merged))
+        with writer.write(cid,expected_version=c['version']):
+            for row,current,merged,key in prepared:
+                script=written.get(key)
+                merged={**merged,**{field:script[field] for field in fields}}
+                patched=sync_video_spoken_lines(
+                    current.get('video'), merged.get('hook',''),
+                    merged.get('development',''), merged.get('cta',''))
+                if patched is not None:
+                    merged['video']=patched
+                else:
+                    merged['video']=variacao.video_prompt(campaign,row['color'],row['index'],merged)
+                save_slot(cid,row,merged)
+                saved.append((row,merged))
 
-        patch_checklist(cid,{'writer':{
-            'by':settings.get('provider') or 'ia',
-            'reason':'',
-            'scope':'all_colors',
-            'colors':[row['color'] for row,_ in saved],
-            'local_audit':[],
-        }})
-        rewind(cid,c,fields)
-        touch(cid,c['version'])
-        db().commit()
+            patch_checklist(cid,{'writer':{
+                'by':settings.get('provider') or 'ia',
+                'reason':'',
+                'scope':'all_colors',
+                'colors':[row['color'] for row,_ in saved],
+                'local_audit':[],
+            }})
+            rewind(cid,c,fields)
         return jsonify(detail(cid))
 
     def rebuild_video_prompt(cid,c,prompts,color,index=0):
