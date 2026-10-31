@@ -29,7 +29,7 @@ from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
-from services import ai_budget, copywriter, formats, generators, prompt_library, publish_tags, speech_bank, stages
+from services import ai_budget, copywriter, formats, generators, package_zip, prompt_library, publish_tags, speech_bank, stages
 from services import variants as variacao
 from services.prompts import with_article
 
@@ -41,6 +41,10 @@ RATE_LIMITS_SQL = ('CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY
                    'window_start DOUBLE PRECISION NOT NULL DEFAULT 0, '
                    'locked_until DOUBLE PRECISION NOT NULL DEFAULT 0)')
 LOGIN_USER_LIMIT, LOGIN_IP_LIMIT, LOGIN_WINDOW = 5, 20, 15 * 60
+# Teto por usuario somando todos os IPs: rede de trava de seguranca caso o IP possa ser forjado ou haja varios IPs.
+LOGIN_USER_GLOBAL_LIMIT = 25
+# PIN da rede local: 5 PINs errados do mesmo IP travam esse IP por 15 min.
+LAN_PIN_LIMIT, LAN_PIN_WINDOW = 5, 15 * 60
 AI_LIMIT, AI_WINDOW = 20, 60
 # Rotas que chamam a OpenAI (cada chamada gasta a chave do estudio).
 AI_ENDPOINTS = {'analyze_product_photo', 'analyze_product_photo_confirm', 'quick_brief', 'save_writer_settings',
@@ -460,7 +464,8 @@ def create_app(config=None):
         return urls
 
     def lan_pin() -> str:
-        """PIN de 4 digitos exigido de quem acessa pela rede local.
+        """PIN numerico exigido de quem acessa pela rede local (6 digitos em instalacao nova; um PIN de 4 a 8
+        digitos ja gravado continua valendo).
 
         Em casa o risco e baixo; em cafe, coworking ou rede compartilhada
         qualquer pessoa na mesma Wi-Fi abriria a fabrica sem nenhuma barreira.
@@ -474,8 +479,8 @@ def create_app(config=None):
             pin = path.read_text(encoding='utf-8').strip()
         except OSError:
             pin = ''
-        if not (pin.isdigit() and len(pin) == 4):
-            pin = f'{secrets.randbelow(9000) + 1000}'
+        if not (pin.isdigit() and 4 <= len(pin) <= 8):
+            pin = f'{secrets.randbelow(900000) + 100000}'
             try:
                 path.write_text(pin, encoding='utf-8')
             except OSError:
@@ -488,6 +493,31 @@ def create_app(config=None):
             return ipaddress.ip_address((request.remote_addr or '').strip()).is_loopback
         except ValueError:
             return False
+
+    def pin_token() -> str:
+        """Valor do cookie de quem digitou o PIN: derivado do PIN e do segredo do app, nao o PIN em si."""
+        key = app.secret_key.encode('utf-8') if isinstance(app.secret_key, str) else app.secret_key
+        return hmac.new(key, ('lan-pin:' + lan_pin()).encode('utf-8'), 'sha256').hexdigest()
+
+    def pin_matches(given: str, raw: bool = True, token: bool = True) -> bool:
+        """O PIN cru vale no formulario e no cabecalho X-Fabrica-Pin; o cookie so vale com o valor derivado
+        (assim um cookie antigo, que guardava o PIN em claro, deixa de abrir a fabrica e o aparelho digita de novo)."""
+        given = (given or '').strip().encode('utf-8')
+        if not given:
+            return False
+        ok = False
+        if raw:
+            ok = hmac.compare_digest(given, lan_pin().encode('utf-8'))
+        if token:
+            ok = hmac.compare_digest(given, pin_token().encode('utf-8')) or ok
+        return ok
+
+    def pin_key() -> str:
+        return f'lanpin:{client_ip()}'
+
+    def pin_wait_minutes() -> int:
+        espera = rate_locked((pin_key(),))
+        return max(1, -(-espera // 60)) if espera else 0
 
     @app.get('/api/lan-pin')
     def lan_pin_route():
@@ -502,11 +532,27 @@ def create_app(config=None):
         if not cloud_mode and not _host_allowed(hostname):
             raise Invalid('Este aplicativo so aceita localhost ou rede local privada (LAN).', 403)
         if not cloud_mode and not _is_loopback_client() and request.endpoint not in {'lan_unlock', 'static_asset', 'brand_asset', 'favicon'}:
-            given = (request.cookies.get('fabrica_pin') or request.headers.get('X-Fabrica-Pin') or '').strip()
-            if given != lan_pin():
+            cookie = (request.cookies.get('fabrica_pin') or '').strip()
+            header = (request.headers.get('X-Fabrica-Pin') or '').strip()
+            if not (pin_matches(cookie, raw=False) or pin_matches(header)):
+                espera = pin_wait_minutes()
+                if espera:
+                    mensagem = f'Muitas tentativas de PIN. Tente de novo em {espera} min.'
+                    if request.path.startswith('/api/'):
+                        raise Invalid(mensagem, 429)
+                    return unlock_page(mensagem), 429
+                if header:
+                    # So o cabecalho e o formulario contam como tentativa de adivinhar o PIN. Cookie errado nao: ele
+                    # pode ter ficado velho (PIN novo, segredo trocado) e uma aba aberta faria varias chamadas por
+                    # conta propria, travando o proprio IP antes de alguem digitar.
+                    rate_hit(pin_key(), LAN_PIN_LIMIT, LAN_PIN_WINDOW, LAN_PIN_WINDOW)
                 if request.path.startswith('/api/'):
                     raise Invalid('Informe o PIN da fabrica para usar pela rede.', 401)
-                return unlock_page(), 401
+                from flask import make_response
+                resposta = make_response(unlock_page(), 401)
+                if cookie:
+                    resposta.delete_cookie('fabrica_pin')
+                return resposta
         if request.method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
             # O desbloqueio por PIN vem de um formulario HTML simples, que nao
             # tem como mandar o cabecalho do app: ele se autentica pelo PIN.
@@ -564,7 +610,8 @@ def create_app(config=None):
     def client_ip():
         # Na Vercel o IP real vem no X-Forwarded-For (o primeiro e o cliente).
         if cloud_mode:
-            ip=(request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+            # x-vercel-forwarded-for e x-forwarded-for sao identicos; a Vercel sobrescreve o segundo atras de proxy.
+            ip=(request.headers.get('X-Vercel-Forwarded-For') or request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
             if ip:
                 return ip
         return request.remote_addr or 'desconhecido'
@@ -623,6 +670,9 @@ def create_app(config=None):
         usos=getattr(g,'ai_usage',None)
         if usos:
             try:
+                if response.status_code>=400:
+                    # O commit abaixo gravaria junto qualquer escrita que a rota fez antes de falhar (ex.: 409 tardio).
+                    db().rollback()
                 cid=(request.view_args or {}).get('cid')
                 for uso in usos:
                     db().execute('INSERT INTO ai_usage(campaign_id,endpoint,model,input_tokens,output_tokens) '
@@ -680,6 +730,17 @@ def create_app(config=None):
             raise Invalid('Envie um objeto JSON válido.')
         return data
 
+    def text_in(data,*keys):
+        """Texto do corpo (o primeiro campo presente). Ausente vale ''; tipo errado e 400, nao um .strip() que quebra."""
+        for key in keys:
+            value=data.get(key)
+            if value is None or value=='':
+                continue
+            if not isinstance(value,str):
+                raise Invalid(f'Campo {key} inválido: envie texto.')
+            return value.strip()
+        return ''
+
     def clean_username(value):
         username=(value or '').strip().casefold()
         if not username or len(username)>80 or not all(ch.isalnum() or ch in '._-@' for ch in username):
@@ -720,23 +781,37 @@ def create_app(config=None):
         session.clear();session['user_id']=uid
         return jsonify(authenticated=True,user={'id':uid,'username':username,'display_name':display,'role':'owner'}),201
 
+    _dummy_hash=[None]
+
+    def dummy_hash():
+        """Hash de mentira, feito uma vez (nao na partida: custaria em toda partida a frio da Vercel)."""
+        if _dummy_hash[0] is None:
+            _dummy_hash[0]=generate_password_hash(secrets.token_urlsafe(12))
+        return _dummy_hash[0]
+
     @app.post('/api/auth/login')
     def auth_login():
         data=body()
         username=clean_username(data.get('username'))
         password=data.get('password') or ''
-        # 5 senhas erradas seguidas travam o usuario por 15 min; 20 erros do
-        # mesmo IP travam o IP (redes compartilhadas erram mais).
-        chaves=(f'login:user:{username}',f'login:ip:{client_ip()}')
+        # 5 senhas erradas do mesmo usuario no mesmo IP travam esse par por 15 min (quem erra de outro lugar nao
+        # trava o dono); 20 erros do mesmo IP travam o IP (redes compartilhadas erram mais); 25 erros no mesmo
+        # usuario, somando todos os IPs, travam o usuario (rede de seguranca contra varios IPs ou IP forjado).
+        ip=client_ip()
+        chaves=(f'login:pair:{username}|{ip}',f'login:ip:{ip}',f'login:user:{username}')
         espera=rate_locked(chaves)
         if espera:
             raise Invalid(f'Muitas tentativas de login. Tente de novo em {max(1,-(-espera//60))} min.',429)
         row=db().execute('SELECT * FROM users WHERE username=? AND active=1',(username,)).fetchone()
-        if not row or not check_password_hash(row['password_hash'],password):
+        # Usuario inexistente tambem gasta um hash: sem isso a resposta, 10 vezes mais rapida, revelaria quem existe.
+        senha_certa=check_password_hash(row['password_hash'] if row else dummy_hash(),password if isinstance(password,str) else '')
+        if not row or not senha_certa:
             rate_hit(chaves[0],LOGIN_USER_LIMIT,LOGIN_WINDOW,LOGIN_WINDOW)
             rate_hit(chaves[1],LOGIN_IP_LIMIT,LOGIN_WINDOW,LOGIN_WINDOW)
+            rate_hit(chaves[2],LOGIN_USER_GLOBAL_LIMIT,LOGIN_WINDOW,LOGIN_WINDOW)
             raise Invalid('Usuário ou senha incorretos.',401)
         rate_clear(chaves[0])
+        rate_clear(chaves[2])
         session.clear();session['user_id']=row['id']
         return jsonify(authenticated=True,user=public_user(row))
 
@@ -751,6 +826,8 @@ def create_app(config=None):
 
     @app.post('/api/users')
     def create_user():
+        if not auth_required:
+            raise Invalid('O login não está ativado nesta instalação.',409)
         if g.current_user.get('role')!='owner':
             raise Invalid('Somente o responsável pelo estúdio pode criar acessos.',403)
         data=body()
@@ -777,6 +854,8 @@ def create_app(config=None):
     def reset_user_password(uid):
         """O responsavel pelo estudio redefine a senha de qualquer acesso
         (o proprio ou o do segundo usuario), caso ela tenha sido esquecida."""
+        if not auth_required:
+            raise Invalid('O login não está ativado nesta instalação.',409)
         if g.current_user.get('role')!='owner':
             raise Invalid('Somente o responsável pelo estúdio pode redefinir senhas.',403)
         data=body()
@@ -800,8 +879,12 @@ def create_app(config=None):
         if c['status']=='published':
             raise Invalid('Esta campanha já foi publicada. Crie outra para um novo conteúdo.',409)
 
-    def start(cid,payload=None):
-        db().execute('BEGIN IMMEDIATE')
+    def start(cid,payload=None,lock=True):
+        # lock=False e das rotas que chamam a IA: elas leem sem travar o banco (a chamada leva segundos) e so abrem
+        # a gravacao depois, com relock(). Antes, uma geracao segurava o lock do SQLite do comeco ao fim e as outras
+        # gravacoes esperavam ate cair em 500.
+        if lock:
+            db().execute('BEGIN IMMEDIATE')
         c=campaign(cid)
         if payload and 'version' in payload:
             try:
@@ -811,6 +894,19 @@ def create_app(config=None):
             if version!=c['version']:
                 raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.',409)
         return c
+
+    def relock(cid,expected_version):
+        """Abre a gravacao depois de uma chamada longa (IA) e confere de novo se a campanha mudou nesse tempo.
+        Chamar antes da primeira escrita que sobra; se mudou, 409 e nada do que a rota gravou fica."""
+        if not getattr(db(),'in_transaction',False):
+            db().execute('BEGIN IMMEDIATE')
+        row=db().execute('SELECT version FROM campaigns WHERE id=?',(cid,)).fetchone()
+        if not row:
+            db().rollback()
+            raise Invalid('Campanha não encontrada.',404)
+        if row['version']!=expected_version:
+            db().rollback()
+            raise Invalid('A campanha mudou em outra janela. Recarregue antes de salvar.',409)
 
     def touch(cid, expected_version=None):
         # Sem expected_version (fluxos que nao leram a campanha com start()
@@ -1315,7 +1411,7 @@ def create_app(config=None):
             '<h1 style="font-size:19px;margin:0 0 6px">Fabrica TikTok</h1>'
             '<p style="color:#706b7e;font-size:14px;margin:0 0 18px">Digite o PIN mostrado no computador.</p>'
             f'{aviso}'
-            '<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autofocus '
+            '<input name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autofocus '
             'style="width:100%;font-size:26px;text-align:center;letter-spacing:.4em;padding:12px;'
             'border:1px solid #ded7e8;border-radius:9px"/>'
             '<button style="margin-top:14px;width:100%;padding:12px;border:0;border-radius:9px;'
@@ -1325,13 +1421,19 @@ def create_app(config=None):
 
     @app.post('/lan-unlock')
     def lan_unlock():
+        espera = pin_wait_minutes()
+        if espera:
+            return unlock_page(f'Muitas tentativas de PIN. Tente de novo em {espera} min.'), 429
         given = (request.form.get('pin') or '').strip()
-        if given != lan_pin():
+        if not pin_matches(given, token=False):
+            if given:
+                rate_hit(pin_key(), LAN_PIN_LIMIT, LAN_PIN_WINDOW, LAN_PIN_WINDOW)
             return unlock_page('PIN incorreto.'), 401
+        rate_clear(pin_key())
         from flask import make_response
         response = make_response('', 303)
         response.headers['Location'] = '/'
-        response.set_cookie('fabrica_pin', given, max_age=60*60*24*30, samesite='Lax', httponly=True)
+        response.set_cookie('fabrica_pin', pin_token(), max_age=60*60*24*30, samesite='Lax', httponly=True)
         return response
 
     @app.get('/assets/<path:filename>')
@@ -1353,19 +1455,40 @@ def create_app(config=None):
             port_i = int(port)
         except Exception:
             port_i = 5050
-        lan = _lan_urls(port_i)
+        # Na nuvem rede local nao existe: o IP seria o do container da funcao (e o health e publico).
+        lan = [] if cloud_mode else _lan_urls(port_i)
         return jsonify(
             app='fabrica-tiktok',
             version=6,
             local=True,
             cloud=cloud_mode,
-            lan_enabled=os.environ.get('FABRICA_LAN', '1') != '0',
+            lan_enabled=False if cloud_mode else os.environ.get('FABRICA_LAN', '1') != '0',
             lan_urls=lan,
             open_on_this_device=f"{request.scheme}://{request.host}",
         )
 
+    def slim_checklist(texto):
+        """O checklist da lista sem as falas guardadas da sequencia (story_arc_*): so a rota da sequencia as le e
+        elas crescem a cada edicao. Tudo o mais que a tela le da lista continua la."""
+        try:
+            dados=json.loads(texto or '{}')
+        except (TypeError,ValueError):
+            return texto
+        if isinstance(dados,dict) and ('story_arc_ai' in dados or 'story_arc_manual' in dados):
+            return json.dumps({k:v for k,v in dados.items() if k not in ('story_arc_ai','story_arc_manual')},ensure_ascii=False)
+        return texto
+
     @app.get('/api/campaigns')
     def list_campaigns():
+        # Sem limit devolve tudo, como a tela de Inicio espera (ela conta andamento e publicadas na lista inteira).
+        # ?limit=N&offset=M (N de 1 a 500) pagina para outros clientes; X-Total-Count traz o total.
+        limit=request.args.get('limit',type=int)
+        offset=max(0,request.args.get('offset',default=0,type=int) or 0)
+        tail,params='',()
+        if request.args.get('limit') is not None:
+            if limit is None or not 1<=limit<=500:
+                raise Invalid('limit deve ser um número de 1 a 500.')
+            tail,params=' LIMIT ? OFFSET ?',(limit,offset)
         # cover_asset_id: a foto do cartao no Inicio -- a imagem aprovada da
         # campanha, senao a ultima imagem gerada, senao a referencia da modelo.
         rows=db().execute('''
@@ -1381,9 +1504,11 @@ def create_app(config=None):
             (SELECT COUNT(*) FROM assets r WHERE r.campaign_id=c.id AND r.active=1 AND r.kind='reference') AS has_reference,
             (SELECT COUNT(*) FROM prompts p WHERE p.campaign_id=c.id AND p.kind='image' AND p.content<>'') AS has_prompts,
             (SELECT COUNT(*) FROM assets i WHERE i.campaign_id=c.id AND i.active=1 AND i.kind='image') AS images
-            FROM campaigns c ORDER BY c.updated_at DESC, c.id DESC''')
+            FROM campaigns c ORDER BY c.updated_at DESC, c.id DESC'''+tail,params)
         # colors: a mesma lista de cores do servidor, para a tela nao re-interpretar o texto.
-        return jsonify([{**dict(r),'colors':variacao.colors(r['color'])} for r in rows])
+        resposta=jsonify([{**dict(r),'checklist':slim_checklist(r['checklist']),'colors':variacao.colors(r['color'])} for r in rows])
+        resposta.headers['X-Total-Count']=str(db().execute('SELECT COUNT(*) FROM campaigns').fetchone()[0])
+        return resposta
 
     @app.post('/api/campaigns')
     def create_campaign():
@@ -2187,7 +2312,7 @@ def create_app(config=None):
 
     @app.post('/api/campaigns/<int:cid>/generate')
     def generate_prompts(cid):
-        c=start(cid,body())
+        c=start(cid,body(),lock=False)
         editable(c)
         missing=[label for key,label in [('outfit','roupa'),('color','cor'),('product','produto'),('audience','público'),('benefit','benefício')] if not c[key]]
         if missing:
@@ -2212,6 +2337,7 @@ def create_app(config=None):
         # Duas abas podem calcular em paralelo no Postgres, mas somente a
         # primeira ainda verá a versão esperada; a outra recebe 409 antes de
         # tocar nas cores e não causa mais violação da chave única.
+        relock(cid,c['version'])
         touch(cid, c['version'])
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         if variants:
@@ -2228,7 +2354,7 @@ def create_app(config=None):
 
     @app.post('/api/campaigns/<int:cid>/variants/generate')
     def generate_prompt_variants(cid):
-        c=start(cid,body())
+        c=start(cid,body(),lock=False)
         editable(c)
         missing=[label for key,label in [('outfit','roupa'),('color','cor'),('product','produto'),('audience','público'),('benefit','benefício')] if not c[key]]
         if missing:
@@ -2246,6 +2372,7 @@ def create_app(config=None):
         briefs=[{**current,'color':variant['color']} for variant in variants]
         for index,(variant,brief,result) in enumerate(zip(variants,briefs,write_scripts_parallel(briefs))):
             variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result,index=index)
+        relock(cid,c['version'])
         touch(cid, c['version'])
         db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
         for variant in variants:
@@ -2639,10 +2766,13 @@ def create_app(config=None):
     def rename_model_library_label():
         """Rename the display label of a niche (moda) for this model."""
         from services import model_library as ml
-        data = request.get_json(silent=True) or {}
-        model_name = (data.get('model_name') or request.form.get('model_name') or 'Micaela').strip() or 'Micaela'
-        niche = (data.get('niche') or request.form.get('niche') or '').strip()
-        label = (data.get('label') or request.form.get('label') or '').strip()
+        data = request.get_json(silent=True)
+        if data is not None and not isinstance(data, dict):
+            raise Invalid('Envie um objeto JSON válido.')
+        data = data or {}
+        model_name = text_in(data, 'model_name') or (request.form.get('model_name') or 'Micaela').strip() or 'Micaela'
+        niche = text_in(data, 'niche') or (request.form.get('niche') or '').strip()
+        label = text_in(data, 'label') or (request.form.get('label') or '').strip()
         if niche not in ml.NICHE_IDS:
             raise Invalid('Escolha o nicho: praia, academia, casual, dia-a-dia, intima ou fantasia.')
         try:
@@ -2940,7 +3070,7 @@ def create_app(config=None):
     def refresh_script(cid,vid=None):
         """Gera outra fala (gancho, meio, chamada ou legenda) da campanha ou de uma cor."""
         data=body()
-        c=start(cid,data)
+        c=start(cid,data,lock=False)
         editable(c)
         slot=slot_for(cid,vid,'Escolha a cor do roteiro que deseja atualizar.')
         current=slot['prompts']
@@ -2962,6 +3092,7 @@ def create_app(config=None):
         if current.get('image'):
             merged['image']=current['image']
         if writer_mode=='local':
+            relock(cid,c['version'])
             patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
                                              'local_audit': copywriter.audit(merged, c)}})
         else:
@@ -2975,6 +3106,7 @@ def create_app(config=None):
                     current.get('video'), merged.get('hook',''),
                     merged.get('development',''), merged.get('cta',''))
                 merged['video']=patched or rewritten.get('video',merged.get('video'))
+        relock(cid,c['version'])
         save_slot(cid,slot,merged)
         rewind(cid,c,fields)
         touch(cid, c['version'])
@@ -2990,7 +3122,7 @@ def create_app(config=None):
         updated campaign when the provider omits or fails one variation.
         """
         data=body()
-        c=start(cid,data)
+        c=start(cid,data,lock=False)
         editable(c)
         fields=data.get('fields') or ['hook','development','cta']
         allowed={'hook','development','cta'}
@@ -3055,6 +3187,7 @@ def create_app(config=None):
             raise Invalid('O ChatGPT repetiu o mesmo roteiro entre as cores: '
                           +'; '.join(diversity_issues)+'. Nenhuma cor foi alterada.',422)
 
+        relock(cid,c['version'])
         saved=[]
         for row,current,merged,key in prepared:
             script=written.get(key)
@@ -3429,7 +3562,7 @@ def create_app(config=None):
         data=body()
         c=start(cid,data)
         # Metrics allowed on published campaigns (learning loop).
-        color=(data.get('color') or '').strip()
+        color=text_in(data,'color')
         metrics=data.get('metrics')
         if not isinstance(metrics,dict):
             raise Invalid('Informe metrics como objeto.')
@@ -3569,9 +3702,9 @@ def create_app(config=None):
         """Attach/update TikTok URL for metrics even when campaign is already published."""
         data = body()
         c = start(cid, data)
-        url = (data.get('published_url') or data.get('url') or '').strip()
-        color = (data.get('color') or '').strip()
-        if not isinstance(url, str) or not url or len(url) > 2000:
+        url = text_in(data, 'published_url', 'url')
+        color = text_in(data, 'color')
+        if not url or len(url) > 2000:
             raise Invalid('Cole o link HTTPS da publicacao no TikTok.')
         parsed = urlsplit(url)
         host = (parsed.hostname or '').lower()
@@ -3610,7 +3743,7 @@ def create_app(config=None):
         data=body()
         c=start(cid,data)
         pass  # insights ok when published
-        color=(data.get('color') or '').strip()
+        color=text_in(data,'color')
         slots=image_slots_for(c)
         checklist=json.loads(c['checklist'] or '{}')
         if not isinstance(checklist,dict):
@@ -4044,44 +4177,41 @@ def create_app(config=None):
             raise Invalid('Formato não encontrado.',404)
         c=detail(cid)
         text=package_text(c)
-        folder=app.config['MEDIA_DIR']/f'campanha-{cid:04d}'
-        folder.mkdir(exist_ok=True)
-        fd,temp=tempfile.mkstemp(dir=folder,suffix='.txt')
-        with os.fdopen(fd,'w',encoding='utf-8') as f:
-            f.write(text)
-        os.replace(temp,folder/'pacote-tiktok.txt')
+        # Nada de gravar pacote-tiktok.txt na pasta da campanha aqui: era um GET com efeito colateral e dois
+        # downloads ao mesmo tempo davam 500 no Windows (os.replace). O texto sai direto na resposta.
         if fmt=='txt':
             return send_file(io.BytesIO(text.encode('utf-8-sig')),mimetype='text/plain; charset=utf-8',as_attachment=True,download_name=f'campanha-{cid:04d}.txt')
-        bundle=tempfile.SpooledTemporaryFile(max_size=8*1024*1024)
-        with zipfile.ZipFile(bundle,'w',zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr('pacote-tiktok.txt',text.encode('utf-8-sig'))
-            included=[a for a in c['assets'] if a['kind']=='reference' or a['approved_at']]
-            by_kind={}
-            for a in included:
-                by_kind.setdefault(a['kind'],[]).append(a)
-            for a in included:
-                prefix={'reference':'referencia-modelo','image':'imagem-aprovada','video':'video-aprovado'}[a['kind']]
-                suffix=Path(a['path']).suffix
-                if len(by_kind[a['kind']])==1:
-                    # Caso comum (uma cor): mantem o nome simples de sempre.
-                    name=f"{prefix}{suffix}"
-                else:
-                    # Mais de um arquivo do mesmo tipo (varias cores): incluir a
-                    # cor (slot) e o id do asset no nome evita que duas cores
-                    # com a mesma extensao colidam no mesmo arquivo dentro do
-                    # ZIP (ex.: duas entradas "imagem-aprovada.png").
-                    slot_slug=re.sub(r'[^a-z0-9]+','-',(a.get('slot') or '').strip().lower()).strip('-')
-                    name=f"{prefix}{('-'+slot_slug) if slot_slug else ''}-{a['id']}{suffix}"
-                archive.writestr(name,read_asset(a))
-            if c.get('device_videos'):
-                lines=['Os vídeos abaixo permanecem no dispositivo e não estão incluídos neste ZIP:']
-                for item in c['device_videos']:
-                    lines.append(f"- {item.get('slot') or 'Vídeo'}: {item['original_name']}")
-                archive.writestr('videos-no-dispositivo.txt','\n'.join(lines).encode('utf-8-sig'))
-            for number,a in enumerate(c['product_assets'],1):
-                suffix=Path(a['path']).suffix
-                archive.writestr(f'produto/referencia-produto-{number:02d}{suffix}',read_asset(a))
-        bundle.seek(0)
+        included=[a for a in c['assets'] if a['kind']=='reference' or a['approved_at']]
+        by_kind={}
+        for a in included:
+            by_kind.setdefault(a['kind'],[]).append(a)
+        entries=[]
+        for a in included:
+            prefix={'reference':'referencia-modelo','image':'imagem-aprovada','video':'video-aprovado'}[a['kind']]
+            suffix=Path(a['path']).suffix
+            if len(by_kind[a['kind']])==1:
+                # Caso comum (uma cor): mantem o nome simples de sempre.
+                name=f"{prefix}{suffix}"
+            else:
+                # Mais de um arquivo do mesmo tipo (varias cores): incluir a
+                # cor (slot) e o id do asset no nome evita que duas cores
+                # com a mesma extensao colidam no mesmo arquivo dentro do
+                # ZIP (ex.: duas entradas "imagem-aprovada.png").
+                slot_slug=re.sub(r'[^a-z0-9]+','-',(a.get('slot') or '').strip().lower()).strip('-')
+                name=f"{prefix}{('-'+slot_slug) if slot_slug else ''}-{a['id']}{suffix}"
+            entries.append((name,a))
+        for number,a in enumerate(c['product_assets'],1):
+            entries.append((f"produto/referencia-produto-{number:02d}{Path(a['path']).suffix}",a))
+        device_lines=None
+        if c.get('device_videos'):
+            device_lines=['Os vídeos abaixo permanecem no dispositivo e não estão incluídos neste ZIP:']
+            device_lines+=[f"- {item.get('slot') or 'Vídeo'}: {item['original_name']}" for item in c['device_videos']]
+        # Na nuvem o ZIP leva o texto e links assinados (a funcao responde ate 4,5 MB); local, os arquivos vao do
+        # disco para o ZIP em pedacos (services/package_zip.py).
+        bundle=package_zip.build_zip(
+            text,entries,device_lines=device_lines,
+            **(dict(sign=lambda a,name:_storage_sign(a['path'],expires_in=3600,download_name=Path(name).name))
+               if cloud_mode else dict(local_path=path_for)))
         response=send_file(bundle,mimetype='application/zip',as_attachment=True,download_name=f'campanha-{cid:04d}.zip')
         response.call_on_close(bundle.close)
         return response

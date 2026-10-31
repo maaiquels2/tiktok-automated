@@ -409,6 +409,120 @@ class WorkflowTests(unittest.TestCase):
     def slot(self):
         return self.get()['checklist']['slots']['Azul']
 
+    def slow_ai(self,seconds):
+        """A OpenAI demora `seconds` (sem rede) e devolve uma resposta com uso de tokens."""
+        import time
+        def falso(url,payload,headers,timeout=None):
+            time.sleep(seconds)
+            return {'choices':[{'message':{'content':'{}'}}],'usage':{'prompt_tokens':100,'completion_tokens':20}}
+        return patch('services.copywriter._post_json',side_effect=falso)
+
+    def ligar_escrita(self):
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+
+    def test_generate_does_not_hold_the_database_lock_while_the_ai_answers(self):
+        # Medido no teste de estresse: com a IA em andamento, gravacoes comuns passavam de 19 ms para 8 s e
+        # parte virava 500 (database is locked), porque /generate segurava o lock do SQLite do comeco ao fim.
+        import threading,time
+        self.ligar_escrita()
+        self.assertEqual(self.upload('reference').status_code,201)
+        outra=self.client.post('/api/campaigns',json={**self.brief,'name':'Outra'},headers=self.headers).json
+        resultado={}
+        def gerar():
+            resultado['gerar']=self.app.test_client().post(f'/api/campaigns/{self.cid}/generate',json={},headers=self.headers)
+        with self.slow_ai(1.5):
+            fio=threading.Thread(target=gerar)
+            fio.start()
+            time.sleep(0.6)
+            inicio=time.perf_counter()
+            edicao=self.app.test_client().patch(f"/api/campaigns/{outra['id']}",json={'name':'Renomeada','version':outra['version']},headers=self.headers)
+            espera=time.perf_counter()-inicio
+            fio.join(60)
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertLess(espera,1.0,f'a gravacao esperou {espera:.1f} s pela IA')
+        self.assertEqual(resultado['gerar'].status_code,200,resultado['gerar'].json)
+
+    def test_late_409_after_the_ai_call_leaves_no_partial_write_but_keeps_the_usage_row(self):
+        # Sem o lock, uma edicao no meio da chamada da IA faz /generate dar 409 no fim. Nada que a rota gravou antes
+        # (o registro de quem escreveu, no checklist) pode ficar; o uso da IA, que ja foi gasto, fica.
+        import threading,time
+        self.ligar_escrita()
+        self.assertEqual(self.upload('reference').status_code,201)
+        antes=self.get()
+        resultado={}
+        def gerar():
+            resultado['gerar']=self.app.test_client().post(f'/api/campaigns/{self.cid}/generate',json={},headers=self.headers)
+        with self.slow_ai(1.0):
+            fio=threading.Thread(target=gerar)
+            fio.start()
+            time.sleep(0.5)
+            edicao=self.app.test_client().patch(f'/api/campaigns/{self.cid}',json={'name':'Mudou no meio','version':antes['version']},headers=self.headers)
+            fio.join(60)
+        self.assertEqual(edicao.status_code,200,edicao.json)
+        self.assertEqual(resultado['gerar'].status_code,409,resultado['gerar'].json)
+        depois=self.get()
+        self.assertEqual(depois['prompts'],{})
+        self.assertEqual(depois['variants'],[])
+        self.assertNotIn('writer',depois['checklist'])
+        self.assertEqual(depois['name'],'Mudou no meio')
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            linhas=conn.execute('SELECT COUNT(*) FROM ai_usage WHERE campaign_id=?',(self.cid,)).fetchone()[0]
+        self.assertGreaterEqual(linhas,1)
+
+    def test_campaign_list_can_be_paginated_and_does_not_carry_the_saved_arc_lines(self):
+        for i in range(4):
+            self.client.post('/api/campaigns',json={**self.brief,'name':f'Extra {i}'},headers=self.headers)
+        tudo=self.client.get('/api/campaigns')
+        self.assertEqual(tudo.status_code,200)
+        self.assertEqual(len(tudo.json),5)                       # sem limit: tudo, como a tela de Inicio espera
+        self.assertEqual(tudo.headers['X-Total-Count'],'5')
+        pagina=self.client.get('/api/campaigns?limit=2&offset=1')
+        self.assertEqual([c['id'] for c in pagina.json],[c['id'] for c in tudo.json][1:3])
+        self.assertEqual(pagina.headers['X-Total-Count'],'5')
+        for ruim in ('limit=0','limit=501','limit=abc','limit='):
+            self.assertEqual(self.client.get(f'/api/campaigns?{ruim}').status_code,400,ruim)
+        # As falas guardadas da sequencia crescem a cada edicao e so a rota da sequencia as le.
+        with closing(sqlite3.connect(self.config['DATA_DIR']/'fabrica_tiktok.db')) as conn:
+            conn.execute('UPDATE campaigns SET checklist=? WHERE id=?',(json.dumps({'slots':{'Azul':{'published':True}},'story_arc_manual':{'x':{'lines':[['a','b','c']]}},'story_arc_ai':{'y':{}}}),self.cid))
+            conn.commit()
+        item=next(c for c in self.client.get('/api/campaigns').json if c['id']==self.cid)
+        self.assertEqual(json.loads(item['checklist']),{'slots':{'Azul':{'published':True}}})
+        self.assertIn('story_arc_manual',self.get()['checklist'])    # o detalhe continua inteiro
+
+    def test_package_download_does_not_write_to_disk_so_parallel_downloads_cannot_fail(self):
+        # Era um GET que gravava pacote-tiktok.txt com os.replace: dois downloads juntos davam 500 no Windows.
+        pasta=self.app.config['MEDIA_DIR']/f'campanha-{self.cid:04d}'
+        with patch('os.replace',side_effect=PermissionError('acesso negado')):
+            txt=self.client.get(f'/api/campaigns/{self.cid}/package.txt')
+            zipado=self.client.get(f'/api/campaigns/{self.cid}/package.zip')
+        self.assertEqual((txt.status_code,zipado.status_code),(200,200))
+        self.assertIn('Micaela',txt.data.decode('utf-8-sig'))
+        self.assertFalse((pasta/'pacote-tiktok.txt').exists())
+
+    def test_wrong_types_in_the_body_are_400_not_500(self):
+        # O fuzz achou 500 (AttributeError em .strip()/.get()) quando o campo de texto vinha como lista ou numero.
+        self.upload('reference')
+        corpos=[{},[],'oi',None,{'color':['a'],'published_url':5,'url':[],'model_name':3,'niche':[],'label':{},'metrics':{}},
+                {'color':{'x':1},'published_url':{'a':1}},{'version':'abc'}]
+        rotas=[('post',f'/api/campaigns/{self.cid}/performance'),('post',f'/api/campaigns/{self.cid}/published-link'),
+               ('post',f'/api/campaigns/{self.cid}/insights'),('patch','/api/model-library/label'),
+               ('post','/api/users'),('post','/api/users/1/reset-password')]
+        for metodo,url in rotas:
+            for corpo in corpos:
+                r=getattr(self.client,metodo)(url,json=corpo,headers=self.headers)
+                self.assertLess(r.status_code,500,(metodo,url,corpo,r.data[:120]))
+        # Campo de texto com o tipo errado e recusado com a mensagem do campo, nao tratado como vazio.
+        r=self.post('/published-link',{'published_url':['https://www.tiktok.com/@a/video/1']})
+        self.assertEqual(r.status_code,400)
+        self.assertIn('published_url',r.json['error'])
+        self.assertEqual(self.client.patch('/api/model-library/label',json=[1],headers=self.headers).status_code,400)
+
+    def test_user_routes_say_login_is_off_instead_of_failing_without_a_user(self):
+        for url in ('/api/users','/api/users/1/reset-password'):
+            r=self.client.post(url,json={'username':'x','display_name':'Y','password':'senha-longa-1'},headers=self.headers)
+            self.assertEqual(r.status_code,409,r.json)
+            self.assertIn('login',r.json['error'].lower())
+
     def test_publish_slot_records_format_and_prompt_version(self):
         checks=self.publish_ready()
         response=self.post('/publish-slot',dict(color='Azul',checklist=checks))
@@ -613,7 +727,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('PIN',response.get_data(as_text=True))
 
         pin=self.client.get('/api/lan-pin').json['pin']
-        self.assertRegex(pin,r'^\d{4}$')
+        self.assertRegex(pin,r'^\d{6}$')   # instalacao nova: 6 digitos
         # Sem PIN o guard ja barra; com PIN, a rota do PIN continua exclusiva
         # deste computador, para o segredo nao circular pela rede.
         self.assertEqual(self.client.get('/api/lan-pin',**lan).status_code,401)
@@ -625,6 +739,63 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(certo.status_code,303)
         self.assertEqual(self.client.get('/api/campaigns',**lan).status_code,200)
         self.assertEqual(self.client.get('/api/lan-pin',**lan).status_code,403)
+
+    def lan(self,ip):
+        return dict(environ_base={'REMOTE_ADDR':ip},headers={'Host':'192.168.0.10:5050'})
+
+    def test_lan_pin_locks_the_ip_after_five_wrong_pins_and_only_counts_pins_that_were_sent(self):
+        # Era 4 digitos sem limite: 10.000 tentativas em cerca de 2 minutos.
+        pin=self.client.get('/api/lan-pin').json['pin']
+        errado='000000' if pin!='000000' else '111111'
+        # A pagina sem cookie dispara varios 401 sozinha: sem PIN enviado nada e contado.
+        for _ in range(10):
+            self.assertEqual(self.client.get('/api/campaigns',**self.lan('192.168.0.50')).status_code,401)
+        for _ in range(5):
+            self.assertEqual(self.client.post('/lan-unlock',data={'pin':errado},**self.lan('192.168.0.50')).status_code,401)
+        travado=self.client.post('/lan-unlock',data={'pin':pin},**self.lan('192.168.0.50'))
+        self.assertEqual(travado.status_code,429)
+        self.assertIn('Muitas tentativas de PIN',travado.get_data(as_text=True))
+        api=self.client.get('/api/campaigns',headers={'Host':'192.168.0.10:5050','X-Fabrica-Pin':errado},
+                            environ_base={'REMOTE_ADDR':'192.168.0.50'})
+        self.assertEqual(api.status_code,429)
+        # Outro aparelho da mesma rede nao e afetado.
+        self.assertEqual(self.client.post('/lan-unlock',data={'pin':pin},**self.lan('192.168.0.51')).status_code,303)
+
+    def test_old_pin_cookie_no_longer_opens_the_factory_and_a_stale_cookie_never_locks_the_ip(self):
+        pin=self.client.get('/api/lan-pin').json['pin']
+        # Cookie antigo guardava o PIN em claro: nao vale mais, e o aparelho digita o PIN de novo.
+        aparelho=self.app.test_client()
+        aparelho.set_cookie('fabrica_pin',pin,domain='192.168.0.10')
+        pagina=aparelho.get('/',**self.lan('192.168.0.60'))
+        self.assertEqual(pagina.status_code,401)
+        self.assertIn('fabrica_pin=;',pagina.headers.get('Set-Cookie',''))      # o cookie velho e apagado
+        # Cookie errado nunca conta como tentativa: uma aba aberta faria dezenas de chamadas sozinha.
+        velho=self.app.test_client()
+        velho.set_cookie('fabrica_pin','lixo',domain='192.168.0.10')
+        for _ in range(12):
+            self.assertEqual(velho.get('/api/campaigns',**self.lan('192.168.0.60')).status_code,401)
+        # E o desbloqueio continua funcionando.
+        self.assertEqual(self.client.post('/lan-unlock',data={'pin':pin},**self.lan('192.168.0.60')).status_code,303)
+        self.assertEqual(self.client.get('/api/campaigns',**self.lan('192.168.0.60')).status_code,200)
+
+    def test_lan_cookie_is_derived_from_the_pin_and_an_existing_four_digit_pin_stays_valid(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            root=Path(pasta)
+            (root/'data').mkdir()
+            (root/'data'/'lan_pin.txt').write_text('4821',encoding='utf-8')
+            app=create_app(dict(TESTING=True,DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'profiles'))
+            client=app.test_client()
+            self.assertEqual(client.get('/api/lan-pin').json['pin'],'4821')
+            certo=client.post('/lan-unlock',data={'pin':'4821'},**self.lan('192.168.0.50'))
+            self.assertEqual(certo.status_code,303)
+            cookie=certo.headers.get('Set-Cookie','')
+            self.assertIn('fabrica_pin=',cookie)
+            self.assertNotIn('4821',cookie)     # o cookie nao e o PIN
+            self.assertEqual(client.get('/api/campaigns',**self.lan('192.168.0.50')).status_code,200)
+            # O cabecalho aceita o PIN cru (para scripts) e o valor errado e recusado.
+            outro=app.test_client()
+            ok=outro.get('/api/campaigns',headers={'Host':'192.168.0.10:5050','X-Fabrica-Pin':'4821'},environ_base={'REMOTE_ADDR':'192.168.0.52'})
+            self.assertEqual(ok.status_code,200)
 
     def test_local_machine_never_sees_the_pin_screen(self):
         self.assertEqual(self.client.get('/api/campaigns').status_code,200)
@@ -4364,6 +4535,40 @@ class AuthenticationPrototypeTests(unittest.TestCase):
         self.assertEqual(travado.status_code,429)
         self.assertIn('Muitas tentativas de login',travado.json['error'])
 
+    def login(self,senha,ip=None):
+        extra=dict(environ_base={'REMOTE_ADDR':ip}) if ip else {}
+        return self.client.post('/api/auth/login',json={'username':'maiquel','password':senha},headers=self.headers,**extra)
+
+    def abrir_conta(self):
+        self.client.post('/api/auth/setup',json={'display_name':'Maiquel','username':'maiquel',
+                                                 'password':'senha-segura-1'},headers=self.headers)
+        self.client.post('/api/auth/logout',json={},headers=self.headers)
+
+    def test_wrong_passwords_from_another_ip_do_not_lock_the_owner_out(self):
+        # Antes, 5 erros de qualquer IP travavam o dono por 15 min, ate com a senha certa.
+        self.abrir_conta()
+        for _ in range(5):
+            self.assertEqual(self.login('errada','127.0.0.2').status_code,401)
+        self.assertEqual(self.login('senha-segura-1','127.0.0.2').status_code,429)   # quem errou fica travado
+        self.assertEqual(self.login('senha-segura-1','127.0.0.3').status_code,200)   # o dono, de outro lugar, entra
+
+    def test_login_spends_a_hash_even_for_a_user_that_does_not_exist(self):
+        # Sem isso a resposta (cerca de 10 vezes mais rapida) mostra quais usuarios existem.
+        import app as app_module
+        self.abrir_conta()
+        with patch.object(app_module,'check_password_hash',wraps=app_module.check_password_hash) as hash_check:
+            fantasma=self.client.post('/api/auth/login',json={'username':'fantasma','password':'qualquer'},headers=self.headers)
+        self.assertEqual(fantasma.status_code,401)
+        self.assertEqual(hash_check.call_count,1)
+        self.assertEqual(fantasma.json['error'],self.login('errada','127.0.0.9').json['error'])   # mesma mensagem
+
+    def test_user_failures_from_many_ips_still_lock_the_account(self):
+        # Rede de seguranca: 25 erros no mesmo usuario, somando IPs diferentes.
+        self.abrir_conta()
+        for i in range(25):
+            self.assertEqual(self.login('errada',f'127.0.1.{i+1}').status_code,401)
+        self.assertEqual(self.login('senha-segura-1','127.0.2.1').status_code,429)
+
     def test_successful_login_clears_the_failure_count(self):
         self.client.post('/api/auth/setup',json={'display_name':'Maiquel','username':'maiquel',
                                                  'password':'senha-segura-1'},headers=self.headers)
@@ -4694,3 +4899,86 @@ class CloudSpeechBankTests(unittest.TestCase):
             response=self.client.post('/api/speech-bank',json=outra,headers=self.headers)
         self.assertEqual(response.status_code,502)
         self.assertEqual(self.objects['app-settings/banco_falas.json'],before)
+
+
+class CloudHealthTests(unittest.TestCase):
+    """O /api/health e publico (sem login). Na nuvem nao pode mostrar o IP interno do container da funcao."""
+
+    def test_cloud_health_hides_the_internal_lan_address(self):
+        temp=tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root=Path(temp.name)
+        env={'FABRICA_SUPABASE_URL':'https://fake.supabase.co','FABRICA_SUPABASE_SERVICE_KEY':'service-key'}
+        with patch.dict(os.environ,env):
+            app=create_app(dict(TESTING=True,CLOUD_MODE=True,AUTH_REQUIRED=False,
+                                DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'profiles'))
+        health=app.test_client().get('/api/health').json   # na maquina de teste _lan_urls() acharia o IP da rede
+        self.assertTrue(health['cloud'])
+        self.assertEqual(health['lan_urls'],[])
+        self.assertFalse(health['lan_enabled'])
+        self.assertEqual(health['app'],'fabrica-tiktok')
+
+    def test_local_health_still_lists_the_lan_address(self):
+        temp=tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        root=Path(temp.name)
+        app=create_app(dict(TESTING=True,DATA_DIR=root/'data',MEDIA_DIR=root/'media',PROFILE_DIR=root/'profiles'))
+        health=app.test_client().get('/api/health').json
+        self.assertFalse(health['cloud'])
+        self.assertIsInstance(health['lan_urls'],list)
+
+
+class PackageZipTests(unittest.TestCase):
+    """O ZIP do pacote: arquivos do disco para o ZIP em pedacos (local) e so links na nuvem."""
+
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name)
+
+    def arquivo(self,nome,dados):
+        caminho=self.root/nome
+        caminho.write_bytes(dados)
+        return caminho
+
+    def test_local_zip_stores_media_without_recompressing_and_keeps_every_byte(self):
+        from services import package_zip
+        video=os.urandom(3*1024*1024)
+        foto=image_bytes()
+        arquivos={'v':self.arquivo('v.mp4',video),'f':self.arquivo('f.png',foto)}
+        bundle=package_zip.build_zip('texto do pacote com acentuação',[('video-aprovado.mp4','v'),('produto/foto.png','f')],
+                                      local_path=lambda registro:arquivos[registro],device_lines=['- Azul: gravado.mp4'])
+        with zipfile.ZipFile(bundle) as z:
+            self.assertEqual(set(z.namelist()),{'pacote-tiktok.txt','video-aprovado.mp4','produto/foto.png','videos-no-dispositivo.txt'})
+            self.assertEqual(z.read('video-aprovado.mp4'),video)
+            self.assertEqual(z.read('produto/foto.png'),foto)
+            self.assertEqual(z.getinfo('video-aprovado.mp4').compress_type,zipfile.ZIP_STORED)
+            self.assertIn('acentuação',z.read('pacote-tiktok.txt').decode('utf-8-sig'))
+            self.assertIn('Azul',z.read('videos-no-dispositivo.txt').decode('utf-8-sig'))
+
+    def test_local_zip_does_not_load_the_whole_video_into_memory(self):
+        # Medido: 100 MB de video passavam por 282 MB de memoria porque o arquivo era lido inteiro.
+        import tracemalloc
+        from services import package_zip
+        grande=self.arquivo('grande.mp4',os.urandom(40*1024*1024))
+        tracemalloc.start()
+        bundle=package_zip.build_zip('t',[('video.mp4','g')],local_path=lambda registro:grande)
+        _,pico=tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        bundle.seek(0,2)
+        self.assertGreater(bundle.tell(),40*1024*1024)
+        self.assertLess(pico,16*1024*1024,f'pico de {pico/1048576:.0f} MB para um video de 40 MB')
+
+    def test_cloud_zip_carries_only_the_text_and_signed_links(self):
+        from services import package_zip
+        lidos=[]
+        bundle=package_zip.build_zip('texto',[('video-aprovado.mp4',{'path':'campanha-0001/v.mp4'}),('imagem-aprovada.png',{'path':'campanha-0001/i.png'})],
+                                      sign=lambda registro,nome:lidos.append(registro['path']) or f"https://storage.exemplo/{nome}?token=abc",expires_in=3600)
+        with zipfile.ZipFile(bundle) as z:
+            self.assertEqual(set(z.namelist()),{'pacote-tiktok.txt','links-dos-arquivos.txt'})
+            links=z.read('links-dos-arquivos.txt').decode('utf-8-sig')
+        self.assertIn('video-aprovado.mp4: https://storage.exemplo/video-aprovado.mp4?token=abc',links)
+        self.assertIn('imagem-aprovada.png: https://storage.exemplo/imagem-aprovada.png?token=abc',links)
+        self.assertIn('60 minutos',links)
+        self.assertEqual(lidos,['campanha-0001/v.mp4','campanha-0001/i.png'])
+
