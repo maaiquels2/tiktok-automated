@@ -29,6 +29,7 @@ from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
                               sync_video_spoken_lines)
+from services import media_checks, niche_safety, piece_niche
 from services import ai_budget, copywriter, formats, generators, package_zip, prompt_library, publish_tags, speech_bank, stages
 from services.campaign_write import CampaignWriter
 from services.cloud_db import CloudConnection
@@ -1099,13 +1100,15 @@ def create_app(config=None):
             c['variants'].append(variant)
         # O que ainda falta em cada aprovacao: a tela mostra isto em vez de re-derivar.
         c['readiness']=stages.readiness(c)
-        # Avisos que nunca barram: peca x nicho e seguranca da intima/fantasia.
-        # Um erro aqui nao pode derrubar a tela da campanha.
-        try:
-            from services import niche_safety, piece_niche
-            c['warnings']=piece_niche.warnings(c)+niche_safety.warnings(c)
-        except Exception:
-            c['warnings']=[]
+        # Avisos que nunca barram: peca x nicho, seguranca da intima/fantasia e conferencia de midia.
+        # Cada fonte e isolada: um erro numa delas nao derruba a tela da campanha nem as outras.
+        warnings=[]
+        for source in (lambda: piece_niche.warnings(c),lambda: niche_safety.warnings(c),lambda: media_checks.campaign_warnings(c)):
+            try:
+                warnings+=source()
+            except Exception:
+                pass
+        c['warnings']=warnings
         return c
 
     def read_checklist(cid):
@@ -3007,6 +3010,54 @@ def create_app(config=None):
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
 
+
+    def _ffmpeg_or_none():
+        try:
+            return find_ffmpeg()
+        except (FileNotFoundError,OSError):
+            return None
+
+    @app.get('/api/assets/<int:aid>/check')
+    def asset_check(aid):
+        """Conferencia do MP4 anexado. So avisa: sem ffmpeg (nuvem) o que nao da para medir vem como nao verificado."""
+        row=db().execute("SELECT * FROM assets WHERE id=? AND kind='video'",(aid,)).fetchone()
+        if not row:
+            raise Invalid('Vídeo não encontrado.',404)
+        try:
+            meta=json.loads(row['metadata'] or '{}')
+        except (TypeError,ValueError):
+            meta={}
+        try:
+            generator=generators.of(campaign(row['campaign_id']))
+        except Exception:
+            generator=None
+        checks=media_checks.clip_checks(meta,generator)
+        ffmpeg=_ffmpeg_or_none()
+        extra=[media_checks.UNKNOWN_SILENCE,media_checks.UNKNOWN_CUT]
+        if ffmpeg:
+            try:
+                with local_copy_of(row) as local:
+                    extra=media_checks.probe_clip(local,ffmpeg)
+            except Exception:
+                pass
+        return jsonify({'checks':checks+extra,'ffmpeg':bool(ffmpeg)})
+
+    @app.get('/api/assets/<int:aid>/last-frame')
+    def asset_last_frame(aid):
+        """PNG do ultimo quadro do MP4 (ffmpeg do PC), para abrir o clipe 2. Nada e gravado. Sem ffmpeg: 409 e o navegador faz."""
+        row=db().execute("SELECT * FROM assets WHERE id=? AND kind='video'",(aid,)).fetchone()
+        if not row:
+            raise Invalid('Vídeo não encontrado.',404)
+        ffmpeg=_ffmpeg_or_none()
+        if not ffmpeg:
+            raise Invalid('Este servidor não tem o FFmpeg. O último quadro é gerado no navegador.',409)
+        try:
+            with local_copy_of(row) as local:
+                png=media_checks.last_frame_png(local,ffmpeg)
+        except Exception as exc:
+            raise Invalid('Não consegui extrair o último quadro deste vídeo.',409) from exc
+        name=Path(row['original_name'] or 'video').stem[:80]
+        return send_file(io.BytesIO(png),mimetype='image/png',as_attachment=True,download_name=f'{name}-ultimo-quadro.png')
 
     @app.post('/api/campaigns/<int:cid>/prompts/refresh')
     @app.post('/api/campaigns/<int:cid>/variants/<int:vid>/refresh')

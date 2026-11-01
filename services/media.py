@@ -28,6 +28,7 @@ def boxes(f, start, end):
 def inspect_mp4(path):
     duration = None
     dimensions = None
+    has_audio = False
     with path.open('rb') as f:
         top = list(boxes(f, 0, path.stat().st_size))
         if not any(k == b'ftyp' for k, _, _ in top) or not any(k == b'mdat' and e > s for k, s, e in top):
@@ -69,12 +70,14 @@ def inspect_mp4(path):
                             for mk, ms, me in boxes(f, ts, te):
                                 if mk == b'hdlr' and me-ms >= 12:
                                     f.seek(ms+8)
-                                    video_track = f.read(4) == b'vide'
+                                    handler = f.read(4)
+                                    video_track = handler == b'vide'
+                                    has_audio = has_audio or handler == b'soun'
                     if video_track and width and height:
                         dimensions = width, height
     if not dimensions or not duration or duration > 600:
         raise ValueError('Não foi possível ler o vídeo. Exporte um MP4 padrão com duração de 15 segundos.')
-    return dict(width=dimensions[0], height=dimensions[1], duration=round(duration, 3)), '.mp4', 'video/mp4'
+    return dict(width=dimensions[0], height=dimensions[1], duration=round(duration, 3), has_audio=has_audio), '.mp4', 'video/mp4'
 
 
 def inspect_media(path, kind):

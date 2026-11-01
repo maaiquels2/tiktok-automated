@@ -954,3 +954,10 @@ button.rd-brand {
 @media (max-width: 520px) { .ai-budget-price { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ai-budget-price > span { grid-column: 1 / -1; padding-bottom: 0; } }
 .story-arc-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .story-arc-actions > button { display: inline-flex; align-items: center; gap: 6px; }
+
+.video-checks { list-style: none; margin: 8px 0; padding: 0; font-size: 13px; }
+.video-checks li { padding: 2px 0; }
+.video-checks .check-aviso { color: #b45309; }
+.video-checks .check-nao_verificado { color: #6b7280; }
+.media-warnings { list-style: none; padding-left: 12px; }
+.last-frame { margin-top: 8px; }
