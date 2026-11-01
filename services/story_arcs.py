@@ -9,8 +9,9 @@ de cerca de 30 s (2 clipes) ou 45 s (3 clipes).
 
 Validado no Grok com a calca jeans no espelho (480p): identidade, roupa e cenario iguais entre os clipes.
 O que o teste real ensinou e esta aqui:
-  - o clipe 2 (e o 3) parte da MESMA imagem aprovada do clipe 1; o prompt diz isso em vez de pedir para
-    "retomar o ultimo quadro", que o Grok nao recebe;
+  - existem dois modos para o clipe 2 (e o 3): no PROMPT COMPLETO (o padrao) ele parte da MESMA imagem aprovada do
+    clipe 1, e o prompt diz isso em vez de pedir para "retomar o ultimo quadro", que o Grok da tela nao recebe; no
+    PACOTE DO AGENTE (agent_pack, experimental) o primeiro quadro e o video do clipe anterior, anexado na conversa;
   - so o ultimo clipe pede a compra e aponta para o carrinho; os anteriores terminam no meio do gesto, com
     uma pergunta aberta;
   - o clipe 1 sai com o prompt original do espelho (os ajustes finos o deixaram lento);
