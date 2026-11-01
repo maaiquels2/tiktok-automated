@@ -17,8 +17,8 @@ explicito", "EVITAR: ...; nudez, zoom agressivo"). Uma palavra so conta quando
 nao esta negada: nem na mesma oracao (sem, nunca, nao, nada, nem, jamais,
 evitar) nem numa frase que comeca proibindo (EVITAR:, nao inventar...).
 
-O publico (16-35 na fantasia) e o tom "sensual clean" da intima sao decisoes
-de produto: este modulo so descreve o problema, nao muda esses textos.
+Campanhas criadas antes de 01/11/2026 guardam os textos antigos (publico "16-35" na fantasia, tom
+"sensual clean" na intima) e continuam sendo avisadas; os padroes novos (18+, elegante e discreto) nao disparam o aviso.
 """
 from __future__ import annotations
 

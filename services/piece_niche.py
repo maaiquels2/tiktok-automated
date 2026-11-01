@@ -7,7 +7,7 @@ praia, fantasia na academia...).
 
 Os nichos sao os do app, nao os do tutorial do Grok: "dia-a-dia" e rotina EM
 CASA (sentar, levantar, andar pela casa), nao trabalho/escritorio; "intima" e
-lingerie com tom "sensual clean", e pijama tambem cai nela (playbook.py).
+lingerie com tom elegante e discreto, e pijama tambem cai nela (playbook.py).
 
 A peca vem do campo produto (o que manda, como em speech_bank.detect). A
 roupa (outfit) so conta quando nao e o texto padrao de algum nicho: escolher o
@@ -64,7 +64,7 @@ _NICHE_SCENE = {
     'academia': 'treino: agachamento, cós e tecido em movimento',
     'casual': 'look urbano, de rua ou café',
     'dia-a-dia': 'rotina em casa: sentar, levantar e andar pela casa',
-    'intima': 'lingerie, com tom "sensual clean"',
+    'intima': 'lingerie, com tom elegante e discreto',
     'fantasia': 'fantasia ou cosplay em cenário temático',
 }
 

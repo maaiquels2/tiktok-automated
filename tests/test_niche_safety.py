@@ -113,14 +113,23 @@ class DefaultTextsTests(unittest.TestCase):
                         with self.subTest(niche=niche, product=product, mode=mode):
                             self.assertNotRegex(w['text'], r'Nudez|close|ângulo ou pose', w['text'])
 
-    def test_default_lingerie_is_warned_about_sensual_and_says_where_it_comes_from(self):
-        textos = [w['text'] for w in niche_safety.warnings(campanha('Conjunto de lingerie de renda', 'intima'))]
+    def test_default_lingerie_no_longer_asks_for_sensual_tone(self):
+        self.assertEqual(niche_safety.warnings(campanha('Conjunto de lingerie de renda', 'intima')), [])
+
+    def test_old_lingerie_campaign_with_the_sensual_clean_text_is_still_warned_and_says_where_it_comes_from(self):
+        antiga = campanha('Conjunto de lingerie de renda', 'intima', tone='Sensual clean, intima e segura (nunca explcito)',
+                          style='Sensual clean, luz suave de estudio/quarto, tons quentes, realista premium, 9:16')
+        textos = [w['text'] for w in niche_safety.warnings(antiga)]
         self.assertEqual(len(textos), 1, textos)
         self.assertIn('“sensual” (prompt de vídeo)', textos[0])
-        self.assertIn('campo Tom, Estilo visual e Público', textos[0])
+        self.assertIn('campo Tom e Estilo visual', textos[0])
 
-    def test_default_fantasy_audience_includes_minors(self):
-        textos = [w['text'] for w in niche_safety.warnings(campanha('Fantasia de bruxa', 'fantasia'))]
+    def test_default_fantasy_audience_is_adult(self):
+        self.assertEqual(niche_safety.warnings(campanha('Fantasia de bruxa', 'fantasia')), [])
+
+    def test_old_fantasy_campaign_with_the_16_35_audience_is_still_warned(self):
+        antiga = {**campanha('Fantasia de bruxa', 'fantasia'), 'audience': 'Publico 16-35 que busca fantasias pra festa'}
+        textos = [w['text'] for w in niche_safety.warnings(antiga)]
         self.assertEqual(len(textos), 1, textos)
         self.assertIn('menores de 18 anos (“16-35”)', textos[0])
         self.assertIn('Revise o campo Público', textos[0])

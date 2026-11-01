@@ -57,12 +57,7 @@ CLAIMS = re.compile(r'\bcompress\w*|\belasticidade\b|\bstretch\b|\bsecage\w*|\bs
 # de video no formato "So movimento"; academia.audience entra no briefing da IA). A correcao
 # e decisao do produto. Quem corrigir um texto tira a linha daqui (o teste falha se a linha
 # sobrar), e qualquer problema novo falha direto.
-KNOWN = {
-    ('praia', 'movements', 'cta visual'),      # "pose final com CTA visual"
-    ('academia', 'audience', 'compressao'),    # "buscando compressão e estilo"
-    ('academia', 'details', 'stretch'),        # "Mostrar tecido stretch, cos e suporte."
-    ('academia', 'details', 'suporte'),
-}
+KNOWN = set()   # os textos que vazavam foram reescritos em 01/11/2026 (ver LEGACY_NICHE_DEFAULT_TEXTS)
 
 
 class NicheIdsAgreeTests(unittest.TestCase):
@@ -154,6 +149,27 @@ class NicheDefaultTextTests(unittest.TestCase):
         trava = video.split('ATRIBUTOS NÃO CONFIRMADOS', 1)[1].split('.', 1)[0]
         for termo in ('compressão', 'elasticidade', 'suporte', 'secagem', 'tecido premium'):
             self.assertIn(termo, trava)
+
+
+class LegacyDefaultsTests(unittest.TestCase):
+    """Campanhas criadas antes de 01/11/2026 guardam o texto padrao antigo no briefing."""
+
+    def test_old_default_texts_are_still_not_confirmed_facts(self):
+        for texto in model_library.LEGACY_NICHE_DEFAULT_TEXTS:
+            with self.subTest(texto=texto[:50]):
+                self.assertEqual(prompts.without_niche_defaults(texto).strip(' .;,'), '')
+
+    def test_an_old_academia_campaign_does_not_confirm_stretch_or_support(self):
+        antiga = dict(model_name='Micaela', product='Legging cintura alta', outfit='legging', color='Preto', niche='academia',
+                      generator='grok', benefit='Caimento visível ao caminhar, agachar e alongar', angle='', tone='', style='',
+                      movements='', objection='', offer='', video_mode='', audience='Mulheres 20-40 que treinam e compram roupa de treino no TikTok Shop buscando compressão e estilo',
+                      details='Manter identidade da Micaela. Mostrar tecido stretch, cos e suporte. Evitar academia vazia demais; '
+                              'preferir ambiente crivel. Suor leve ok; nada exagerado.')
+        confirmados = ' '.join(str(f) for f in prompts.product_features(antiga)).casefold()
+        for termo in ('stretch', 'suporte', 'compress'):
+            self.assertNotIn(termo, confirmados)
+        video = prompts.generate(antiga)['video']
+        self.assertIn('ATRIBUTOS NÃO CONFIRMADOS', video)
 
 
 if __name__ == '__main__':
