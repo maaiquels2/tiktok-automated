@@ -564,6 +564,11 @@ button.rd-brand {
 }
 .rd-next-bar strong { font-size: 15px; }
 
+/* ---------- Excluir uma cor ---------- */
+.rd-color-remove { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rd-line, rgba(127,127,127,.25)); }
+.rd-color-remove .help { flex: 1 1 260px; }
+.rd-color-remove-btn { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--rd-danger); border-color: var(--rd-danger); background: transparent; }
+
 /* ---------- Abas de cor ---------- */
 .rd-color-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; }
 .rd-color-tab {

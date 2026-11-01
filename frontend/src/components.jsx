@@ -528,7 +528,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator,onSaveToBank,onOpenBank}){
+export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRemoveColor,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator,onSaveToBank,onOpenBank}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -623,6 +623,10 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           <p>{p[key]||'-'}</p>
         </div>)}
     </div>
+    {onRemoveColor&&!immutable&&variants.length>1&&<div className="rd-color-remove">
+      <span className="help">Não vai produzir <strong>{variant.color}</strong>? A IA pode ter lido uma cor a mais. As outras cores não mudam.</span>
+      <button type="button" className="rd-color-remove-btn" disabled={busy} onClick={()=>onRemoveColor(variant.color)}><Trash2 size={16}/> Excluir {variant.color}</button>
+    </div>}
   </section>;
 }
 

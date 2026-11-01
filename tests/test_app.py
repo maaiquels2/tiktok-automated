@@ -847,6 +847,76 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('anexe primeiro a imagem aprovada desta campanha',segunda)
         self.assertNotIn('anexe primeiro a foto de referência da modelo',segunda)
 
+    def colors_campaign(self,colors,with_images=()):
+        self.assertEqual(self.upload('reference').status_code,201)
+        self.client.patch(f'/api/campaigns/{self.cid}',json={'color':colors,'version':self.get()['version']},headers=self.headers)
+        self.assertEqual(self.post('/variants/generate').status_code,200)
+        for color in with_images:
+            response=self.client.post(f'/api/campaigns/{self.cid}/assets',headers=self.headers,
+                data={'kind':'image','color':color,'version':str(self.get()['version']),'file':(io.BytesIO(image_bytes()),'cor.png')})
+            self.assertEqual(response.status_code,201,response.json)
+
+    def remove_color(self,color,version=None):
+        return self.post('/colors/remove',{'color':color,'version':self.get()['version'] if version is None else version})
+
+    def test_removing_the_extra_color_the_ai_read_unblocks_the_images_step(self):
+        self.colors_campaign('azul, branco, verde, rosa',with_images=['azul','branco','verde'])
+        self.assertEqual(self.get()['status'],'briefing')
+        result=self.remove_color('rosa')
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json['colors'],['azul','branco','verde'])
+        self.assertEqual([v['color'] for v in result.json['variants']],['azul','branco','verde'])
+        self.assertEqual(result.json['status'],'image_ready')
+        self.assertEqual(len([a for a in result.json['assets'] if a['kind']=='image']),3)
+        self.assertEqual(result.json['readiness']['image_approved'],[])
+
+    def test_removing_a_color_discards_only_that_colors_media_and_keeps_approvals(self):
+        self.colors_campaign('azul, branco, verde',with_images=['azul','branco','verde'])
+        self.assertEqual(self.move('image_approved').status_code,200)
+        result=self.remove_color('branco')
+        self.assertEqual(result.status_code,200,result.json)
+        images=[a for a in result.json['assets'] if a['kind']=='image']
+        self.assertEqual(sorted(a['slot'] for a in images),['azul','verde'])
+        self.assertTrue(all(a['approved_at'] for a in images))
+        self.assertEqual(result.json['status'],'image_approved')
+
+    def test_removing_the_first_color_makes_the_next_one_edit_the_model_reference(self):
+        self.colors_campaign('azul, branco, verde')
+        antes=self.get()['variants'][1]['prompts']['image']
+        self.assertIn('anexe primeiro a imagem aprovada desta campanha',antes)
+        result=self.remove_color('azul')
+        self.assertEqual(result.status_code,200,result.json)
+        primeira=result.json['variants'][0]
+        self.assertEqual(primeira['color'],'branco')
+        self.assertIn('anexe primeiro a foto de referência da modelo',primeira['prompts']['image'])
+        self.assertNotIn('anexe primeiro a imagem aprovada desta campanha',primeira['prompts']['image'])
+        self.assertEqual(result.json['prompts']['image'],primeira['prompts']['image'])
+        self.assertEqual(result.json['prompts']['hook'],primeira['prompts']['hook'])
+
+    def test_removing_down_to_one_color_returns_to_a_single_color_campaign(self):
+        self.colors_campaign('azul, branco')
+        result=self.remove_color('azul')
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(result.json['colors'],['branco'])
+        self.assertEqual(result.json['variants'],[])
+        self.assertTrue(result.json['prompts']['hook'])
+        self.assertEqual(self.remove_color('branco').status_code,409)
+
+    def test_removing_a_color_checks_version_name_and_stage(self):
+        self.colors_campaign('azul, branco, verde')
+        version=self.get()['version']
+        self.assertEqual(self.remove_color('branco',version-1).status_code,409)
+        self.assertEqual(self.remove_color('amarelo').status_code,404)
+        self.assertEqual(self.get()['colors'],['azul','branco','verde'])
+        self.assertEqual(self.remove_color('BRANCO').status_code,200)
+
+    def test_removing_a_color_is_refused_once_publication_started(self):
+        self.script_ready()
+        self.assertEqual(self.upload('video',mp4_metadata()).status_code,201)
+        self.assertEqual(self.move('video_approved').status_code,200)
+        self.assertEqual(self.move('ready_to_publish').status_code,200)
+        self.assertEqual(self.remove_color('Azul').status_code,409)
+
     def test_hashtags_do_not_assume_a_female_audience(self):
         neutro=build_caption(dict(product='Camiseta unissex de algodão',outfit='camiseta',color='preto',
                                   audience='adultos',benefit='tem algodão',angle='mostrar o caimento',

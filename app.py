@@ -1752,6 +1752,78 @@ def create_app(config=None):
             return signed_redirect(row['path'],download_name=download_name)
         return send_file(path_for(row),mimetype=row['mime'],as_attachment=request.args.get('download')=='1',download_name=row['original_name'],conditional=True)
 
+    def slot_of(asset):
+        """Cor de uma midia: o slot, ou a cor no metadata das midias antigas."""
+        meta=asset.get('metadata') or {}
+        if isinstance(meta,str):
+            try:
+                meta=json.loads(meta)
+            except ValueError:
+                meta={}
+        return (asset.get('slot') or (meta.get('color') if isinstance(meta,dict) else '') or '').strip()
+
+    @app.post('/api/campaigns/<int:cid>/colors/remove')
+    def remove_color(cid):
+        """Tira uma cor da campanha sem refazer as outras.
+
+        Editar a lista de cores no briefing apaga as imagens, os roteiros e os
+        videos de todas as cores. Aqui so a cor removida perde o que tem: as
+        outras mantem imagem, falas, videos e aprovacoes. A etapa so avanca
+        (a IA leu uma cor a mais e as imagens que existem ja bastam)."""
+        data=body()
+        wanted=text_in(data,'color')
+        with writer.write(cid,data) as c:
+            editable(c)
+            if STATES.index(c['status'])>=STATES.index('ready_to_publish'):
+                raise Invalid('Esta campanha já está na etapa de publicação. Crie outra para trocar as cores.',409)
+            colors=variacao.colors(c['color'])
+            hit=next((x for x in colors if x.casefold()==wanted.casefold()),None)
+            if hit is None:
+                raise Invalid('Cor não encontrada nesta campanha.',404)
+            if len(colors)<2:
+                raise Invalid('A campanha precisa de pelo menos uma cor.',409)
+            remaining=[x for x in colors if x!=hit]
+            text=', '.join(remaining)
+            if variacao.colors(text)!=remaining:
+                raise Invalid('Não deu para reescrever a lista de cores. Edite as cores no briefing.',409)
+            found=slots(cid)
+            if found[0]['id'] is None:
+                raise Invalid('Gere os prompts por cor antes de excluir uma cor, ou edite as cores no briefing.',409)
+            kept=[s for s in found if s['color'].casefold()!=hit.casefold()]
+            db().execute('DELETE FROM campaign_variants WHERE campaign_id=? AND color=?',(cid,next(s['color'] for s in found if s['color'].casefold()==hit.casefold())))
+            if found[0]['color'].casefold()==hit.casefold():
+                # A 1a cor edita a referencia da modelo; as outras editam a imagem aprovada.
+                # Quem vira a 1a cor precisa dos prompts de imagem e de video da 1a cor.
+                head=kept[0]
+                prompts=dict(head['prompts'])
+                brief={**c,'color':head['color']}
+                variation=prompts.get('variation_index')
+                variation=int(head['index'] if variation is None else variation)
+                prompts['image']=generate(brief,variant_index=variation,base_image=False)['image']
+                prompts['video']=ensure_fits(brief,variacao.video_prompt(brief,head['color'],0,prompts))
+                db().execute('UPDATE campaign_variants SET prompts=? WHERE id=?',(json.dumps(prompts,ensure_ascii=False),head['id']))
+                save_prompts(cid,{k:prompts[k] for k in PROMPTS+EXTRA_PROMPTS+['variation_index'] if k in prompts})
+            if len(kept)==1:
+                # Uma cor so: a campanha volta a ser de uma cor, com os prompts na propria campanha.
+                db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
+            present_images=set()
+            present_videos=set()
+            for kind,present in (('image',present_images),('video',present_videos)):
+                for asset in assets_of(cid,kind):
+                    if slot_of(asset).casefold()==hit.casefold():
+                        db().execute('UPDATE assets SET active=0,approved_at=NULL WHERE id=?',(asset['id'],))
+                    else:
+                        present.add(slot_of(asset))
+            db().execute('DELETE FROM device_videos WHERE campaign_id=? AND slot=?',(cid,hit))
+            present_videos.update(r.get('slot') or '' for r in device_videos_of(cid))
+            db().execute('UPDATE campaigns SET color=? WHERE id=?',(text,cid))
+            left=set(variacao.slots(text))
+            if c['status']=='briefing' and left<=present_images:
+                state(cid,'image_ready')
+            elif c['status']=='script_ready' and left<=present_videos:
+                state(cid,'video_ready')
+        return jsonify(detail(cid))
+
     @app.patch('/api/campaigns/<int:cid>/layout')
     def layout(cid):
         positions=body().get('layout')
