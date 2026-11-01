@@ -2683,6 +2683,97 @@ class WorkflowTests(unittest.TestCase):
                        generator='grok',objection='',offer='',video_mode='espelho'),
                 **self.ARC_PRODUCTS[name],**extra}
 
+    def said(self,clip):
+        """As falas como o prompt do clipe as cita (o prompt tira o ponto final e troca 'look' por 'visual')."""
+        return re.findall(r'Fala \(PT-BR\): "([^"]*)"',clip['prompt'])
+
+    def test_agent_pack_sends_the_rules_once_and_only_the_delta_for_the_next_clips(self):
+        from services.story_arcs import AGENT_LIMIT,build_story_arc
+        for name in self.ARC_PRODUCTS:
+            c=self.arc_campaign(name)
+            for clips in (2,3):
+                for video_mode in ('espelho',''):
+                    c['video_mode']=video_mode
+                    seq=build_story_arc(c,c['color'],'motivos',clips)
+                    label=(name,clips,video_mode)
+                    pack=seq['agent']
+                    msgs=pack['messages']
+                    self.assertEqual(len(msgs),clips+1,label)          # N clipes + "unir"
+                    self.assertEqual([m['kind'] for m in msgs],['clip']*clips+['join'],label)
+                    self.assertTrue(msgs[-1]['optional'],label)
+                    for m in msgs:
+                        self.assertLessEqual(m['chars'],AGENT_LIMIT,(label,m['index']))
+                        self.assertEqual(m['problems'],[],(label,m['index'],m['problems']))
+                        self.assertEqual(m['chars'],len(m['text']))
+                    # Mensagem 1 = o prompt completo do clipe 1 (so a frase de apresentacao a mais).
+                    first=msgs[0]['text']
+                    self.assertIn('Gere só o CLIPE 1',first)
+                    self.assertIn('CENÁRIO FIXO',first)
+                    for line in self.said(seq['clips'][0]):
+                        self.assertIn(line,first,label)
+                    for index,clip in enumerate(seq['clips'][1:],start=2):
+                        text=msgs[index-1]['text']
+                        # Cada clipe seguinte traz as falas dele, palavra por palavra, e so as dele.
+                        for line in self.said(clip):
+                            self.assertIn(line,text,(label,index))
+                        for other in seq['clips']:
+                            if other['index']!=index:
+                                for line in self.said(other):
+                                    self.assertNotIn(line,text,(label,index))
+                        # As regras nao se repetem e o ponto de partida e o clipe anterior (nunca a imagem).
+                        for regra in ('CENÁRIO FIXO','ATRIBUTOS NÃO CONFIRMADOS','ORIENTAÇÃO CORPORAL','imagem anexada'):
+                            self.assertNotIn(regra,text,(label,index,regra))
+                        self.assertIn(f'último quadro do clipe {index-1}',text,(label,index))
+                        self.assertIn(f'CLIPE {index} de {clips}',text,(label,index))
+                        self.assertIn(f'PRIMEIRO QUADRO: o último quadro do clipe {index-1} (vídeo anexado), e não a imagem aprovada',text,(label,index))
+                        self.assertIn('ÂNCORA',text,(label,index))
+                        self.assertIn(c['model_name'],text)
+                        self.assertIn(c['color'],text)
+                        self.assertLess(len(text),len(clip['prompt'])*0.6,(label,index))
+                        self.assertEqual(msgs[index-1]['attach'],[f'Vídeo do clipe {index-1} (o que o agente gerou)'])
+                    # Gestos do clipe (AÇÕES) tambem vao por inteiro.
+                    for clip,m in zip(seq['clips'],msgs):
+                        acoes=re.search(r'AÇÕES \([^)]*\): (.*?) ENCERRAMENTO',clip['prompt'],re.S).group(1)
+                        self.assertIn(acoes.replace('da imagem anexada',f'do último quadro do clipe {clip["index"]-1}'),
+                                      m['text'],(label,clip['index']))
+
+    def test_agent_pack_is_only_for_grok_and_never_swaps_the_default_prompts(self):
+        from services.story_arcs import build_story_arc
+        c=self.arc_campaign()
+        grok=build_story_arc(c,c['color'],'motivos',2)
+        flow=build_story_arc({**c,'generator':'flow'},c['color'],'motivos',2)
+        self.assertIsNotNone(grok['agent'])
+        self.assertIsNone(flow['agent'])
+        # O pacote e um campo a mais: o prompt completo, o Guia e o Extend de cada clipe seguem no resultado.
+        for clip in grok['clips']:
+            self.assertTrue(clip['prompt'] and clip['guide'])
+            self.assertLessEqual(len(clip['prompt']),3940)
+        self.assertTrue(grok['clips'][1]['extend'])
+
+    def test_agent_pack_falls_back_to_the_whole_clip_when_it_cannot_split_it(self):
+        from services import story_arcs
+        c=self.arc_campaign()
+        seq=story_arcs.build_story_arc(c,c['color'],'motivos',2)
+        clips=[dict(clip) for clip in seq['clips']]
+        clips[1]['prompt']=clips[1]['prompt'].replace('SHOT LIST','LISTA DE CENAS')
+        pack=story_arcs.agent_pack(c,{**c,'color':c['color']},True,clips)
+        second=pack['messages'][1]
+        self.assertIn('não consegui separar',' '.join(second['problems']))
+        self.assertIn(clips[1]['prompt'],second['text'])
+
+    def test_agent_pack_flags_a_message_over_the_limit_instead_of_cutting_speech(self):
+        from services import story_arcs
+        c=self.arc_campaign()
+        seq=story_arcs.build_story_arc(c,c['color'],'motivos',2)
+        clips=[dict(clip) for clip in seq['clips']]
+        clips[0]['prompt']=clips[0]['prompt']+' '+('Regra extra que nao pode ser cortada. '*30)
+        pack=story_arcs.agent_pack(c,{**c,'color':c['color']},True,clips)
+        first=pack['messages'][0]
+        self.assertGreater(first['chars'],story_arcs.AGENT_LIMIT)
+        self.assertIn('limite',' '.join(first['problems']))
+        for line in self.said(clips[0]):
+            self.assertIn(line,first['text'])
+
     def test_story_arc_motives_are_the_facts_the_briefing_confirms(self):
         from services.story_arcs import arc_facts
         facts=arc_facts(self.arc_campaign())

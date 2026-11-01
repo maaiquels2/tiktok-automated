@@ -276,6 +276,29 @@ export function SequenceChoice({clips,arc,format,onClips,onArc,idPrefix='seq'}){
   </div>;
 }
 
+// EXPERIMENTAL (services/story_arcs.py agent_pack): no agente do Grok (grok.com/imagine/agent) as REGRAS vao uma vez,
+// na mensagem 1 com o clipe 1; cada clipe seguinte so traz o que muda. O prompt completo continua sendo o padrao.
+function AgentPack({pack}){
+  const [open,setOpen]=useState(false);
+  return <section className="rd-agent-pack">
+    <button type="button" className="rd-agent-toggle" aria-expanded={open} onClick={()=>setOpen(v=>!v)}>
+      <span className="rd-story-eyebrow">EXPERIMENTAL · AGENTE DO GROK</span>
+      <strong>{open?'Fechar o pacote do agente':'Gerar no agente do Grok: regras uma vez só'}</strong>
+      <small>Cole a mensagem 1 e, em seguida, só o que muda em cada clipe. Os prompts completos acima continuam sendo o padrão.</small>
+    </button>
+    {open&&<div className="rd-agent-body">
+      {pack.notes.map(note=><small key={note} className="help">{note}</small>)}
+      {pack.messages.map(message=><div key={message.index} className="variant-prompt rd-agent-message">
+        <div className="section-title"><strong>{message.title}{message.optional&&<small> · opcional</small>}</strong><CopyButton text={message.text} label="Copiar mensagem"/></div>
+        {message.attach.length>0&&<p className="help"><strong>Anexe:</strong> {message.attach.join(' · ')}</p>}
+        <PromptBox text={message.text}/>
+        <PromptMeter length={message.chars} limit={pack.limit}/>
+        {message.problems.map(problem=><small key={problem} className="help story-arc-problem">⚠ {problem}</small>)}
+      </div>)}
+    </div>}
+  </section>;
+}
+
 export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=0,autoBuild=false}){
   // Escolhida na criacao da campanha: ja abre com o arco e os clipes marcados e monta sozinha.
   const [open,setOpen]=useState(autoBuild);
@@ -357,6 +380,7 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
           </div>;
         })}
         <button type="button" disabled={loading} onClick={()=>build(drafts)}>Atualizar prompts com as falas editadas</button>
+        {data.agent&&<AgentPack pack={data.agent}/>}
         <h4>Como gerar no Grok</h4>
         <ul>{data.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>
         <h4>Montagem no CapCut</h4>

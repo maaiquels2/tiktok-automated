@@ -310,6 +310,24 @@ def _moves(clip_facts):
     return ' e, em seguida, '.join(f['gesture'] for f in clip_facts)
 
 
+def _trim(text, limit):
+    """O Grok corta em 4000 caracteres sem avisar: cortes de baixa prioridade (so frases de regra, nunca fala nem
+    gesto), um de cada vez, so se passar de ``limit``."""
+    for pattern in (r' Notas adicionais do operador \(não são falas\): [^.]*\. ',
+                    r' Estilo visual: natural e realista\.',
+                    r' Ângulo de venda \(contexto, não criar atributos\): [^.]*\.',
+                    r' Com material confirmado, preservar textura e brilho\.',
+                    r' Sem promessas não demonstradas no vídeo\.',
+                    r'(?<=\. )Outras peças citadas na fala não entram no vídeo\. ',
+                    r' Visual: [^.]*\.'):  # repete o "Produto em cena" logo antes
+        if len(text) <= limit:
+            break
+        text = re.sub(pattern, ' ', text, count=1)
+    if len(text) > limit:
+        text = re.sub(r' {2,}', ' ', text)  # cada corte deixa um espaco; so aqui, para nao mexer nos que ja cabem
+    return text
+
+
 def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, w=None):
     w = w or _wording(True)
     final = n == total
@@ -354,20 +372,7 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, 
                                'recomeçar. Fala (PT-BR):', text)
         text = _sub1(r'(ANEXE a IMAGEM APROVADA da cor [^.]*\.)',
                      lambda m: m.group(1) + ' ' + w['continuity'].format(n=n, total=total), text)
-    # O Grok corta em 4000 caracteres sem avisar: cortes de baixa prioridade, um de cada vez, so se passar.
-    for pattern in (r' Notas adicionais do operador \(não são falas\): [^.]*\. ',
-                    r' Estilo visual: natural e realista\.',
-                    r' Ângulo de venda \(contexto, não criar atributos\): [^.]*\.',
-                    r' Com material confirmado, preservar textura e brilho\.',
-                    r' Sem promessas não demonstradas no vídeo\.',
-                    r'(?<=\. )Outras peças citadas na fala não entram no vídeo\. ',
-                    r' Visual: [^.]*\.'):  # repete o "Produto em cena" logo antes
-        if len(text) <= GROK_LIMIT:
-            break
-        text = re.sub(pattern, ' ', text, count=1)
-    if len(text) > GROK_LIMIT:
-        text = re.sub(r' {2,}', ' ', text)  # cada corte deixa um espaco; so aqui, para nao mexer nos que ja cabem
-    return text, opening, acoes
+    return _trim(text, GROK_LIMIT), opening, acoes
 
 
 def _guide(source, n, total, lines, acoes, w=None):
@@ -544,6 +549,78 @@ def clip_problems(trio, index, clips, source):
     return problems
 
 
+# ------------------------------------------------------------------------------------------ pacote do agente
+# O agente do Grok Imagine (grok.com/imagine/agent) segue instrucoes numa conversa: as REGRAS (formato, identidade,
+# cenario, camera, maos, audio) vao uma vez, na mensagem 1 com o clipe 1, e cada clipe seguinte so traz o que muda.
+# Experimental: nenhuma pagina da xAI descreve o agente nem o limite dele; os 4000 caracteres sao os do campo de prompt
+# do Grok e do uso relatado pelo operador. O prompt completo de cada clipe continua sendo o padrao.
+AGENT_LIMIT = generators.GROK.max_prompt_chars
+_CONTINUITY_SPAN = re.compile(r'CONTINUIDADE: .*?sem reapresentar a peça\.')
+_ACTIONS_SPAN = re.compile(r'AÇÕES \([^)]*\): .*?ENCERRAMENTO \(\d+–15s\): [^\n]*')
+_SHOT_LIST_SPAN = re.compile(r'SHOT LIST \d+s[^\n]*\n(?:\d+–\d+s [^\n]*(?:\n|$))+')
+
+
+def _clip_delta(prompt, previous):
+    """O que muda num clipe (continuidade, acoes e shot list com as falas), ancorado no ultimo quadro do clipe anterior.
+    None se algum trecho nao for encontrado: nunca se manda um pedaco do clipe sem avisar."""
+    parts = [pattern.search(prompt) for pattern in (_CONTINUITY_SPAN, _ACTIONS_SPAN, _SHOT_LIST_SPAN)]
+    if not all(parts):
+        return None
+    text = '\n'.join(part.group(0).strip() for part in parts)
+    text = text.replace('da imagem anexada', f'do último quadro do clipe {previous}')
+    return None if 'imagem anexada' in text else text
+
+
+def agent_pack(c, source, espelho, clips):
+    """Mensagens para colar no agente do Grok, na ordem: 1 (regras + clipe 1), uma por clipe seguinte e a de unir.
+    ``clips`` sao os clipes ja montados (com ``prompt``). Vazio fora do Grok: o Flow nao tem esse agente."""
+    if generators.of(c) is not generators.GROK or not clips:
+        return None
+    total, color = len(clips), source.get('color') or ''
+    messages = []
+
+    intro = f'{total} clipes de {SECONDS_PER_CLIP} s da MESMA gravação, um por mensagem. Gere só o CLIPE 1.\n'
+    first = intro + _trim(clips[0]['prompt'], AGENT_LIMIT - len(intro))
+    messages.append(dict(index=1, kind='clip', optional=False, title='Mensagem 1 · regras e clipe 1',
+                         attach=[f'Imagem aprovada da cor {color}' if color else 'Imagem aprovada'], text=first))
+
+    anchor = (f'ÂNCORA: a mesma {source.get("model_name") or "modelo"}, {source.get("product") or "o mesmo produto"}'
+              f'{f" na cor {color}" if color else ""}, {"o mesmo espelho" if espelho else "o mesmo cenário"} e a mesma luz.')
+    for clip in clips[1:]:
+        k = clip['index']
+        delta = _clip_delta(clip['prompt'], k - 1)
+        if delta is None:
+            # Sem separar o clipe com seguranca, vale o prompt completo dele (mais longo, mas inteiro).
+            body = f'Agora gere o CLIPE {k} de {total}.\n{clip["prompt"]}'
+        else:
+            body = (f'Agora gere o CLIPE {k} de {total}, mesmas REGRAS da mensagem 1 (formato, identidade, cenário, '
+                    f'câmera, mãos, atributos não confirmados e áudio), tudo igual ao clipe {k - 1}.\n{anchor}\n'
+                    f'PRIMEIRO QUADRO: o último quadro do clipe {k - 1} (vídeo anexado), e não a imagem aprovada; '
+                    'se não der para usar o vídeo, use a IMAGEM APROVADA.\n'
+                    f'{delta}\nÁudio: voz feminina em português do Brasil, a mesma do clipe {k - 1}; fale só as '
+                    'falas entre aspas, palavra por palavra.')
+        messages.append(dict(index=k, kind='clip', optional=False, title=f'Mensagem {k} · só o clipe {k}',
+                             attach=[f'Vídeo do clipe {k - 1} (o que o agente gerou)'], text=body, whole=delta is None))
+    messages.append(dict(index=total + 1, kind='join', optional=True, title='Mensagem final · unir (opcional)',
+                         attach=[], text=f'Pode unir os {total} clipes em um vídeo só, na ordem, sem cortar nem mudar a '
+                                         'duração de nenhum e mantendo o áudio de cada um.'))
+    for message in messages:
+        message['chars'] = len(message['text'])
+        message['problems'] = []
+        if message['chars'] > AGENT_LIMIT:
+            message['problems'].append(
+                f'a mensagem tem {message["chars"]} caracteres e o limite é {AGENT_LIMIT:,}'.replace(',', '.')
+                + '. Nenhuma fala nem gesto foi cortado: use o prompt completo do clipe.')
+        if message.pop('whole', False):
+            message['problems'].append('não consegui separar este clipe das regras; mandei o prompt completo dele.')
+    return dict(limit=AGENT_LIMIT, messages=messages,
+                notes=['Experimental: o agente do Grok (grok.com/imagine/agent) não tem página oficial de documentação; '
+                       'o limite de 4.000 caracteres é o do campo de prompt do Grok.',
+                       'Uma cor por conversa. Anexe a imagem aprovada na mensagem 1 e, nas seguintes, o vídeo do clipe '
+                       'anterior. Se um clipe reiniciar (saudação, peça reapresentada, rosto ou cenário errado), '
+                       'repita só a ÂNCORA, não o prompt inteiro.'])
+
+
 def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w):
     """Prompts de cada clipe, montagem no CapCut e o texto para copiar."""
     # De frente, a sequencia traz falas proprias: o formato da campanha (teste, comentario...) nao entra nos
@@ -602,4 +679,4 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
     return dict(arc=arc, label=ARCS[arc]['label'], clips_count=clips, color=color, drafted=drafted,
                 total_seconds=total_seconds, facts=[f['text'] for f in facts[:3]], clips=result, tips=tips,
                 capcut=capcut, notes=notes, notices=generators.flow_notices(c, 'Esta sequência', SECONDS_PER_CLIP),
-                text=text)
+                agent=agent_pack(c, source, espelho, result), text=text)

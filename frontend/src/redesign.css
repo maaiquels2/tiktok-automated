@@ -564,6 +564,12 @@ button.rd-brand {
 }
 .rd-next-bar strong { font-size: 15px; }
 
+/* ---------- Pacote do agente do Grok (experimental) ---------- */
+.rd-agent-pack { margin: 20px 0 8px; padding-top: 16px; border-top: 1px solid var(--rd-line, rgba(127,127,127,.25)); }
+.rd-agent-toggle { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; min-height: 48px; text-align: left; }
+.rd-agent-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.rd-agent-message .help { display: block; margin: 4px 0; }
+
 /* ---------- Excluir uma cor ---------- */
 .rd-color-remove { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--rd-line, rgba(127,127,127,.25)); }
 .rd-color-remove .help { flex: 1 1 260px; }
