@@ -1942,6 +1942,35 @@ body:has(.landing) {
   display: block;
   color: var(--danger, #b3261e);
 }
+.story-arc-turns {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.story-arc-turn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 6px 0;
+}
+.story-arc-turn > span {
+  min-width: 56px;
+  font-weight: 600;
+}
+.story-arc-turn select {
+  flex: 1 1 220px;
+  max-width: 100%;
+}
+.story-arc-texture {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.story-arc-texture small.help {
+  display: block;
+}
 .story-arc-copy {
   display: flex;
   flex-wrap: wrap;
