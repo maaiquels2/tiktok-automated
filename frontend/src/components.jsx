@@ -7,8 +7,9 @@ import { FieldCount, ScriptBudget } from './scriptBudget';
 // Regras de formato do servidor (services/formats.py; um teste confere).
 import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
+import { warningsFor, downloadLastFrame } from './mediaChecks';
 import { isFewFacts, pointToFacts } from './sequenceText';
-import { modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, persuasionPreview, savePromptToLibrary } from './api';
+import { api, modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -62,6 +63,43 @@ export function TextEditor({title,value,field,onSave,busy,onError,onDirty,readOn
   const [draft,setDraft]=useState(value||'');
   const changed=draft!==value;
   return <section className="text-editor"><div className="section-title"><h3>{title}</h3><CopyButton text={draft} onError={onError}/></div><textarea autoComplete="off" aria-label={title} value={draft} rows={rows} readOnly={readOnly} onChange={e=>{setDraft(e.target.value);onDirty(true)}} maxLength={12000}/>{changed&&<button disabled={busy||!draft.trim()} onClick={()=>onSave({[field]:draft})}>Salvar texto</button>}</section>;
+}
+// Avisos de arquivo (proporcao da imagem, duracao/resolucao/audio do MP4). So avisam: nunca travam o fluxo.
+export function MediaWarnings({warnings,kind,slot}){
+  const list=warningsFor(warnings,{kind,slot});
+  if(!list.length)return null;
+  return <ul className="rd-alert media-warnings" role="status" aria-label="Avisos do arquivo">{list.map(w=><li key={`${w.code}-${w.slot}-${w.asset_id||''}`}>{w.slot?`${w.slot}: `:''}{w.message}</li>)}</ul>;
+}
+// Conferencia completa do MP4 anexado (inclui silencio e corte de cena quando o servidor tem ffmpeg).
+export function VideoChecks({asset}){
+  const [checks,setChecks]=useState(null);
+  const id=asset?.id;
+  useEffect(()=>{
+    setChecks(null);
+    if(!id)return;
+    let alive=true;
+    api(`/assets/${id}/check`).then(r=>{if(alive)setChecks(r.checks||[])}).catch(()=>{if(alive)setChecks([])});
+    return()=>{alive=false};
+  },[id]);
+  if(!id||!checks||!checks.length)return null;
+  const mark={ok:'✓',aviso:'!',nao_verificado:'–'};
+  const label={ok:'conferido',aviso:'aviso',nao_verificado:'não verificado'};
+  return <ul className="video-checks" aria-label="Conferência do vídeo">{checks.map(c=><li key={c.code} className={'check-'+c.status} title={c.message}><span aria-hidden="true">{mark[c.status]}</span> {c.message} <small>({label[c.status]})</small></li>)}</ul>;
+}
+export function LastFrameButton({asset,deviceFile,record}){
+  const [state,setState]=useState({busy:false,error:''});
+  const src=asset?.url||deviceFile?.url;
+  if(!src)return null;
+  const run=async()=>{
+    setState({busy:true,error:''});
+    try{await downloadLastFrame({assetId:asset?.id,src,name:asset?.original_name||record?.original_name});setState({busy:false,error:''})}
+    catch(e){setState({busy:false,error:e?.message||'Não consegui tirar o último quadro.'})}
+  };
+  return <div className="last-frame">
+    <button type="button" className="upload-button" disabled={state.busy} onClick={run}><Download size={18}/> {state.busy?'Gerando…':'Baixar último quadro'}</button>
+    <small className="help">Use como primeiro quadro do clipe 2 ou anexe ao agente do Grok. Nada é salvo na campanha.</small>
+    {state.error&&<p className="rd-alert" role="alert">{state.error}</p>}
+  </div>;
 }
 export function AssetView({asset,title,compact=false}){
   if(!asset)return <div className="media-empty">{title}</div>;
@@ -450,6 +488,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
   return <div className="rd-workbench">
     <aside className="rd-wb-media" aria-label="Imagem aprovada">
       {image?<AssetView asset={image} title={`Imagem aprovada · ${name}`} compact/>:<div className="notice">Falta a imagem aprovada de {name}.</div>}
+      <MediaWarnings warnings={campaign?.warnings} kind="image" slot={color||''}/>
     </aside>
     <div className="rd-wb-main">
       {campaign?.id&&campaign.sequence_clips&&ARC_FORMATS.includes(campaign.video_mode||'')&&<div className="rd-story rd-story-top">
@@ -512,6 +551,9 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <div className="rd-drop-head"><strong>{hasVideo?`Vídeo de ${name}`:`Traga o vídeo de ${name}`}</strong><span>MP4 vertical 9:16, cerca de 15 s. No celular, “usar da galeria” valida sem enviar o arquivo.</span></div>
         {video&&<AssetView asset={video} title={`Vídeo · ${name}`} compact/>}
         {deviceVideo&&<DeviceVideoCard record={deviceVideo} localFile={deviceFile}/>}
+        {video&&<VideoChecks asset={video}/>}
+        {!video&&deviceVideo&&<MediaWarnings warnings={campaign?.warnings} kind="video" slot={color||''}/>}
+        {hasVideo&&<LastFrameButton asset={video} deviceFile={deviceFile} record={deviceVideo}/>}
         {onUpload&&!immutable&&<Uploader kind="video" color={color||undefined} exists={!!video} busy={busy} disabled={disabled} onUpload={onUpload}/>}
         {onDeviceVideo&&!immutable&&<DeviceVideoPicker color={color||undefined} record={deviceVideo} busy={busy} disabled={disabled} onSelect={onDeviceVideo}/>}
       </section>
