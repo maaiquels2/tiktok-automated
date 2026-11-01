@@ -1007,6 +1007,22 @@ button,
   margin: 16px 0;
   display: block;
 }
+/* Avisos que nunca barram (peça × nicho, segurança): discretos, menores que o .notice comum. */
+.campaign-warnings {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+.notice.campaign-warning {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--surface-50);
+  border-color: var(--line-50);
+  border-left-width: 3px;
+  color: var(--ink-54);
+}
 .notice.success {
   color: var(--ink-60);
   background: var(--surface-40);

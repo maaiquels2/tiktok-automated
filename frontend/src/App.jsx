@@ -7,7 +7,7 @@ import { AboveDialogs } from './aboveDialogs.jsx';
 import { api, reloadHelps, health, openBrowserFree, reached, statusLabels, stageInfo, produceStages, nextStage, studioAudit, studioIdentity, uploadAssetDirect, uploadProductPhotosDirect, uploadModelLibraryPhotoDirect, analyzeProductPhotoLocal, analyzeProductPhotoDirect, saveToSpeechBank, writerSettings } from './api';
 import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, swatchFor, nextStepLabel } from './ui';
-import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS, AiUsage, SaveToLibrary} from './components';
+import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS, AiUsage, SaveToLibrary, CampaignWarnings} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
 import { pointToFacts } from './sequenceText';
 // Orcamento do roteiro: o mesmo do servidor (services/script_budget.py; um teste confere).
@@ -1082,6 +1082,7 @@ function Panel({c,identity,selected,busy,references,deviceFiles,studioAuditRepor
     const firstVideo=c.assets.find(a=>a.kind==='video');
     const limit=c.generator_info?.max_prompt_chars||null;
     return <>
+      <CampaignWarnings warnings={c.warnings}/>
       {c.variants?.length>0
         ?<VariantList variants={c.variants} images={c.assets} videos={c.assets} deviceVideos={c.device_videos} deviceFiles={deviceFiles} onError={onError} onRemoveColor={onRemoveColor} focus="video" onUpload={onUpload} onDeviceVideo={onDeviceVideo} onRefreshVideoPrompt={onRefreshVideoPrompt} onImproveVideoPrompt={onImproveVideoPrompt} videoPromptLimit={limit} busy={busy} disabled={immutable} immutable={immutable} campaign={c} onChangeVideoMode={onChangeVideoMode} onOpenGenerator={onOpenGenerator}/>
         :<VideoWorkbench campaign={c} prompts={c.prompts} color={c.color||''} image={image} video={video} deviceVideo={c.device_videos?.[0]} deviceFile={deviceFiles['']} busy={busy} disabled={immutable} immutable={immutable} onError={onError} onUpload={onUpload} onDeviceVideo={onDeviceVideo} onRefreshVideoPrompt={onRefreshVideoPrompt} onImproveVideoPrompt={onImproveVideoPrompt} onChangeVideoMode={onChangeVideoMode} onOpenGenerator={onOpenGenerator} videoPromptLimit={limit}/>}
