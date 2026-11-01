@@ -110,7 +110,9 @@ def base_tree(ref, tmp):
     changed = subprocess.run(['git', '-C', str(ROOT), 'diff', '--name-only', ref, '--', 'services'],
                              capture_output=True, text=True, check=True).stdout.split()
     for path in changed:
-        shown = subprocess.run(['git', '-C', str(ROOT), 'show', f'{ref}:{path}'], capture_output=True, check=True)
+        shown = subprocess.run(['git', '-C', str(ROOT), 'show', f'{ref}:{path}'], capture_output=True)
+        if shown.returncode:
+            continue  # arquivo novo desde a base (ex.: um servico novo): a base nao tinha, a copia de services/ o mantem
         (target / path).write_bytes(shown.stdout)
     return str(target), changed
 
