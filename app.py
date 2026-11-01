@@ -3437,7 +3437,13 @@ def create_app(config=None):
                     if entrada and entrada.get('facts')==fatos_agora and entrada.get('lines'):
                         lines,extra_resposta=entrada['lines'],{'written_by':rotulo}
                         break
-            resposta={**build_story_arc(c,color,arc,clips,lines,base_image=base_image),**extra_resposta}
+            # Opt-in experimental, so neste pedido (gravar no briefing apagaria a imagem aprovada): giro do corpo por
+            # clipe e close de textura nos motivos que sao material ou detalhe confirmado.
+            clip_turns=data.get('clip_turns')
+            if clip_turns is not None and not isinstance(clip_turns,(list,str)):
+                raise Invalid('Giro por clipe inválido.')
+            resposta={**build_story_arc(c,color,arc,clips,lines,base_image=base_image,clip_turns=clip_turns,
+                                        texture=data.get('texture') is True),**extra_resposta}
             if data.get('lines') is not None and not data.get('ai'):
                 # Falas que o operador mandou (ja conferidas pelo montador): ficam guardadas.
                 editadas=[list(clip['lines']) for clip in resposta['clips']]

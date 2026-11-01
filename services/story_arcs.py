@@ -9,8 +9,9 @@ de cerca de 30 s (2 clipes) ou 45 s (3 clipes).
 
 Validado no Grok com a calca jeans no espelho (480p): identidade, roupa e cenario iguais entre os clipes.
 O que o teste real ensinou e esta aqui:
-  - o clipe 2 (e o 3) parte da MESMA imagem aprovada do clipe 1; o prompt diz isso em vez de pedir para
-    "retomar o ultimo quadro", que o Grok nao recebe;
+  - existem dois modos para o clipe 2 (e o 3): no PROMPT COMPLETO (o padrao) ele parte da MESMA imagem aprovada do
+    clipe 1, e o prompt diz isso em vez de pedir para "retomar o ultimo quadro", que o Grok da tela nao recebe; no
+    PACOTE DO AGENTE (agent_pack, experimental) o primeiro quadro e o video do clipe anterior, anexado na conversa;
   - so o ultimo clipe pede a compra e aponta para o carrinho; os anteriores terminam no meio do gesto, com
     uma pergunta aberta;
   - o clipe 1 sai com o prompt original do espelho (os ajustes finos o deixaram lento);
@@ -31,8 +32,8 @@ from services import generators, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
-    PRODUCT_FEATURES, SPOKEN_OCCASION, body_turns, cta_pool, pick_in_budget, piece_forms,
-    product_features, proof_gestures, video_details, generate,
+    PRODUCT_FEATURES, SPOKEN_OCCASION, back_rule, body_turns, cta_pool, pick_in_budget, piece_forms,
+    product_features, proof_gestures, texture_beat, video_details, generate,
     without_niche_defaults,
 )
 from services.formats import SPEAKING_FRONT as FRONT_FORMATS, video_mode as _video_mode
@@ -146,11 +147,14 @@ def _feature_label(chunk):
     return ''
 
 
-def arc_facts(c, limit=MAX_FACTS):
+def arc_facts(c, limit=MAX_FACTS, texture=False):
     """Os motivos: o que o briefing confirma, na ordem em que o operador escreveu (campo Detalhes), mais os
-    atributos reconhecidos nos outros campos. Cada fato leva o gesto que o demonstra no espelho."""
+    atributos reconhecidos nos outros campos. Cada fato leva o gesto que o demonstra no espelho.
+    ``texture`` (opt-in, experimental): fato que e material ou detalhe com close (courino, cetim, botoes...) ganha
+    um close curto de 1 a 2 s; os outros fatos nao mudam."""
     turns = body_turns(c)
-    mao = _wording(_video_mode(c) == 'espelho')['mao']
+    espelho = _video_mode(c) == 'espelho'
+    mao = _wording(espelho)['mao']
     facts, seen_text, seen_label = [], set(), set()
 
     def add(text, label):
@@ -161,8 +165,13 @@ def arc_facts(c, limit=MAX_FACTS):
         if label:
             plan = proof_gestures([label], turns=turns)
             gesture = plan[0].split(' → ', 1)[1] if plan else ''
+        close = ''
+        if texture:
+            own, close = texture_beat(text, label, espelho, mao)
+            if close:
+                gesture = f'{gesture or own}, e {close}'
         facts.append(dict(
-            text=text, label=label,
+            text=text, label=label, texture=bool(close),
             gesture=gesture or f'mostra {mao}, bem à vista, o detalhe "{text}" e volta a mão para a peça'))
         seen_text.add(key)
         if label:
@@ -310,6 +319,74 @@ def _moves(clip_facts):
     return ' e, em seguida, '.join(f['gesture'] for f in clip_facts)
 
 
+# Giro do corpo POR CLIPE (opt-in, experimental: giro do corpo no espelho nunca foi testado no Grok). '' = o giro da
+# campanha (como sempre foi); os outros valem so para aquele clipe. 'costas_pausa' e o unico valor novo: parada de
+# costas de 3 a 6 s com um olhar por cima do ombro; o 'costas' da campanha (no maximo 1 s, sem olhar) nao muda.
+CLIP_TURNS = {
+    '': dict(label='Igual à campanha', move=''),
+    'frente': dict(label='Sempre de frente', move=''),
+    'leve_lado': dict(label='Leve de lado (20 a 30 graus)',
+                      move='inclina o corpo uma única vez, de 20 a 30 graus, e volta de frente, com o rosto e a frente '
+                           'da peça sempre visíveis'),
+    'lado': dict(label='De lado, até o perfil',
+                 move='vira uma única vez até o perfil, sem passar dele nem mostrar as costas, e volta de frente'),
+    'costas': dict(label='De costas por no máximo 1 s',
+                   move='faz uma única virada contínua de costas, por no máximo 1 segundo, e volta de frente na hora, '
+                        'sem pose nem olhar por cima do ombro'),
+    'costas_pausa': dict(label='De costas de 3 a 6 s, olhando por cima do ombro uma vez', move=''),
+}
+_BACK_FACTS = ('sem transparência', 'decote nas costas')   # o que a parada de costas ja demonstra
+_TURNING_GESTURE = re.compile(r'\b(?:gir\w*|vir[ao]\w*|perfil|de costas)\b', re.I)
+
+
+def _clip_turn_list(clip_turns, clips):
+    """Valida o giro de cada clipe. None quando nenhum clipe escolheu giro proprio (saida igual a de sempre)."""
+    if clip_turns is None:
+        return None
+    if isinstance(clip_turns, str):
+        clip_turns = clip_turns.split(',')
+    if not isinstance(clip_turns, (list, tuple)) or len(clip_turns) != clips:
+        raise ArcError(f'Escolha o giro do corpo de cada um dos {clips} clipes.', 400)
+    values = [str(v or '').strip() if isinstance(v, (str, type(None))) else '?' for v in clip_turns]
+    if any(v not in CLIP_TURNS for v in values):
+        raise ArcError('Giro do clipe inválido: escolha igual à campanha, de frente, leve de lado, de lado, de costas '
+                       'por 1 s ou de costas de 3 a 6 s.', 400)
+    return values if any(values) else None
+
+
+def _back_hold(c, espelho, light):
+    """A parada de costas de 3 a 6 s, com as travas no proprio gesto (o Guia e o pacote do agente so levam as acoes)."""
+    quadro = ('peça inteira no reflexo, celular na mão apontado para o espelho' if espelho
+              else 'peça inteira no quadro')
+    luz = ', sob a mesma luz, para a cobertura do tecido aparecer' if light else ''
+    olhar = 'a tela do celular' if espelho else 'a lente'
+    return (f'vira de costas uma única vez e fica assim de 3 a 6 s, de pé, {quadro}{luz}; olha UMA vez por cima do '
+            f'ombro para {olhar} e volta de frente falando; nada sensualizado: sem pose, rebolado, câmera baixa ou '
+            f'close no corpo; {back_rule(c)}')
+
+
+def _turn_plan(value, clip_facts, c, espelho):
+    """(fatos do clipe com o gesto ajustado, acao do giro a acrescentar). Uma unica virada por clipe: se um gesto de
+    prova ja vira o corpo, ele e a virada; na parada de costas, o fato que ela ja prova entra nela."""
+    if value in ('', 'frente'):
+        return clip_facts, ''
+    if value != 'costas_pausa':
+        if any(_TURNING_GESTURE.search(f['gesture']) for f in clip_facts):
+            return clip_facts, ''
+        return clip_facts, CLIP_TURNS[value]['move']
+    back = [f for f in clip_facts if f['label'] in _BACK_FACTS]
+    if not back:
+        return clip_facts, _back_hold(c, espelho, light=False)
+    light = any(f['label'] == 'sem transparência' for f in back)
+    out = []
+    for f in clip_facts:
+        if f is back[0]:
+            out.append({**f, 'gesture': _back_hold(c, espelho, light)})
+        elif f not in back:
+            out.append(f)
+    return out, ''
+
+
 def _trim(text, limit):
     """O Grok corta em 4000 caracteres sem avisar: cortes de baixa prioridade (so frases de regra, nunca fala nem
     gesto), um de cada vez, so se passar de ``limit``."""
@@ -328,7 +405,7 @@ def _trim(text, limit):
     return text
 
 
-def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, w=None):
+def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, w=None, extra=''):
     w = w or _wording(True)
     final = n == total
     pack = generate(source, script=dict(hook=lines[0], development=lines[1], cta=lines[2]), base_image=base_image)
@@ -345,6 +422,8 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, 
         else:
             abertura, meio = base, GENERIC_MOVE
     acoes = f'{abertura}; {meio}' if meio else abertura
+    if extra:
+        acoes = f'{acoes}; {extra}'   # giro escolhido para este clipe (opt-in)
     # a PROVA VISUAL fixa do app e trocada pela coreografia do clipe (os gestos dos fatos)
     # (o bloco pode faltar: sem fato com gesto o gerador nao escreve PROVA VISUAL)
     text = _soft_sub(r'PROVA VISUAL — [^\n]*\n', '', text)
@@ -421,19 +500,24 @@ def _normalize_lines(clips_lines, clips):
     return out
 
 
-def build_story_arc(c, color, arc, clips, lines=None, base_image=False):
+def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_turns=None, texture=False):
     """Monta a sequencia: falas (rascunho ou editadas), prompt completo, Guia do Grok e Extend Video por clipe,
-    mais o passo a passo do CapCut. `c` e a campanha (como detail()); `color` a cor da variacao."""
+    mais o passo a passo do CapCut. `c` e a campanha (como detail()); `color` a cor da variacao.
+    Opt-in (experimental, so neste pedido, nada gravado): ``clip_turns`` (giro do corpo de cada clipe, chaves de
+    CLIP_TURNS) e ``texture`` (close de textura nos motivos que sao material ou detalhe confirmado). Desligados, a
+    saida e a de sempre."""
     if arc not in ARCS:
         raise ArcError('Escolha o arco Motivos ou Questionada.', 400)
     if clips not in CLIP_COUNTS:
         raise ArcError('Escolha 2 ou 3 clipes.', 400)
+    turns = _clip_turn_list(clip_turns, clips)
     espelho, facts = check_campaign(c)
     w = _wording(espelho)
     drafted = lines is None
     clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts)] if drafted
                   else _normalize_lines(lines, clips))
-    return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w)
+    return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
+                     turns=turns, texture=bool(texture))
 
 
 def write_lines_with_ai(c, arc, clips, settings):
@@ -597,7 +681,10 @@ def agent_pack(c, source, espelho, clips):
                     f'câmera, mãos, atributos não confirmados e áudio), tudo igual ao clipe {k - 1}.\n{anchor}\n'
                     f'PRIMEIRO QUADRO: o último quadro do clipe {k - 1} (vídeo anexado), e não a imagem aprovada; '
                     'se não der para usar o vídeo, use a IMAGEM APROVADA.\n'
-                    f'{delta}\nÁudio: voz feminina em português do Brasil, a mesma do clipe {k - 1}; fale só as '
+                    f'{delta}\n'
+                    + (f'Neste clipe a orientação do corpo muda e vale no lugar da do clipe {k - 1}: '
+                       f'{clip["orientation"]}\n' if clip.get('orientation') else '')
+                    + f'Áudio: voz feminina em português do Brasil, a mesma do clipe {k - 1}; fale só as '
                     'falas entre aspas, palavra por palavra.')
         messages.append(dict(index=k, kind='clip', optional=False, title=f'Mensagem {k} · só o clipe {k}',
                              attach=[f'Vídeo do clipe {k - 1} (o que o agente gerou)'], text=body, whole=delta is None))
@@ -621,7 +708,7 @@ def agent_pack(c, source, espelho, clips):
                        'repita só a ÂNCORA, não o prompt inteiro.'])
 
 
-def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w):
+def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w, turns=None, texture=False):
     """Prompts de cada clipe, montagem no CapCut e o texto para copiar."""
     # De frente, a sequencia traz falas proprias: o formato da campanha (teste, comentario...) nao entra nos
     # clipes, so a base de camera de frente.
@@ -629,20 +716,43 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
     roles = _ROLES[(arc, clips)]
     screens = _SCREEN[arc] if clips == 3 else (_SCREEN[arc][0], _SCREEN[arc][2])
     result, opening = [], None
+    textured = []
     for i, (trio, role, screen) in enumerate(zip(clip_lines, roles, screens), 1):
-        facts_here = _clip_facts(arc, clips, i - 1, facts)
-        full, opening, acoes = _full_prompt(source, i, clips, trio, facts_here, base_image, opening, w)
+        turn = turns[i - 1] if turns else ''
+        clip_source, extra = source, ''
+        if turn or texture:
+            # Giro e/ou close de textura deste clipe: os gestos dos fatos sao refeitos com o giro do clipe (a parada
+            # de costas usa os gestos de frente e prova o que ja mostra nela). Sem opt-in nada disso roda.
+            own = {'frente': '', 'costas_pausa': ''}.get(turn, turn) if turn else None
+            fact_c = c if own is None else {**c, 'body_turns': own}
+            if turn:
+                clip_source = {**source, 'body_turns': '' if turn == 'frente' else turn}
+            facts_here = _clip_facts(arc, clips, i - 1, arc_facts(fact_c, texture=texture))
+            facts_here, extra = _turn_plan(turn, facts_here, clip_source, espelho)
+            textured += [f['text'] for f in facts_here if f.get('texture') and f['text'] not in textured]
+        else:
+            facts_here = _clip_facts(arc, clips, i - 1, facts)
+        full, opening, acoes = _full_prompt(clip_source, i, clips, trio, facts_here, base_image, opening, w, extra)
         words = sum(_count_words(part) for part in trio)
         problems = clip_problems(trio, i, clips, source)
         if generators.of(c) is generators.GROK and len(full) > GROK_LIMIT:  # o Flow nao tem limite de prompt
             problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em '
                             f'{generators.GROK.max_prompt_chars:,}'.replace(',', '.'))
-        result.append(dict(
+        clip = dict(
             index=i, role=role, final=i == clips, seconds=SECONDS_PER_CLIP, lines=list(trio), words=words,
             spoken=' '.join(trio), screen_text=screen, problems=problems,
-            prompt=full, guide=_guide(source, i, clips, trio, acoes, w),
+            prompt=full, guide=_guide(clip_source, i, clips, trio, acoes, w),
             extend=_extend(i, clips, trio, acoes, w) if i > 1 else '',
-            start='imagem aprovada' if i == 1 else 'a mesma imagem aprovada do clipe 1'))
+            start='imagem aprovada' if i == 1 else 'a mesma imagem aprovada do clipe 1')
+        if turns:
+            clip['turn'] = turn
+            clip['turn_label'] = CLIP_TURNS[turn]['label']
+            # No agente o clipe seguinte so leva as acoes e diz "mesmas regras do clipe anterior": quando a
+            # orientacao muda, a mensagem dele traz a nova, dizendo que vale no lugar da anterior.
+            if i > 1 and turn != turns[i - 2]:
+                found = re.search(r'ORIENTAÇÃO CORPORAL[^\n]*', full)
+                clip['orientation'] = found.group(0).strip() if found else ''
+        result.append(clip)
     capcut = [
         'Todos os clipes na mesma resolução e fps antes de soltar na timeline.',
         'Apare 2 a 4 quadros do início e do fim de cada clipe (é onde o Grok deforma) e a última palavra do clipe.',
@@ -669,6 +779,14 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
     if arc == 'questionada':
         notes.append('"Sabe o que dizem por aí..." é recurso retórico: não cita pessoa nem comentário real. Se '
                      'houver um comentário de verdade, vale trocar pela pergunta dele.')
+    if turns:
+        notes.append('Experimental: o giro do corpo por clipe nunca foi testado no Grok (nem no espelho). Gere '
+                     'primeiro o clipe com giro e confira peça, costas, rosto e mãos antes de seguir.')
+    if texture:
+        notes.append(('Close de textura (experimental) em: ' + ', '.join(textured) + '. Confira se o brilho e o grão '
+                      'saíram iguais aos da imagem aprovada.') if textured else
+                     'Close de textura: nenhum motivo desta sequência é material ou detalhe com close (courino, '
+                     'cetim, malha, botões...), então os prompts não mudaram.')
     total_seconds = sum(clip['seconds'] for clip in result)
     text = '\n\n'.join(
         [f'SEQUÊNCIA STORYTELLING · {ARCS[arc]["label"]} · {clips} clipes · cerca de {total_seconds}s']

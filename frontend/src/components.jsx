@@ -9,6 +9,7 @@ import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
 import { warningsFor, downloadLastFrame } from './mediaChecks';
 import { isFewFacts, pointToFacts } from './sequenceText';
+import { CLIP_TURN_OPTIONS, arcOptions, resizeTurns } from './arcOptions';
 import { api, modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
@@ -286,8 +287,7 @@ const ARC_OPTIONS=[
   ['motivos','Motivos','“Três motivos pra essa peça estar no seu guarda-roupa”'],
   ['questionada','Questionada','“Sabe o que dizem por aí? Que ela não te valoriza”, e a resposta'],
 ];
-const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];
-// De onde vieram as falas mostradas (written_by do servidor): editadas por você ficam guardadas até descartar.
+const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];// De onde vieram as falas mostradas (written_by do servidor): editadas por você ficam guardadas até descartar.
 const WRITTEN_BY={ai:'Falas escritas pela IA agora',ai_saved:'Falas escritas pela IA (guardadas)',
   manual:'Suas falas editadas, guardadas',manual_saved:'Suas falas editadas (guardadas)'};
 // Espelho (validado no Grok) e os formatos com a modelo de frente falando (services/story_arcs.py). POV e so
@@ -357,12 +357,14 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [loading,setLoading]=useState(false);
   const [message,setMessage]=useState('');
   const [facts,setFacts]=useState('');
+  const [turns,setTurns]=useState([]);
+  const [texture,setTexture]=useState(false);
   // ai=true so pelo botao proprio: gasta tokens. A montagem automatica ao abrir a etapa reaproveita as falas que
   // a IA ja escreveu (guardadas no servidor) e nunca chama a IA sozinha.
   async function build(lines,ai=false,discard=false){
     setLoading(ai?'ai':true);setMessage('');
     try{
-      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined,discard:discard||undefined});
+      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined,discard:discard||undefined,...arcOptions(turns,clips,texture)});
       setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
     }catch(e){if(!ai)setData(null);setMessage(e.message)}
     finally{setLoading(false)}
@@ -394,6 +396,20 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
           </label>)}
         </div>
       </div>
+      <fieldset className="option-field story-arc-turns">
+        <legend className="option-field-title">Giro do corpo por clipe <small>· experimental</small></legend>
+        <small className="help">Experimental: o giro do corpo no espelho nunca foi testado no Grok. Vale só para esta sequência (o briefing não muda); monte de novo depois de escolher.</small>
+        {resizeTurns(turns,clips).map((value,index)=><label key={index} className="story-arc-turn">
+          <span>Clipe {index+1}</span>
+          <select value={value} onChange={e=>{const v=e.target.value;setTurns(list=>resizeTurns(list,clips).map((t,i)=>i===index?v:t))}}>
+            {CLIP_TURN_OPTIONS.map(([id,label])=><option key={id||'campanha'} value={id}>{label}</option>)}
+          </select>
+        </label>)}
+      </fieldset>
+      <label className="story-arc-texture">
+        <input type="checkbox" checked={texture} onChange={e=>setTexture(e.target.checked)}/>
+        <span><strong>Close de textura do material</strong> <small>· experimental</small><small className="help">Um close de 1 a 2 s só nos motivos que são material ou detalhe confirmado (courino, cetim, malha, botões, argola...). Sem esse fato, o prompt não muda.</small></span>
+      </label>
       {message&&<p className="help story-arc-message" role="alert">{pointToFacts(message,'abaixo')}</p>}
       {(isFewFacts(message)||facts)&&<label className="sequence-facts">Fatos da peça só para esta sequência<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={500}/><small className="help">Não muda o briefing: a imagem aprovada e os prompts continuam. Escreva fatos verdadeiros, separados por vírgula, e monte de novo.</small></label>}
       <div className="story-arc-actions">
@@ -413,7 +429,7 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
           const draft=drafts[index]??clip.lines.join('\n');
           const words=wordCount(draft);
           return <div key={clip.index} className="variant-prompt story-clip">
-            <div className="section-title"><strong>Clipe {clip.index} · {clip.role} <small>{clip.start} · ~{clip.seconds}s</small></strong></div>
+            <div className="section-title"><strong>Clipe {clip.index} · {clip.role} <small>{clip.start} · ~{clip.seconds}s{clip.turn?` · giro: ${clip.turn_label} (experimental)`:''}</small></strong></div>
             <label className="story-arc-lines">
               <span className="help">Falas (uma linha por trecho: 0–4 s, 4–12 s e 12–15 s) · {words} palavras</span>
               <textarea autoComplete="off" rows={5} value={draft} onChange={e=>setDrafts(list=>list.map((text,i)=>i===index?e.target.value:text))}/>

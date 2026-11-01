@@ -754,7 +754,101 @@ def body_turns(c: dict) -> list[str]:
     """Return only body rotations explicitly authorized in the brief."""
     raw = str(c.get('body_turns') or '')
     selected = {part.strip() for part in raw.split(',') if part.strip()}
-    return [key for key in ('leve_lado', 'lado', 'costas') if key in selected]
+    if 'costas_pausa' in selected:
+        # Parada de costas (so na sequencia, por clipe, experimental): tambem mostra as costas, entao todas as
+        # regras de "costas autorizadas" valem (o Guia nao diz "nunca fica de costas", o giro ousado nao duplica).
+        selected.add('costas')
+    return [key for key in ('leve_lado', 'lado', 'costas', 'costas_pausa') if key in selected]
+
+
+_BACK_WORDS_RE = re.compile(r'\b(?:costas|traseir[oa]s?|atr[aá]s)\b', re.I)
+
+
+def back_details(c: dict) -> list[str]:
+    """Detalhes das COSTAS que o briefing confirma ("decote nas costas", "bolsos traseiros"). A imagem aprovada
+    e de frente: sem fato escrito, o gerador inventa laco, ziper ou recorte nas costas."""
+    found = [label for label in product_features(c, limit=50) if label == 'decote nas costas']
+    details = video_details(without_niche_defaults(c.get('details') or ''))
+    for chunk in re.split(r'\s*[,;]\s*|(?<=[.!?])\s+|\n+', details):
+        chunk = chunk.strip(' .;')
+        if (not chunk or len(chunk.split()) > 6 or not _BACK_WORDS_RE.search(chunk)
+                or re.match(r'^(?:sem|n[ãa]o)\b', chunk, re.I)):
+            continue
+        if not any(chunk.casefold() == f.casefold() for f in found):
+            found.append(chunk)
+    return found
+
+
+def back_rule(c: dict) -> str:
+    """O que pode aparecer nas costas: so o detalhe confirmado; sem ele, nada novo."""
+    found = back_details(c)
+    if found:
+        return 'costas da peça iguais à imagem aprovada (cor, tecido, comprimento), só com ' + ', '.join(found)
+    return 'costas da peça iguais à imagem aprovada (cor, tecido, comprimento), sem laço, zíper, recorte ou bolso novo'
+
+
+# Close de textura por material ou detalhe (experimental, opt-in na sequencia). So entra num FATO CONFIRMADO do
+# briefing (um dos motivos) e nunca muda a lista de fatos: tabela propria, fora de PRODUCT_FEATURES, para nao mexer
+# nos FATOS CONFIRMADOS de quem nao liga a opcao. Amarracao/laco fica de fora de proposito (biquini de contas: close
+# em "amarracao" fez o Grok inventar laco). (chave, palavras, onde o close mostra, gesto sem gesto proprio, o que
+# preservar da imagem aprovada, tipo)
+TEXTURE_BEATS = (
+    ('courino', ('courino', 'couro sintético', 'couro sintetico', 'couro ecológico', 'couro ecologico'),
+     'no courino', 'desliza a ponta do dedo na superfície do courino', 'o mesmo brilho e o mesmo grão', 'material'),
+    ('couro', ('couro',), 'no couro', 'desliza a ponta do dedo na superfície do couro',
+     'o mesmo brilho e o mesmo grão', 'material'),
+    ('cetim', ('cetim',), 'no cetim', 'passa a mão no cetim, deixando a luz correr pelo tecido',
+     'o mesmo brilho e o mesmo caimento', 'material'),
+    ('veludo', ('veludo',), 'no veludo', 'passa a ponta dos dedos no veludo', 'o mesmo brilho e a mesma textura',
+     'material'),
+    ('malha', ('malha',), 'na malha', 'puxa a malha de leve com a ponta dos dedos e solta', 'a mesma trama',
+     'material'),
+    ('canelado', ('canelado', 'canelada', 'ribana'), 'no canelado', 'passa a ponta do dedo nas linhas do canelado',
+     'as mesmas linhas do tecido', 'material'),
+    ('jeans', ('jeans', 'denim'), 'no jeans', 'passa a ponta do dedo na trama do jeans',
+     'a mesma trama e a mesma lavagem', 'material'),
+    ('linho', ('linho',), 'no linho', 'passa a mão no linho', 'a mesma trama', 'material'),
+    ('renda', ('renda',), 'na renda', 'passa a ponta do dedo pelo desenho da renda', 'o mesmo desenho', 'material'),
+    ('tule', ('tule',), 'no tule', 'levanta um pouco o tule com a ponta dos dedos e solta', 'a mesma trama',
+     'material'),
+    ('crochê', ('crochê', 'croche'), 'no crochê', 'passa a ponta do dedo pelos pontos do crochê',
+     'os mesmos pontos', 'material'),
+    ('bordados', ('bordado', 'bordados', 'bordada', 'bordadas'), 'no bordado',
+     'mostra o bordado com a ponta do dedo, sem puxar', 'o mesmo desenho', 'detalhe'),
+    ('paetês', ('paetê', 'paete', 'paetês', 'paetes', 'lantejoula', 'lantejoulas'), 'nos paetês',
+     'mostra os paetês com a ponta do dedo, sem puxar nem esfregar', 'o mesmo brilho e o mesmo desenho', 'detalhe'),
+    ('elástico', ('elástico', 'elastico'), 'no elástico', 'passa o dedo pelo elástico, sem esticar',
+     'a mesma largura e o mesmo acabamento', 'detalhe'),
+    ('argolas', ('argola', 'argolas'), 'na argola', 'toca a argola com a ponta do dedo',
+     'o mesmo brilho e a mesma cor', 'detalhe'),
+    ('metal', ('metal', 'metais', 'metálico', 'metálica', 'metálicos', 'metálicas'), 'no detalhe de metal',
+     'toca o detalhe de metal com a ponta do dedo', 'o mesmo brilho e a mesma cor', 'detalhe'),
+    ('botões', ('botões', 'botoes'), 'nos botões', 'passa o dedo pelos botões, de cima para baixo',
+     'os mesmos botões, na mesma quantidade', 'detalhe'),
+    ('botão', ('botão', 'botao'), 'no botão', 'toca o botão com a ponta do dedo', 'o mesmo botão', 'detalhe'),
+)
+_NO_TEXTURE_RE = re.compile(r'amarra|\bla[çc]os?\b|lacinho|\bnó\b', re.I)
+
+
+def texture_beat(text: str, label: str = '', espelho: bool = False, mao: str = '') -> tuple[str, str]:
+    """(gesto proprio, close de 1 a 2 s) do material ou detalhe de um fato confirmado, ou ('', '') se o fato nao
+    e material/detalhe com close (ou e negacao, "sem elastico", ou fala de amarracao/laco). O close nunca afirma
+    material novo: so o que o fato diz, preservando brilho e grao da imagem aprovada."""
+    raw = _phrase(text)
+    if not raw or re.match(r'^(?:sem|n[ãa]o)\b', raw, re.I) or _NO_TEXTURE_RE.search(f'{raw} {label}'):
+        return '', ''
+    low = raw.casefold()
+    for key, needles, where, action, keep, kind in TEXTURE_BEATS:
+        if label == key or any(re.search(rf'\b{re.escape(n)}\b', low) for n in needles):
+            guard = 'sem trocar o material nem o acabamento' if kind == 'material' else 'sem inventar outro detalhe'
+            if espelho:
+                close = (f'aproxima o celular da peça por 1 a 2 s, num close curto {where} que mostra {keep} da '
+                         f'imagem aprovada, {guard}, e volta ao reflexo')
+            else:
+                close = (f'aproxima a peça da lente por 1 a 2 s, num close curto {where} que mostra {keep} da '
+                         f'imagem aprovada, {guard}, e volta ao plano')
+            return (f'{mao}, {action}' if mao else action), close
+    return '', ''
 
 
 def _movement_without_unapproved_turns(value: str) -> str:
@@ -774,6 +868,15 @@ def _movement_without_unapproved_turns(value: str) -> str:
 def _turn_direction(c: dict) -> tuple[str, str]:
     """Prompt rule and action for the largest rotation the operator allowed."""
     selected = body_turns(c)
+    if 'costas_pausa' in selected:
+        # Experimental (giro do corpo no espelho nunca testado no Grok). O texto de 'costas' abaixo nao muda.
+        # A regra das costas (back_rule) vai junto da acao: a sequencia leva a acao para o Guia e para o agente.
+        return (
+            'ORIENTAÇÃO CORPORAL (experimental): de frente, salvo uma única parada de costas de 3 a 6 s com um olhar '
+            'por cima do ombro, sem pose nem sensualidade.',
+            'virar de costas uma única vez e mostrar as costas da peça por 3 a 6 segundos, '
+            + back_rule(c) + ', olhar uma vez por cima do ombro e voltar de frente',
+        )
     if 'costas' in selected:
         return (
             'ORIENTAÇÃO CORPORAL: uma única virada contínua de costas, por no máximo 1 segundo, e retorno '
