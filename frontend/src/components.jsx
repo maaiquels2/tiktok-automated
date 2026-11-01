@@ -161,6 +161,14 @@ function SequenceNotices({items}){
   if(!items?.length)return null;
   return <div className="story-notices" role="status">{items.map(text=><p key={text} className="notice">{text}</p>)}</div>;
 }
+// Avisos da campanha que nunca barram nada: peça × nicho e segurança da
+// íntima/fantasia (services/piece_niche.py e services/niche_safety.py).
+export function CampaignWarnings({warnings}){
+  if(!warnings?.length)return null;
+  return <div className="campaign-warnings" role="note" aria-label="Avisos da campanha">
+    {warnings.map(w=><p key={w.text} className="notice campaign-warning">{w.text}</p>)}
+  </div>;
+}
 
 export function StorySequence({campaignId,variantId=null,onError}){
   const [open,setOpen]=useState(false);
@@ -1204,6 +1212,8 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           })}
         </div>
         {nicheError&&!draft.niche&&<small className="field-error">Escolha o nicho da modelo.</small>}
+        {/* Avisos do briefing salvo: somem enquanto produto ou nicho estão sendo trocados. */}
+        {campaign?.id&&draft.niche===campaign.niche&&draft.product===campaign.product&&<CampaignWarnings warnings={campaign.warnings}/>}
         <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
       </div>
       <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>

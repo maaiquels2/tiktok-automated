@@ -1099,6 +1099,13 @@ def create_app(config=None):
             c['variants'].append(variant)
         # O que ainda falta em cada aprovacao: a tela mostra isto em vez de re-derivar.
         c['readiness']=stages.readiness(c)
+        # Avisos que nunca barram: peca x nicho e seguranca da intima/fantasia.
+        # Um erro aqui nao pode derrubar a tela da campanha.
+        try:
+            from services import piece_niche
+            c['warnings']=piece_niche.warnings(c)
+        except Exception:
+            c['warnings']=[]
         return c
 
     def read_checklist(cid):
