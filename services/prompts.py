@@ -129,10 +129,11 @@ def _niche_default_texts():
     global _NICHE_TEXTS
     if _NICHE_TEXTS is None:
         try:
-            from services.model_library import LEGACY_NICHE_DEFAULT_TEXTS, NICHE_DEFAULTS
+            from services.model_library import LEGACY_NICHE_DEFAULT_TEXTS, NICHE_DEFAULTS, PIJAMA_DEFAULTS
             _NICHE_TEXTS = sorted({_phrase(v).casefold() for d in NICHE_DEFAULTS.values() if isinstance(d, dict)
                                    for v in d.values() if isinstance(v, str) and len(_phrase(v)) > 12}
-                                  | {_phrase(v).casefold() for v in LEGACY_NICHE_DEFAULT_TEXTS},
+                                  | {_phrase(v).casefold() for v in LEGACY_NICHE_DEFAULT_TEXTS}
+                                  | {_phrase(v).casefold() for v in PIJAMA_DEFAULTS.values() if len(_phrase(v)) > 12},
                                   key=len, reverse=True)
         except Exception:
             _NICHE_TEXTS = []

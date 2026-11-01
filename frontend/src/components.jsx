@@ -1,6 +1,7 @@
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, isCloudMode } from './serviceLinks';
 import { useEffect, useRef, useState } from 'react';
 import { NICHE_DEFAULTS } from './nicheDefaults';
+import { PIJAMA_PRESET } from './nichePreset';
 import { scorePrompt } from './promptScore';
 import { segmentPrompt } from './promptSegments';
 import { FieldCount, ScriptBudget } from './scriptBudget';
@@ -1208,6 +1209,11 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
     });
     onDirty?.(true);
   }
+  // Moda intima tem dois padroes: lingerie (o do nicho) e pijama (tom aconchegante). So troca os campos do padrao.
+  function applyIntimaKind(kind){
+    setDraft(d=>({...d,niche:'intima',...(kind==='pijama'?PIJAMA_PRESET:NICHE_DEFAULTS.intima)}));
+    onDirty?.(true);
+  }
   function applyNiche(niche){
     const defaults=NICHE_DEFAULTS[niche]||{};
     const label=({praia:'Praia',academia:'Academia',casual:'Casual','dia-a-dia':'Dia a dia',intima:'Íntima',fantasia:'Fantasia'})[niche]||niche;
@@ -1296,6 +1302,14 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             </button>;
           })}
         </div>
+        {draft.niche==='intima'&&<div className="niche-kind" role="radiogroup" aria-label="Tipo de peça da moda íntima">
+          <span className="field-label">Tipo de peça</span>
+          {[['lingerie','Lingerie'],['pijama','Pijama (tom aconchegante)']].map(([id,label])=>{
+            const active=(draft.tone===PIJAMA_PRESET.tone)===(id==='pijama');
+            return <button type="button" key={id} role="radio" aria-checked={active} className={'objection-chip'+(active?' selected':'')} onClick={()=>applyIntimaKind(id)}>{label}</button>;
+          })}
+          <small className="help">Troca os campos padrão do nicho (roupa, tom, estilo, público, benefício, ângulo, detalhes e gestos). O produto e a cor ficam como estão.</small>
+        </div>}
         {nicheError&&!draft.niche&&<small className="field-error">Escolha o nicho da modelo.</small>}
         {/* Avisos do briefing salvo: somem enquanto produto ou nicho estão sendo trocados. */}
         {campaign?.id&&draft.niche===campaign.niche&&draft.product===campaign.product&&<CampaignWarnings warnings={campaign.warnings}/>}

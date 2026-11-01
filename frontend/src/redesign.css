@@ -564,6 +564,10 @@ button.rd-brand {
 }
 .rd-next-bar strong { font-size: 15px; }
 
+/* ---------- Tipo de peça da moda íntima ---------- */
+.niche-kind { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.niche-kind .help { flex-basis: 100%; }
+
 /* ---------- Pacote do agente do Grok (experimental) ---------- */
 .rd-agent-pack { margin: 20px 0 8px; padding-top: 16px; border-top: 1px solid var(--rd-line, rgba(127,127,127,.25)); }
 .rd-agent-toggle { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; min-height: 48px; text-align: left; }

@@ -69,7 +69,7 @@ NICHE_DEFAULTS = {
         "tone": "Elegante, intima e segura (nunca explicito)",
         "style": "Elegante e discreto, luz suave de estudio/quarto, tons quentes, realista premium, 9:16",
         "details": "Manter Micaela. Evitar nudez; coberturas adequadas as politicas do TikTok. Fundo limpo. Destacar elogiacao, renda/tecido e ajuste. Camera estavel.",
-        "movements": "Pose inicial frontal; ajustar alca/fecho; close no tecido; caminhar lenta ate a camera; sorriso confiante; CTA suave no final"
+        "movements": "Pose inicial frontal; ajustar alca/fecho; close no tecido; um passo natural ate a camera; sorriso confiante; CTA suave no final"
     },
     "fantasia": {
         "outfit": "Fantasia / cosplay / visual temático do produto (personagem ou tema claro)",
@@ -94,7 +94,21 @@ LEGACY_NICHE_DEFAULT_TEXTS = (
     "Sensual clean, intima e segura (nunca explcito)",  # intima.tone
     "Sensual clean, luz suave de estudio/quarto, tons quentes, realista premium, 9:16",  # intima.style
     "Publico 16-35 que busca fantasias pra festa, Halloween, ensaios e conteudo tematico no TikTok",  # fantasia.audience
-)
+    "Pose inicial frontal; ajustar alca/fecho; close no tecido; caminhar lenta ate a camera; sorriso confiante; CTA suave no final",  # intima.movements
+)
+# Sub-preset da moda intima para pijama (a Moda intima padrao e lingerie). A tela oferece trocar entre os dois
+# dentro do nicho intima; os textos tambem contam como padrao do nicho (nao viram fatos do produto).
+PIJAMA_DEFAULTS = {
+    "outfit": "Pijama / conjunto de dormir (peça do produto) em clima de casa",
+    "audience": "Mulheres adultas (18+) que compram pijama no TikTok Shop buscando um visual aconchegante para a noite em casa ou para presentear",
+    "benefit": "Caimento e brilho do tecido visíveis em luz suave de quarto",
+    "angle": "Noite em casa: mostrar o pijama do jeito que se usa, do corpo inteiro ao detalhe do tecido",
+    "tone": "Aconchegante, calma e conversacional (fim de dia)",
+    "style": "Natural e realista, luz suave e quente de quarto, 9:16",
+    "details": "Manter identidade da Micaela. Quarto aconchegante da foto de referencia, sem trocar o cenario. Mostrar o tecido, o botao e a barra de perto. Enquadramento respeitoso, sem closes no corpo.",
+    "movements": "Olhar pra camera e sorrir; passar a mao no tecido; ajustar a gola; um passo natural ate a camera; close no botao ou na barra; sorriso final"
+}
+
 
 
 

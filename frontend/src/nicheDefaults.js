@@ -47,7 +47,7 @@ export const NICHE_DEFAULTS = {
     "tone": "Elegante, intima e segura (nunca explicito)",
     "style": "Elegante e discreto, luz suave de estudio/quarto, tons quentes, realista premium, 9:16",
     "details": "Manter Micaela. Evitar nudez; coberturas adequadas as politicas do TikTok. Fundo limpo. Destacar elogiacao, renda/tecido e ajuste. Camera estavel.",
-    "movements": "Pose inicial frontal; ajustar alca/fecho; close no tecido; caminhar lenta ate a camera; sorriso confiante; CTA suave no final"
+    "movements": "Pose inicial frontal; ajustar alca/fecho; close no tecido; um passo natural ate a camera; sorriso confiante; CTA suave no final"
   },
   "fantasia": {
     "outfit": "Fantasia / cosplay / visual temático do produto (personagem ou tema claro)",

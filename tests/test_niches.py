@@ -172,5 +172,38 @@ class LegacyDefaultsTests(unittest.TestCase):
         self.assertIn('ATRIBUTOS NÃO CONFIRMADOS', video)
 
 
+class PijamaPresetTests(unittest.TestCase):
+    """Sub-preset de pijama dentro da moda intima (PIJAMA_DEFAULTS e frontend/src/nichePreset.js)."""
+
+    def js_preset(self):
+        src = (SRC / 'nichePreset.js').read_text(encoding='utf-8')
+        return json.loads(src[src.index('{'):src.rindex('}') + 1])
+
+    def test_python_and_javascript_presets_are_the_same(self):
+        self.assertEqual(self.js_preset(), model_library.PIJAMA_DEFAULTS)
+
+    def test_it_fills_the_same_fields_as_a_niche(self):
+        self.assertEqual(set(model_library.PIJAMA_DEFAULTS), set(model_library.NICHE_DEFAULTS['intima']))
+
+    def test_pijama_texts_ask_no_visual_cta_and_claim_no_performance(self):
+        for field, value in model_library.PIJAMA_DEFAULTS.items():
+            low = fold(value)
+            self.assertFalse(VISUAL_CTA.search(low) or CLAIMS.search(low), (field, value))
+
+    def test_pijama_texts_are_default_text_not_confirmed_facts(self):
+        for field, value in model_library.PIJAMA_DEFAULTS.items():
+            if len(value) > 12:
+                with self.subTest(field=field):
+                    self.assertEqual(prompts.without_niche_defaults(value).strip(' .;,'), '')
+
+    def test_a_pijama_campaign_with_the_preset_has_no_safety_warning(self):
+        from services import niche_safety
+        c = dict(model_name='Micaela', product='Pijama de cetim', color='Rosa', generator='grok', niche='intima',
+                 **{**model_library.PIJAMA_DEFAULTS, 'outfit': 'pijama'})
+        c['prompts'] = prompts.generate(c)
+        self.assertEqual(niche_safety.warnings(c), [])
+        self.assertNotIn('ensual', c['prompts']['video'])
+
+
 if __name__ == '__main__':
     unittest.main()
