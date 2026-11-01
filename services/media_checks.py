@@ -46,7 +46,7 @@ def aspect_check(metadata):
         return _check('image_aspect', OK, 'Imagem na proporção 9:16.')
     return _check('image_aspect', WARN,
                   f'Esta imagem é {int(width)}×{int(height)}, não 9:16. O vídeo do Grok segue a proporção da '
-                  'imagem de partida: ela pode sair quadrada ou horizontal. Reenquadre em 9:16 antes de gerar o vídeo.')
+                  'imagem de partida: o vídeo pode sair quadrado ou horizontal. Reenquadre em 9:16 antes de gerar o vídeo.')
 
 
 def clip_checks(metadata, generator=None):
@@ -140,6 +140,11 @@ def probe_clip(path, ffmpeg):
         starts = re.findall(r'silence_start:\s*([0-9.]+)', text)
         if silences or starts:
             longest = max(silences) if silences else SILENCE_MIN_S
+            total = re.search(r'Duration:\s*(\d+):(\d+):([0-9.]+)', text)
+            if starts and len(starts) > len(silences) and total:
+                # silencio que vai ate o fim do arquivo: o ffmpeg so imprime o inicio
+                end = int(total[1]) * 3600 + int(total[2]) * 60 + float(total[3])
+                longest = max(longest, end - float(starts[-1]))
             out.append(_check('video_silence', WARN,
                               f'Há um silêncio de {longest:.1f} s no áudio. Ouça o trecho: a fala pode ter acabado '
                               'cedo ou travado.'))

@@ -551,6 +551,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <div className="rd-drop-head"><strong>{hasVideo?`Vídeo de ${name}`:`Traga o vídeo de ${name}`}</strong><span>MP4 vertical 9:16, cerca de 15 s. No celular, “usar da galeria” valida sem enviar o arquivo.</span></div>
         {video&&<AssetView asset={video} title={`Vídeo · ${name}`} compact/>}
         {deviceVideo&&<DeviceVideoCard record={deviceVideo} localFile={deviceFile}/>}
+        {!video&&deviceVideo&&<small className="help">Áudio, silêncio e corte de cena: não verificados, o arquivo fica no aparelho.</small>}
         {video&&<VideoChecks asset={video}/>}
         {!video&&deviceVideo&&<MediaWarnings warnings={campaign?.warnings} kind="video" slot={color||''}/>}
         {hasVideo&&<LastFrameButton asset={video} deviceFile={deviceFile} record={deviceVideo}/>}
