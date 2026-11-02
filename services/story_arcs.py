@@ -32,6 +32,7 @@ import unicodedata
 
 from services import generators, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
+from services.framing import mirror_cover, mirror_phone, mirror_scope
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
     PRODUCT_FEATURES, SPOKEN_OCCASION, back_rule, body_turns, cta_pool, distinct_ctas, pick_in_budget, piece_forms,
@@ -142,6 +143,48 @@ def _pad(trio):
         if filler not in middle:
             middle = f'{middle} {filler}'
     return first, middle, last
+
+
+# Frases do meio que so mandam reparar, sugerem combinacao ou imaginam o uso: nao carregam fato e saem primeiro quando o clipe
+# passa do teto.
+_OPTIONAL_SENTENCE = re.compile(
+    r'^(Repara|Eu reparei|Olha só|Presta atenção|Dá pra ver|Eu já me imagino|Eu já me vejo|É daquelas peças|'
+    r'Quando faltar ideia|Tem peça que só parece)\b', re.I)
+
+
+def _cut_optional(trio):
+    """Rascunho acima do teto de palavras (o clipe fica corrido, como o proprio app avisa): tira so as frases opcionais do
+    meio, uma por vez, a que deixa o total mais perto do alvo sem ficar abaixo do piso (se nenhuma serve, a que mais corta).
+    Os motivos (fatos) e as pontas nunca saem; so vale para o rascunho, nunca para falas que o operador editou."""
+    first, middle, last = trio
+    alvo, piso = script_budget.FILL[1], script_budget.FILL[0]
+
+    def total(frases):
+        return sum(_count_words(parte) for parte in (first, ' '.join(frases), last))
+
+    frases = [f for f in re.split(r'(?<=[.!?])\s+', middle) if f.strip()]
+    if total(frases) > alvo:
+        # Primeiro o corte mais leve: so a sugestao de combinacao ("e já imagina com uma calça..., com uma saia").
+        sem_mix = [re.sub(r'\s+e já imagina com [^.!?]*', '', f) for f in frases]
+        if piso <= total(sem_mix) <= alvo:
+            return first, ' '.join(sem_mix), last
+        if total(sem_mix) > alvo:
+            frases = sem_mix
+    while total(frases) > alvo and len(frases) > 1:
+        opcoes = [i for i, f in enumerate(frases) if _OPTIONAL_SENTENCE.match(f)]
+        if not opcoes:
+            break
+        depois = {i: total(frases[:i] + frases[i + 1:]) for i in opcoes}
+        cabem = [i for i in opcoes if piso <= depois[i] <= alvo]
+        if cabem:
+            del frases[max(cabem, key=lambda i: depois[i])]
+            continue
+        # Nenhuma sozinha leva o clipe para a faixa: tira a que ainda o deixa acima do alvo (uma segunda rodada pode fechar).
+        parcial = [i for i in opcoes if depois[i] > alvo]
+        if not parcial:
+            break   # qualquer corte deixaria o clipe curto demais: fica como esta (o app avisa, como antes)
+        del frases[min(parcial, key=lambda i: depois[i])]
+    return first, ' '.join(frases), last
 
 
 # ------------------------------------------------------------------------------------------------ fatos
@@ -545,6 +588,19 @@ LEAN_CAMERA_FRENTE = ('CÂMERA: a mesma do quadro anexado: de frente para a lent
                       'quadro; um único take contínuo, sem cortes nem zoom.')
 
 
+def _frame_wording(w, c, espelho):
+    """Selfie no espelho com o enquadramento escolhido (services/framing.py): o celular e o quadro seguem o do primeiro quadro.
+    Corpo inteiro (o validado) devolve os mesmos textos de sempre."""
+    if not espelho:
+        return w
+    phone, cover = mirror_phone(c), mirror_cover(c)
+    out = dict(w)
+    out['extend'] = w['extend'].replace('na altura do peito, sem cobrir o rosto', f'{phone}, {cover}')
+    out['lean_camera'] = (f'CÂMERA: a mesma do quadro anexado: o reflexo {mirror_scope(c)}, o celular sempre na mão dela, '
+                          f'{phone}, {cover}; um único take contínuo, sem cortes nem zoom.')
+    return out
+
+
 def _lean_prompt(full, n, total, w, espelho):
     """Prompt do clipe 2 e seguintes quando ele parte do ULTIMO QUADRO do clipe anterior (e nao da imagem aprovada).
 
@@ -562,7 +618,7 @@ def _lean_prompt(full, n, total, w, espelho):
               'contínua: modelo, roupa, cenário e luz são os dele. ' + w['continuity'].format(n=n, total=total))
     text = '\n'.join((
         (found['header'] + anchor).strip(), found['identity'],
-        LEAN_CAMERA_ESPELHO if espelho else LEAN_CAMERA_FRENTE, found['avoid'],
+        (w.get('lean_camera') or LEAN_CAMERA_ESPELHO) if espelho else LEAN_CAMERA_FRENTE, found['avoid'],
         found['orientation'], found['actions'], found['shots'], found['tail']))
     for old in ('da imagem anexada', 'à imagem aprovada', 'à imagem anexada', 'à imagem'):
         text = text.replace(old, 'do quadro anexado' if old.startswith('da') else 'ao quadro anexado')
@@ -630,9 +686,9 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_tur
         raise ArcError('Escolha 2 ou 3 clipes.', 400)
     turns = _clip_turn_list(clip_turns, clips)
     espelho, facts = check_campaign(c)
-    w = _wording(espelho)
+    w = _frame_wording(_wording(espelho), c, espelho)
     drafted = lines is None
-    clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts, slot_index)] if drafted
+    clip_lines = ([_cut_optional(_pad(trio)) for trio in draft_lines(c, arc, clips, facts, slot_index)] if drafted
                   else _normalize_lines(lines, clips))
     return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
                      turns=turns, texture=bool(texture))

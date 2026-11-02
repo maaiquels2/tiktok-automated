@@ -3755,6 +3755,34 @@ class WorkflowTests(unittest.TestCase):
         for v in variants:
             self.assertIn(v['prompts']['cta'].rstrip('.'),v['prompts']['video'],v['color'])
 
+    def test_creation_accepts_one_image_framing_and_refuses_two(self):
+        ok=self.client.post('/api/campaigns',json={**self.brief,'video_mode':'espelho','video_style':'closes,enq_cintura'},headers=self.headers)
+        self.assertEqual(ok.status_code,201,ok.json)
+        self.assertEqual(ok.json['video_style'],'closes,enq_cintura')
+        dois=self.client.post('/api/campaigns',json={**self.brief,'video_mode':'espelho','video_style':'enq_inteiro,enq_cintura'},headers=self.headers)
+        self.assertEqual(dois.status_code,400,dois.json)
+        self.assertIn('um só enquadramento',dois.json['error'])
+
+    def test_story_arc_draft_with_long_facts_is_trimmed_to_the_word_ceiling_without_losing_the_facts(self):
+        # Pedido real: a blusa (Problema e solucao, 2 clipes) saiu com 60 palavras e o proprio app avisava "pode ficar corrida".
+        from services.story_arcs import build_story_arc
+        from services import script_budget
+        c={**self.brief,'product':'Blusa Feminina Frente Unica','outfit':'blusa','video_mode':'espelho','generator':'grok',
+           'details':'Modelo frente única elegante, Alça regulável para melhor ajuste, Detalhe com acabamento sofisticado no decote'}
+        r=build_story_arc(c,'Preto','problema',2)
+        primeiro=r['clips'][0]
+        palavras=sum(len(re.findall(r'\w+',x)) for x in primeiro['lines'])
+        self.assertLessEqual(palavras,script_budget.FILL[1])
+        self.assertGreaterEqual(palavras,script_budget.FILL[0])
+        self.assertEqual(primeiro['problems'],[])
+        texto=' '.join(primeiro['lines'])
+        self.assertIn('Modelo frente única elegante',texto)
+        self.assertIn('Alça regulável para melhor ajuste',texto)
+        # Falas que o operador editou nunca sao cortadas.
+        editadas=[['a '*20+'um','b '*20+'dois','c '*5+'tres'],['d '*5,'e '*5,'f '*5]]
+        mantida=build_story_arc(c,'Preto','problema',2,lines=editadas)
+        self.assertEqual(mantida['clips'][0]['lines'][0],editadas[0][0].strip())
+
     def test_every_color_gets_its_own_call_to_action_without_ai(self):
         # Decisao do estudio: a chamada (CTA) tem que ser diferente entre as cores (texto e abertura).
         other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco, Preto, Verde, Rosa, Amarelo, Marrom'},headers=self.headers).json

@@ -542,7 +542,10 @@ export function ExperimentalFormats({value,children}){
 }
 const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
 const TECHNIQUE_OPTIONS=[['acao','Começar em movimento'],['aproxima','Aproximação rápida'],['revela','Mão revelando'],['loop','Loop'],['estica','Esticar o tecido']];
-const STYLE_ORDER=['closes','ousado','acao','aproxima','revela','loop','estica'];
+// Enquadramento da imagem: escolha unica; sem ficha marcada o app escolhe pela peca (blusa: quadro fechado na peca; calça e vestido: corpo inteiro).
+const FRAME_OPTIONS=[['','Automático (pela peça)'],['enq_inteiro','Corpo inteiro'],['enq_joelhos','Dos joelhos para cima'],['enq_cintura','Da cintura para cima']];
+const FRAME_IDS=FRAME_OPTIONS.map(([id])=>id).filter(Boolean);
+const STYLE_ORDER=['closes','ousado','acao','aproxima','revela','loop','estica',...FRAME_IDS];
 const MAX_TECHNIQUES=FORMAT_RULES.max_techniques;
 // Camera e tecnicas de retencao. Mais de duas tecnicas no mesmo video de 15 s
 // viram lista de tarefas para o Grok: a terceira fica bloqueada.
@@ -550,12 +553,20 @@ export function StyleChips({value,onChange,labelledBy}){
   const set=new Set(String(value||'').split(',').filter(Boolean));
   const tecnicas=TECHNIQUE_OPTIONS.filter(([id])=>set.has(id)).length;
   const toggle=id=>{const next=new Set(set);next.has(id)?next.delete(id):next.add(id);onChange(STYLE_ORDER.filter(k=>next.has(k)).join(','))};
+  const frame=FRAME_IDS.find(id=>set.has(id))||'';
+  const pickFrame=id=>{const next=new Set([...set].filter(k=>!FRAME_IDS.includes(k)));if(id)next.add(id);onChange(STYLE_ORDER.filter(k=>next.has(k)).join(','))};
   const chip=([id,label],limit)=>{const on=set.has(id);const blocked=limit&&!on&&tecnicas>=MAX_TECHNIQUES;
     return <button type="button" key={id} className="rd-chip-tab" aria-pressed={on} aria-checked={on} role="checkbox" disabled={blocked}
       title={blocked?`Escolha no máximo ${MAX_TECHNIQUES} técnicas`:undefined} onClick={()=>toggle(id)}>{label}</button>};
   return <>
     <div className="quick-niches" role="group" aria-labelledby={labelledBy}>{CAMERA_OPTIONS.map(o=>chip(o,false))}</div>
     <div className="quick-niches" role="group" aria-label="Técnicas de retenção (até 2)">{TECHNIQUE_OPTIONS.map(o=>chip(o,true))}</div>
+    <span className="option-field-title" id="frame-title">Enquadramento da imagem</span>
+    <div className="quick-niches" role="radiogroup" aria-labelledby="frame-title">
+      {FRAME_OPTIONS.map(([id,label])=><button type="button" key={id||'auto'} className="rd-chip-tab" role="radio" aria-checked={frame===id}
+        aria-pressed={frame===id} onClick={()=>pickFrame(id)}>{label}</button>)}
+    </div>
+    <small className="help">Automático: blusa, regata e casaco saem com o quadro fechado na peça (detalhes maiores); calça, vestido e legging, de corpo inteiro. Escolha antes de gerar: trocar depois apaga os textos e as imagens.</small>
   </>;
 }
 

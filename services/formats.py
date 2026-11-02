@@ -39,7 +39,9 @@ TECHNIQUES = ('acao', 'aproxima', 'revela', 'loop', 'estica')
 # Mais de duas tecnicas no mesmo video de 15 s viram lista de tarefas para o
 # Grok (e estouram o limite de caracteres).
 MAX_TECHNIQUES = 2
-STYLE_TOKENS = ('closes', 'ousado') + TECHNIQUES
+# Enquadramento da imagem (services/framing.py): no maximo um; sem nenhum, a peca decide.
+FRAME_STYLE = ('enq_inteiro', 'enq_joelhos', 'enq_cintura')
+STYLE_TOKENS = ('closes', 'ousado') + TECHNIQUES + FRAME_STYLE
 
 
 def _sem_corpo(c):

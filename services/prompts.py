@@ -4,7 +4,8 @@ import re
 import unicodedata
 
 from services import formats, generators, persuasion, piece, script_budget, speech_bank
-from services.framing import mood, push_target, speech_framing
+from services.framing import (mirror_cover, mirror_image_rules, mirror_phone, mirror_scope, mood, push_target,
+                              speech_framing)
 
 
 def _phrase(value):
@@ -2811,8 +2812,8 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
         # Celular no espelho: o quadro e o reflexo; uma mao segura o celular o
         # tempo todo e a outra faz tudo (gesto, prova, carrinho).
         clima = 'fit check no espelho gravado com o celular e postado no TikTok'
-        camera = ("o vídeo é o que o celular dela grava no espelho de corpo inteiro: o quadro é o reflexo, com o "
-                  "celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural de mão, "
+        camera = (f"o vídeo é o que o celular dela grava {mirror_scope(c)}: o quadro é o reflexo, com o "
+                  f"celular sempre na mão dela, {mirror_phone(c)}, {mirror_cover(c)}; leve balanço natural de mão, "
                   "um único take contínuo, sem cortes nem zoom. O rosto fica sempre inteiro no reflexo enquanto ela "
                   "fala, olhando para a tela do celular. ")
         maos = ("MÃOS: uma segura o celular o tempo todo; a outra gesticula enquanto ela fala — toca a peça, ajusta, "
@@ -3179,12 +3180,7 @@ def _build_mirror_image_prompt(c, *, product, color, piece_ref, photos, product_
     anexa esta imagem como primeiro quadro, entao ela ja nasce com o celular
     na mao e o reflexo; nas outras cores vira edicao localizada da aprovada."""
     model = c['model_name']
-    mirror_rules = (
-        "SELFIE NO ESPELHO: a imagem é o reflexo num espelho de corpo inteiro. Ela segura o próprio celular com "
-        "uma das mãos, na altura do peito, com a câmera traseira voltada para o espelho; o celular aparece no "
-        "reflexo sem cobrir o rosto, que fica inteiro e visível acima do aparelho. A outra mão toca a peça. "
-        f"Corpo de frente para o espelho, com {piece_ref} inteira visível no reflexo. "
-    )
+    mirror_rules = mirror_image_rules(c, piece_ref)
     if base_image:
         attachments = "ORDEM DOS ANEXOS: anexe primeiro a imagem aprovada desta campanha (selfie no espelho)"
         if photos:

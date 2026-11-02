@@ -23,7 +23,8 @@ import re
 import unicodedata
 
 from services import formats, generators, persuasion
-from services.framing import framing, mood, push_target, speech_framing  # noqa: F401 (story_sequence usa daqui)
+from services.framing import (framing, mirror_cover, mirror_phone, mirror_scope, mood, push_target,  # noqa: F401
+                              speech_framing)  # (story_sequence usa daqui)
 from services.formats import video_mode as _video_mode
 from services.piece import niche_key as _niche_key, product_family as _product_family
 from services.prompts import (
@@ -410,8 +411,8 @@ def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
         return '\n'.join([
             f'Vídeo vertical 9:16, 15 segundos, {res}. Clima: fit check no espelho gravado com o celular e postado no TikTok.',
             first_frame, light,
-            'Câmera: o vídeo é o que o celular dela grava no espelho de corpo inteiro; o quadro é o reflexo, com o '
-            'celular sempre na mão dela, na altura do peito, sem cobrir o rosto; leve balanço natural, um único take '
+            f'Câmera: o vídeo é o que o celular dela grava {mirror_scope(c)}; o quadro é o reflexo, com o '
+            f'celular sempre na mão dela, {mirror_phone(c)}, {mirror_cover(c)}; leve balanço natural, um único take '
             f'contínuo, sem cortes{cortes} nem zoom.' + closes,
             f'Ação contínua, sem pausas: ela {abre}{_FLOW[0]}{flow(steps, 1)}, em ritmo natural de conversa, sem câmera lenta'
             + (', sem andar de um lado para o outro' if _niche_key(c) == 'academia' else '') + '; '

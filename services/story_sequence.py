@@ -16,6 +16,7 @@ aqui: a sequencia so reorganiza o que o roteiro ja aprovou.
 import math
 import re
 
+from services.framing import mirror_cover, mirror_phone, mirror_scope
 from services.prompt_improve import (
     clean, quote, touch_point, flow, framing, mood, movement_steps, pov_hands, push_target, size, speech_framing,
 )
@@ -147,8 +148,8 @@ def build_story_sequence(c: dict, prompts: dict, color: str) -> dict:
             head,
             f'A imagem anexada é o primeiro quadro: a mesma mulher ({model}), mesmo rosto, cabelo e corpo, '
             'vestindo exatamente o que aparece nela. Luz: a mesma da imagem.',
-            ('Câmera: o celular dela grava o reflexo no espelho de corpo inteiro, sempre na mão, na altura do peito, '
-             'sem cobrir o rosto; take contínuo, sem cortes.' if mode == 'espelho'
+            (f'Câmera: o celular dela grava o reflexo {mirror_scope(c)}, sempre na mão, {mirror_phone(c)}, '
+             f'{mirror_cover(c)}; take contínuo, sem cortes.' if mode == 'espelho'
              else f'Câmera: na mão, estável, {shot}, take contínuo, sem cortes.'),
             f'Ela {abre}. Ela diz: "{hook}"',
             f'Expressão: {cena["arc"].split(" → ")[0]}.',

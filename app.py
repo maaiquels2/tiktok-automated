@@ -1230,6 +1230,8 @@ def create_app(config=None):
         style_values={part.strip() for part in (values.get('video_style') or '').split(',') if part.strip()}
         if style_values-set(formats.STYLE_TOKENS):
             raise Invalid('Estilo de vídeo inválido: escolha entre as opções de câmera e movimento.')
+        if len(style_values&set(formats.FRAME_STYLE))>1:
+            raise Invalid('Escolha um só enquadramento da imagem: automático, corpo inteiro, dos joelhos ou da cintura para cima.')
         if len(style_values&set(formats.TECHNIQUES))>formats.MAX_TECHNIQUES:
             raise Invalid(f'Escolha no máximo {formats.MAX_TECHNIQUES} técnicas de retenção por vídeo.')
         values['video_style']=','.join(key for key in formats.STYLE_TOKENS if key in style_values)
