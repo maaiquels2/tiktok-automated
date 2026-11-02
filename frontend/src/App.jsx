@@ -9,7 +9,7 @@ import {Landing, BackToLanding} from './Landing';
 import { PHASES, statusInfo, phaseTone, swatchFor, nextStepLabel } from './ui';
 import {Menu, VideoWorkbench, Dialog, BriefForm, CopyButton, AssetView, Uploader, DeviceVideoPicker, DeviceVideoCard, TextEditor, ProductGallery, VariantList, PublishQueue, VideoMixer, VideoTimelinePreview, ModelLibraryPanel, NICHES, readStoredModel, PromptScore, StorySequence, FORMAT_OPTIONS, AgentImages, AiUsage, SaveToLibrary, CampaignWarnings, MediaWarnings} from './components';
 import { NICHE_DEFAULTS } from './nicheDefaults';
-import { pointToFacts } from './sequenceText';
+import { isFewFacts, pointToFacts } from './sequenceText';
 // Orcamento do roteiro: o mesmo do servidor (services/script_budget.py; um teste confere).
 import SCRIPT_RULES from './scriptRules.json';
 import {FieldCount,ScriptBudget,countWords} from './scriptBudget';
@@ -955,7 +955,14 @@ export default function App(){
       </div>:modal.type==='auto'?<AutoCreatePanel modelName={readStoredModel()||identity?.model_name||'Micaela'} busy={busy} onError={setError}
         onCreate={(values,photos,message)=>createCampaign(values,photos,[],null,{generate:true,message,
           // Na criacao automatica nao ha campo Detalhes: o aviso de poucos fatos aponta para o Fatos da peca.
-          errorText:values.sequence_clips?m=>pointToFacts(m,'acima'):undefined})}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={createCampaign}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
+          errorText:values.sequence_clips?m=>pointToFacts(m,'acima'):undefined})}/>:modal.type==='create'?<BriefForm busy={busy} campaign={{model_name:readStoredModel()||identity?.model_name||'Micaela'}} onCancel={()=>setModal(null)} onSave={(values,photos,removed,descriptionPhoto)=>createCampaign(values,photos,removed,descriptionPhoto,
+          // Sequencia sem 3 fatos: o aviso do servidor manda escrever "no campo Detalhes", que na criacao se chama "Fatos da peça" e
+          // fica abaixo do tipo de video (no celular, fora da tela). Aponta o campo certo e leva a pessoa ate ele.
+          {errorText:values.sequence_clips?m=>{
+            if(isFewFacts(m))setTimeout(()=>{const el=document.getElementById('brief-seq-facts');
+              if(el){el.scrollIntoView({block:'center',behavior:'smooth'});el.setAttribute('aria-invalid','true');el.focus({preventScroll:true})}},60);
+            return pointToFacts(m,'logo abaixo do tipo de vídeo');
+          }:undefined})}/>:<><p>{modal.description}</p><div className="form-actions"><button disabled={busy} onClick={()=>setModal(null)}>Cancelar</button><button className="primary" disabled={busy} onClick={async()=>{if(await modal.action())setModal(null)}}>{busy?'Aguarde…':modal.label}</button></div></>}
       </Suspense>
       {error&&<p className="inline-error" role="alert">{error}</p>}
     </Dialog>}

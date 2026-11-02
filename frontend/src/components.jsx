@@ -1448,9 +1448,9 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
             // O Detalhes nasce com a direcao de cena da moda: na sequencia ele vira os "motivos", entao comeca vazio.
             if(id&&String(draft.details||'').trim()===String((NICHE_DEFAULTS[draft.niche]||{}).details||'').trim())change('details','')}}/>
         {draft.sequence_clips&&<label className="sequence-facts">Fatos da peça (os motivos da sequência)
-          <textarea autoComplete="off" rows={2} value={draft.details||''} onChange={e=>change('details',e.target.value)}
-            placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={5000}/>
-          <small className="help">Pelo menos 3 fatos verdadeiros da peça, separados por vírgula ({factCount(draft.details)} escritos). É o mesmo campo Detalhes.</small>
+          <textarea id="brief-seq-facts" autoComplete="off" rows={2} value={draft.details||''} onChange={e=>{e.currentTarget.removeAttribute('aria-invalid');change('details',e.target.value)}}
+            aria-describedby="brief-seq-facts-help" placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={5000}/>
+          <small id="brief-seq-facts-help" className="help">Pelo menos 3 fatos verdadeiros da peça, separados por vírgula ({factCount(draft.details)} escritos). É o mesmo campo Detalhes.</small>
         </label>}
         {/* Motor, formato e orientacao ocupavam boa parte do formulario, cada um
             com um paragrafo de ajuda. Ficam recolhidos, com a escolha atual no
