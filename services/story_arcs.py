@@ -220,21 +220,28 @@ def _style(c):
     return forms, occasions, combos
 
 
-def _cta(c, forms):
-    return pick_in_budget(cta_pool(c, forms), 0, *script_budget.LOCAL_PICK['cta'], fuzzy=False)
+def _cta(c, forms, variation=0):
+    return pick_in_budget(cta_pool(c, forms), variation, *script_budget.LOCAL_PICK['cta'], fuzzy=False)
 
 
-def draft_lines(c, arc, clips, facts):
-    """Rascunho das falas: lista de clipes, cada um com 3 trechos (0-4 s, 4-12 s, 12-15 s)."""
+def draft_lines(c, arc, clips, facts, variation=0):
+    """Rascunho das falas: lista de clipes, cada um com 3 trechos (0-4 s, 4-12 s, 12-15 s).
+
+    ``variation`` e a posicao da cor na campanha. Os motivos e a ordem deles sao os mesmos (cada gesto e cada prova ficam
+    presos ao fato), mas a abertura, a frase do "eu me imagino" e o fechamento mudam de cor para cor: sem isso as
+    cores saiam com as mesmas falas. A cor 0 e o rascunho de sempre."""
     f1, f2, f3 = (_cap(f['text']) for f in facts[:3])
     l1, l2, l3 = (_low(f['text']) for f in facts[:3])
     forms, occasions, combos = _style(c)
     dem, piece, pron = forms['dem'], forms['piece'], forms['pron']
-    imagino = f'Eu já me imagino com {pron} {_join_pt(occasions)}.'
+    v = max(0, int(variation or 0))
+    verbo = 'imagino' if (v // 2) % 2 == 0 else 'vejo'
+    imagino = f'Eu já me {verbo} com {pron} {_join_pt(occasions)}.'
     mix = f' e já imagina com {combos[0]}, com {combos[1]}' if combos else ''
-    cta = _cta(c, forms)
+    cta = _cta(c, forms, v)
     if arc == 'motivos':
-        abre = f'Três motivos pra {dem} {piece} estar no teu guarda-roupa, olha só.'
+        abre = (f'Três motivos pra {dem} {piece} estar no teu guarda-roupa, olha só.' if v % 2 == 0
+                else f'Olha só três motivos pra {dem} {piece} entrar no teu guarda-roupa.')
         if clips == 2:
             return [
                 (abre,
@@ -257,7 +264,8 @@ def draft_lines(c, arc, clips, facts):
              cta),
         ]
     if arc == 'problema':
-        abre = f'Sabe aquela hora de montar o look e nada parece certo? Então olha {dem} {piece}.'
+        abre = (f'Sabe aquela hora de montar o look e nada parece certo? Então olha {dem} {piece}.' if v % 2 == 0
+                else f'Sabe quando você monta o look e nada parece certo? Então olha {dem} {piece}.')
         alivio = f'Pra mim, {pron} já resolve boa parte disso.'
         if clips == 2:
             return [
@@ -280,7 +288,9 @@ def draft_lines(c, arc, clips, facts):
              cta),
         ]
     if arc == 'mito':
-        abre = f'Dizem que {piece} é tudo igual. Pra mim isso é mito, e eu vou te mostrar três verdades, olha só.'
+        abre = (f'Dizem que {piece} é tudo igual. Pra mim isso é mito, e eu vou te mostrar três verdades, olha só.'
+                if v % 2 == 0 else
+                f'Falam que {piece} é tudo igual. Pra mim isso é mito, e eu vou te mostrar três verdades, olha só.')
         if clips == 2:
             return [
                 (abre,
@@ -302,7 +312,8 @@ def draft_lines(c, arc, clips, facts):
              cta),
         ]
     # questionada (Dúvida e resposta)
-    pergunta = f'Sei que dá aquela dúvida: será que {dem} {piece} vale mesmo a pena?'
+    pergunta = (f'Sei que dá aquela dúvida: será que {dem} {piece} vale mesmo a pena?' if v % 2 == 0
+                else f'Sei que bate aquela dúvida: será que {dem} {piece} vale mesmo a pena?')
     promessa = (f'Então olha comigo. Eu vou te mostrar três motivos pra {dem} {piece} '
                 f'merecer um lugar no teu guarda-roupa, um por um.')
     if clips == 2:
@@ -599,12 +610,12 @@ def _normalize_lines(clips_lines, clips):
     return out
 
 
-def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_turns=None, texture=False):
+def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_turns=None, texture=False, slot_index=0):
     """Monta a sequencia: falas (rascunho ou editadas), prompt completo, Guia do Grok e Extend Video por clipe,
     mais o passo a passo do CapCut. `c` e a campanha (como detail()); `color` a cor da variacao.
     Opt-in (experimental, so neste pedido, nada gravado): ``clip_turns`` (giro do corpo de cada clipe, chaves de
     CLIP_TURNS) e ``texture`` (close de textura nos motivos que sao material ou detalhe confirmado). Desligados, a
-    saida e a de sempre."""
+    saida e a de sempre. ``slot_index`` (posicao da cor) so muda o rascunho: ver draft_lines."""
     if arc not in ARCS:
         raise ArcError('Escolha um dos arcos da sequência.', 400)
     if clips not in CLIP_COUNTS:
@@ -613,7 +624,7 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_tur
     espelho, facts = check_campaign(c)
     w = _wording(espelho)
     drafted = lines is None
-    clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts)] if drafted
+    clip_lines = ([_pad(trio) for trio in draft_lines(c, arc, clips, facts, slot_index)] if drafted
                   else _normalize_lines(lines, clips))
     return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
                      turns=turns, texture=bool(texture))

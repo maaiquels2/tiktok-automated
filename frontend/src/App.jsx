@@ -14,6 +14,7 @@ import { pointToFacts } from './sequenceText';
 import SCRIPT_RULES from './scriptRules.json';
 import {FieldCount,ScriptBudget,countWords} from './scriptBudget';
 import FORMAT_RULES from './formatRules.json';
+import { briefResetMessage } from './briefReset';
 // Resultados num pedaco separado do bundle: so baixa quando a aba abre.
 const ResultsQuickTools=lazy(()=>import('./results').then(m=>({default:m.ResultsQuickTools})));
 const PerformancePanel=lazy(()=>import('./results').then(m=>({default:m.PerformancePanel})));
@@ -372,7 +373,8 @@ export default function App(){
       return ok;
     });
     const changed=photos.length||removed.length||!!descriptionPhoto||Object.keys(submitValues).some(k=>k!=='name'&&submitValues[k]!==(c[k]||''));
-    if(changed&&c.prompts.image)confirm('Iniciar uma nova versão?','A alteração do briefing retira as mídias do fluxo atual e solicita novas aprovações. Os arquivos anteriores ficam guardados na pasta da campanha.',action,'Salvar e reiniciar');else action();
+    const resetMessage=changed?briefResetMessage(c,submitValues,{photos:photos.length,removed:removed.length,description:!!descriptionPhoto}):null;
+    if(resetMessage)confirm('Salvar vai apagar o que já foi feito',resetMessage,action,'Salvar e apagar');else action();
   }
   function saveTexts(values){
     const action=()=>run(()=>api(`/campaigns/${c.id}/prompts`,{method:'PATCH',body:{prompts:values,version:c.version}}),'Textos salvos.');

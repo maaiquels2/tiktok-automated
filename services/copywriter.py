@@ -925,18 +925,26 @@ def _spoken_similarity(left: dict, right: dict) -> tuple[float, float, float]:
     return hook,development,combined
 
 
+def _too_similar(hook: float, development: float, combined: float) -> bool:
+    return (combined>=0.82 or (hook>=0.88 and development>=0.72)
+            or (development>=0.90 and hook>=0.65))
+
+
+def repeated_pairs(items: list[tuple[str, dict]]) -> list[tuple[int, int, float]]:
+    """Pares (i, j, similaridade) de cores que repetem a mesma estrutura de fala, com i < j."""
+    pairs=[]
+    for index,(_left_label,left) in enumerate(items):
+        for offset,(_right_label,right) in enumerate(items[index+1:],start=index+1):
+            hook,development,combined=_spoken_similarity(left,right)
+            if _too_similar(hook,development,combined):
+                pairs.append((index,offset,combined))
+    return pairs
+
+
 def batch_diversity_issues(items: list[tuple[str, dict]]) -> list[str]:
     """Reject scripts that merely swap the color while keeping the same copy."""
-    issues=[]
-    for index,(left_label,left) in enumerate(items):
-        for right_label,right in items[index+1:]:
-            hook,development,combined=_spoken_similarity(left,right)
-            if (combined>=0.82 or (hook>=0.88 and development>=0.72)
-                    or (development>=0.90 and hook>=0.65)):
-                issues.append(
-                    f'{left_label} e {right_label} repetem a mesma estrutura '
-                    f'(similaridade {round(combined*100)}%)')
-    return issues
+    return [f'{items[i][0]} e {items[j][0]} repetem a mesma estrutura (similaridade {round(combined*100)}%)'
+            for i,j,combined in repeated_pairs(items)]
 
 
 def _parse(raw: str) -> dict:
@@ -958,6 +966,12 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
     if not caller or not settings.get('api_key'):
         return None, 'sem provedor configurado'
     user = build_brief(c)
+    if c.get('batch_axis'):
+        # Cor de uma campanha com varias cores escrita numa chamada propria: cada cor recebe um eixo narrativo
+        # diferente (o mesmo de write_scripts), senao as chamadas, que nao se enxergam, caem no mesmo molde.
+        user += (f"\n\nEIXO NARRATIVO OBRIGATÓRIO: {c['batch_axis']} — {c.get('batch_axis_direction') or ''}.\n"
+                 'Outras cores desta campanha são escritas em paralelo com outros eixos: não use a estrutura de '
+                 'hook padrão nem a mesma sequência de desenvolvimento que uma cor qualquer teria.')
     ultimo = ''
     comeco = time.monotonic()
     for tentativa in range(max(1, attempts)):

@@ -499,7 +499,10 @@ def create_app(config=None):
                 session.pop('user_id',None)
                 raise Invalid('Faça login para acessar a Fábrica TikTok.',401)
             g.current_user=dict(user)
-        if request.method in {'POST','PATCH'} and request.endpoint in AI_ENDPOINTS:
+        if request.method in {'POST','PATCH'} and request.endpoint in AI_ENDPOINTS and (
+                request.endpoint!='story_arc' or (lambda dados:isinstance(dados,dict) and dados.get('ai'))(request.get_json(silent=True))):
+            # A sequencia so gasta a chave quando o pedido traz ai=true; montar ou reabrir o rascunho nao conta no limite
+            # nem no teto de gasto (a tela monta ao abrir e a cada troca de cor, arco ou numero de clipes).
             # Cada chamada destas gasta a chave da OpenAI: limite por pessoa.
             quem=(getattr(g,'current_user',None) or {}).get('id') or client_ip()
             chave=f'ai:{quem}'
@@ -2160,11 +2163,39 @@ def create_app(config=None):
             return [None]*len(campaigns)
         from concurrent.futures import ThreadPoolExecutor
         import contextvars
+        comeco=time.monotonic()
+        # Uma chamada por cor, mas cada uma com o seu eixo narrativo (o mesmo do lote): sem isso as chamadas, que nao
+        # se enxergam, caiam no mesmo molde de fala.
+        if len(campaigns)>1:
+            eixos=[copywriter._batch_axis(i,item) for i,item in enumerate(campaigns)]
+            campaigns=[{**item,'batch_axis':nome,'batch_axis_direction':direcao}
+                       for item,(nome,direcao) in zip(campaigns,eixos)]
         with ThreadPoolExecutor(max_workers=min(8, len(campaigns))) as pool:
             # Cada cor leva o contexto da requisicao (registro de uso da IA).
             tarefas=[pool.submit(contextvars.copy_context().run, copywriter.write_script, item, settings)
                      for item in campaigns]
-            return [t.result() for t in tarefas]
+            resultados=[t.result() for t in tarefas]
+            # Confere o conjunto: cor que repete a estrutura de outra e reescrita uma vez, vendo o roteiro da outra como
+            # "roteiro atual" (o prompt manda nao repetir e a auditoria recusa o quase igual). Sem tempo (a funcao na
+            # nuvem morre em 60 s), fica o que veio.
+            if len(campaigns)>1 and time.monotonic()-comeco<22:
+                itens=[(item.get('color') or str(i),r[0]) for i,(item,r) in enumerate(zip(campaigns,resultados)) if r and r[0]]
+                indices=[i for i,(item,r) in enumerate(zip(campaigns,resultados)) if r and r[0]]
+                refazer={}
+                for i,j,_similaridade in copywriter.repeated_pairs(itens):
+                    refazer.setdefault(indices[j],indices[i])
+                if refazer:
+                    app.logger.warning('Falas parecidas entre cores (%s): reescrevendo %s',
+                                       ', '.join(str(campaigns[j].get('color')) for j in refazer),len(refazer))
+                    novas={j:pool.submit(contextvars.copy_context().run, copywriter.write_script,
+                                         {**campaigns[j],'previous_script':{k:resultados[i][0].get(k,'') for k in ('hook','development','cta')}},
+                                         settings,attempts=1,orcamento_s=max(8.0,40.0-(time.monotonic()-comeco)))
+                           for j,i in refazer.items()}
+                    for j,tarefa in novas.items():
+                        novo=tarefa.result()
+                        if novo and novo[0]:
+                            resultados[j]=novo
+            return resultados
 
     def write_with_llm(campaign, pack, cid=None, required=False, precomputed=None, index=0):
         """Deixa o modelo de linguagem escrever as falas, se estiver ligado.
@@ -3373,7 +3404,7 @@ def create_app(config=None):
         from services.story_arcs import ArcError, arc_facts, build_story_arc, write_lines_with_ai
         data=body()
         c=detail(cid)
-        color,base_image=c.get('color') or '',False
+        color,base_image,slot_index=c.get('color') or '',False,0
         vid=data.get('variant')
         if vid is not None:
             try:
@@ -3383,7 +3414,7 @@ def create_app(config=None):
             index=next((i for i,v in enumerate(c['variants']) if v['id']==vid),None)
             if index is None:
                 raise Invalid('Variação de cor não encontrada.',404)
-            color,base_image=c['variants'][index]['color'],variacao.uses_approved_base(index)
+            color,base_image,slot_index=c['variants'][index]['color'],variacao.uses_approved_base(index),index
         elif c['variants']:
             color=c['variants'][0]['color']
         try:
@@ -3453,7 +3484,7 @@ def create_app(config=None):
             if clip_turns is not None and not isinstance(clip_turns,(list,str)):
                 raise Invalid('Giro por clipe inválido.')
             resposta={**build_story_arc(c,color,arc,clips,lines,base_image=base_image,clip_turns=clip_turns,
-                                        texture=data.get('texture') is True),**extra_resposta}
+                                        texture=data.get('texture') is True,slot_index=slot_index),**extra_resposta}
             if data.get('lines') is not None and not data.get('ai'):
                 # Falas que o operador mandou (ja conferidas pelo montador): ficam guardadas.
                 editadas=[list(clip['lines']) for clip in resposta['clips']]

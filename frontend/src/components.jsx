@@ -11,6 +11,7 @@ import { swatchFor } from './ui';
 import { warningsFor, downloadLastFrame } from './mediaChecks';
 import { isFewFacts, pointToFacts } from './sequenceText';
 import { CLIP_TURN_OPTIONS, arcOptions, resizeTurns } from './arcOptions';
+import { anyDirty, clipBase, dirtyClips, draftKey, restoreDrafts } from './arcDrafts';
 import { api, modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, agentImages, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
@@ -377,6 +378,7 @@ export function AgentImages({campaignId,colorCount,onError}){
   </section>;
 }
 
+const UNAPPLIED_DRAFTS=new Map();
 export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=0,autoBuild=false}){
   // Escolhida na criacao da campanha: ja abre com o arco e os clipes marcados e monta sozinha.
   const [open,setOpen]=useState(autoBuild);
@@ -393,13 +395,30 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   // a IA ja escreveu (guardadas no servidor) e nunca chama a IA sozinha.
   async function build(lines,ai=false,discard=false){
     setLoading(ai?'ai':true);setMessage('');
+    const key=draftKey(campaignId,variantId,arc,clips);
     try{
       const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined,discard:discard||undefined,...arcOptions(turns,clips,texture)});
-      setData(res);setDrafts(res.clips.map(clip=>clip.lines.join('\n')));
-    }catch(e){if(!ai)setData(null);setMessage(e.message)}
+      setData(res);
+      // Falas aplicadas, escritas pela IA ou descartadas: a caixa mostra o que foi montado. Montagem comum (ao abrir ou
+      // trocar de cor): volta o que o operador digitou e ainda nao aplicou.
+      if(lines!==undefined||ai||discard)UNAPPLIED_DRAFTS.delete(key);
+      setDrafts(restoreDrafts(res.clips,UNAPPLIED_DRAFTS.get(key)));
+    }catch(e){
+      // Falas enviadas e recusadas (ex.: falta um trecho): a sequencia e a caixa continuam como estavam, so a mensagem aparece.
+      if(!ai&&lines===undefined)setData(null);
+      setMessage(e.message)
+    }
     finally{setLoading(false)}
   }
+  const editDraft=(index,text)=>setDrafts(list=>{
+    const next=list.map((old,i)=>i===index?text:old);
+    UNAPPLIED_DRAFTS.set(draftKey(campaignId,variantId,arc,clips),next);
+    return next;
+  });
   const choose=(setter,value)=>{setter(value);setData(null);setMessage('')};
+  const dirty=data?dirtyClips(data.clips,drafts):[];
+  const pending=!!data&&anyDirty(data.clips,drafts);
+  const pendingClips=dirty.map((d,i)=>d?i+1:0).filter(Boolean);
   useEffect(()=>{if(autoBuild)build()},[]);
   return <section className="story-sequence story-arcs">
     <button type="button" onClick={()=>setOpen(v=>!v)} aria-expanded={open}>
@@ -451,31 +470,37 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
       {data?.written_by&&<p className={'writer-badge'+(data.written_by.startsWith('ai')?' is-ai':'')}><strong>{WRITTEN_BY[data.written_by]||'Falas guardadas'}</strong>
         {data.written_by.startsWith('manual')&&<button type="button" disabled={!!loading} onClick={()=>build(undefined,false,true)}>Descartar minhas edições</button>}</p>}
       {data&&<>
-        <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong><CopyButton text={data.text} label="Copiar tudo"/></div>
+        <div className="section-title"><strong>{data.label} · {data.clips_count} clipes · cerca de {data.total_seconds}s</strong>{!pending&&<CopyButton text={data.text} label="Copiar tudo"/>}</div>
+        {pending&&<p className="help story-arc-problem" role="alert">⚠ Você mudou a fala de {pendingClips.map(n=>`clipe ${n}`).join(', ')}. Os prompts abaixo ainda trazem a fala anterior: aplique as falas para copiar.</p>}
         <SequenceNotices items={data.notices}/>
         <small className="help">Motivos usados: {data.facts.join(' · ')}</small>
         {data.notes.map(note=><small key={note} className="help">{note}</small>)}
         {data.clips.map((clip,index)=>{
-          const draft=drafts[index]??clip.lines.join('\n');
+          const draft=drafts[index]??clipBase(clip);
           const words=wordCount(draft);
+          const stale=dirty[index];
           return <div key={clip.index} className="variant-prompt story-clip">
             <div className="section-title"><strong>Clipe {clip.index} · {clip.role} <small>{clip.start} · ~{clip.seconds}s{clip.turn?` · giro: ${clip.turn_label} (experimental)`:''}</small></strong></div>
             <label className="story-arc-lines">
               <span className="help">Falas (uma linha por trecho: 0–4 s, 4–12 s e 12–15 s) · {words} palavras</span>
-              <textarea autoComplete="off" rows={5} value={draft} onChange={e=>setDrafts(list=>list.map((text,i)=>i===index?e.target.value:text))}/>
+              <textarea autoComplete="off" rows={5} value={draft} onChange={e=>editDraft(index,e.target.value)}/>
             </label>
             {clip.problems.map(problem=><small key={problem} className="help story-arc-problem">⚠ {problem}</small>)}
-            <div className="story-arc-copy">
+            {pending?<div className="story-arc-copy">
+              {stale
+                ?<button type="button" className="primary" disabled={!!loading} onClick={()=>build(drafts)}>Aplicar a fala editada e atualizar o prompt</button>
+                :<small className="help">Aplique a fala editada do clipe {pendingClips.join(', ')} para copiar.</small>}
+            </div>:<div className="story-arc-copy">
               <CopyButton text={clip.prompt} label={clip.prompt_image?'Copiar prompt enxuto (último quadro)':'Copiar prompt completo'}/>
               {clip.prompt_image&&<CopyButton text={clip.prompt_image} label="Copiar prompt completo (imagem aprovada)"/>}
               <CopyButton text={clip.guide} label="Copiar Guia do Grok"/>
               {clip.extend&&<CopyButton text={clip.extend} label="Copiar Extend Video"/>}
-            </div>
+            </div>}
             <p className="story-screen-text"><strong>Texto na tela (CapCut):</strong> {clip.screen_text}</p>
           </div>;
         })}
-        <button type="button" disabled={loading} onClick={()=>build(drafts)}>Atualizar prompts com as falas editadas</button>
-        {data.agent&&<AgentPack pack={data.agent}/>}
+        <button type="button" className={pending?'primary':''} disabled={loading} onClick={()=>build(drafts)}>Atualizar prompts com as falas editadas</button>
+        {data.agent&&!pending&&<AgentPack pack={data.agent}/>}
         <h4>Como gerar no Grok</h4>
         <ul>{data.tips.map(tip=><li key={tip}>{tip}</li>)}</ul>
         <h4>Montagem no CapCut</h4>

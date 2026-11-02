@@ -2935,6 +2935,64 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,variant='abc')).status_code,400)
         self.assertEqual(self.post('/story-arc',dict(arc='motivos',clips=2,lines=[['a','b','c']])).status_code,400)
 
+    def arc_campaign_with_colors(self):
+        created=self.client.post('/api/campaigns',json={**self.brief,**self.ARC_PRODUCTS['jeans'],
+            'color':'Azul claro, Preto','video_mode':'espelho','generator':'grok'},headers=self.headers)
+        self.assertEqual(created.status_code,201,created.json)
+        self.cid=created.json['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        return self.get()
+
+    def test_story_arc_drafts_differ_between_colors_and_stay_inside_the_rules(self):
+        # Pedido real: as 7 cores da blusa recebiam exatamente as mesmas falas na sequencia. O rascunho agora muda a
+        # abertura, o "eu me imagino" e o fechamento por posicao da cor; a cor 0 e o rascunho de sempre.
+        from services.story_arcs import build_story_arc
+        for nome,produto in self.ARC_PRODUCTS.items():
+            for modo in ('espelho',''):
+                c={**self.brief,**produto,'video_mode':modo,'generator':'grok'}
+                for arc in ('motivos','questionada','problema','mito'):
+                    for clips in (2,3):
+                        conjuntos=[]
+                        for indice in range(8):
+                            r=build_story_arc(c,c['color'],arc,clips,slot_index=indice,base_image=indice>0)
+                            for clip in r['clips']:
+                                self.assertEqual(clip['problems'],[],(nome,modo,arc,clips,indice,clip['index']))
+                            conjuntos.append(tuple(x for clip in r['clips'] for x in clip['lines']))
+                        self.assertGreaterEqual(len(set(conjuntos)),7,(nome,modo,arc,clips))
+                        self.assertEqual(conjuntos[0],tuple(x for clip in build_story_arc(c,c['color'],arc,clips)['clips']
+                                                            for x in clip['lines']),(nome,modo,arc,clips))
+
+    def test_story_arc_endpoint_gives_each_color_its_own_draft_but_keeps_saved_lines(self):
+        variants=self.arc_campaign_with_colors()['variants']
+        a=self.post('/story-arc',dict(arc='motivos',clips=2,variant=variants[0]['id'])).json
+        b=self.post('/story-arc',dict(arc='motivos',clips=2,variant=variants[1]['id'])).json
+        self.assertNotEqual([c['lines'] for c in a['clips']],[c['lines'] for c in b['clips']])
+        self.assertEqual(a['facts'],b['facts'])
+        editadas=[['Gancho da segunda cor editado fora','Meio da segunda cor editado fora com a calça reta e a cintura alta','Fecho da segunda cor editado fora'],
+                  ['Gancho dois editado fora','Meio dois editado fora mostrando os bolsos na frente e a lavagem clara','Fecho dois editado fora']]
+        salvo=self.post('/story-arc',dict(arc='motivos',clips=2,variant=variants[1]['id'],lines=editadas)).json
+        self.assertEqual(salvo['written_by'],'manual')
+        reaberto=self.post('/story-arc',dict(arc='motivos',clips=2,variant=variants[1]['id'])).json
+        self.assertEqual(reaberto['written_by'],'manual_saved')
+        self.assertEqual([c['lines'] for c in reaberto['clips']],editadas)
+        primeira=self.post('/story-arc',dict(arc='motivos',clips=2,variant=variants[0]['id'])).json
+        self.assertEqual([c['lines'] for c in primeira['clips']],[c['lines'] for c in a['clips']])
+
+    def test_story_arc_without_ai_is_not_counted_in_the_ai_rate_limit(self):
+        # A tela monta a sequencia ao abrir e a cada troca de cor, arco ou numero de clipes: sem IA nao pode dar 429.
+        variants=self.arc_campaign_with_colors()['variants']
+        for n in range(45):
+            resp=self.post('/story-arc',dict(arc='motivos',clips=2,variant=variants[n%2]['id']))
+            self.assertEqual(resp.status_code,200,(n,resp.json))
+
+    def test_story_arc_with_ai_still_counts_in_the_ai_rate_limit(self):
+        variants=self.arc_campaign_with_colors()['variants']
+        codes=[self.post('/story-arc',dict(arc='motivos',clips=2,ai=True,variant=variants[0]['id'])).status_code
+               for _ in range(25)]
+        self.assertIn(429,codes)
+        self.assertNotIn(429,codes[:15])
+
     def test_story_arc_works_with_the_model_facing_the_camera(self):
         # Pedido real: campanha em "Teste de prova" nao mostrava a sequencia de 2 ou 3 clipes. De frente, os
         # clipes nao falam de espelho nem de celular na mao, e o formato da campanha nao entra nos clipes.
@@ -3636,6 +3694,72 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(chamada.call_count,3)
         self.assertLess(duracao,1.0,'as tres cores deviam ser escritas em paralelo')
         self.assertEqual(len(response.json['variants']),3)
+
+    def generate_with_scripts(self,escreve,colors='Azul, Branco, Preto'):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':colors},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        with patch('services.copywriter.write_script',side_effect=escreve) as chamada:
+            response=self.post('/generate')
+        self.assertEqual(response.status_code,200,response.json)
+        return response.json,chamada
+
+    @staticmethod
+    def ai_pack(hook,development,cta):
+        return {'hook':hook,'development':development,'cta':cta,'caption':'Legenda curta #moda'}
+
+    def test_generate_gives_each_color_its_own_axis_and_rewrites_a_color_that_repeats_another(self):
+        # Pedido real: as cores eram escritas em chamadas que nao se enxergavam, e nada conferia o conjunto depois.
+        calls=[]
+        repetido=('Eu pedi essa peça pra mim e olha como ficou leve no corpo hoje mesmo',
+                  'O tecido é leve e o caimento é solto, dá pra ver a barra mexendo quando eu caminho com ela',
+                  'Corre pro carrinho laranja e confere os detalhes')
+
+        def escreve(campaign,settings,**_):
+            previous=campaign.get('previous_script')
+            calls.append((campaign['color'],campaign.get('batch_axis'),bool(previous)))
+            if previous:
+                cor=campaign['color']
+                return self.ai_pack(f'Hoje fui testar a {cor} com outra ideia completamente diferente',
+                                    f'Na {cor} o que me conquistou foi o jeito de assentar, sem apertar e sem sobrar nada',
+                                    f'Toca no carrinho laranja e escolhe a {cor}'),''
+            return self.ai_pack(*repetido),''
+
+        result,chamada=self.generate_with_scripts(escreve)
+        primeiras=[c for c in calls if not c[2]]
+        self.assertEqual(len(primeiras),3)
+        self.assertEqual(len({c[1] for c in primeiras}),3,'cada cor deve receber um eixo narrativo diferente')
+        self.assertTrue(all(c[1] for c in primeiras))
+        reescritas=[c for c in calls if c[2]]
+        self.assertEqual(sorted(c[0] for c in reescritas),['Branco','Preto'])
+        by_color={v['color']:v['prompts'] for v in result['variants']}
+        self.assertEqual(by_color['Azul']['hook'],repetido[0])
+        self.assertIn('Hoje fui testar a Branco',by_color['Branco']['hook'])
+        self.assertIn('Hoje fui testar a Preto',by_color['Preto']['hook'])
+        self.assertEqual(len({p['hook'] for p in by_color.values()}),3)
+        for cor,prompts in by_color.items():
+            self.assertIn(prompts['hook'][:28].casefold(),' '.join(prompts['video'].split()).casefold(),cor)
+
+    def test_generate_does_not_rewrite_colors_that_are_already_different(self):
+        textos={'Azul':('Pedi a azul sem esperar muito e ela chegou melhor do que eu imaginava aqui',
+                         'O caimento solto da barra dá movimento quando eu caminho e a alça ajusta fácil no pescoço',
+                         'Corre pro carrinho laranja e confere'),
+                'Branco':('Quem disse que branco é difícil de usar não experimentou essa frente única comigo',
+                          'Fiquei surpresa com o decote e com a argola dourada, ela deixa a peça mais arrumada sem esforço',
+                          'Abre o carrinho laranja e escolhe a tua'),
+                'Preto':('Preto básico? Olha como esse corte muda tudo na hora de montar o look do dia',
+                         'A barra assimétrica balança de um jeito leve e a modelagem solta não marca onde eu não quero',
+                         'Toca no carrinho laranja e vê os detalhes')}
+        calls=[]
+
+        def escreve(campaign,settings,**_):
+            calls.append(campaign['color'])
+            return self.ai_pack(*textos[campaign['color']]),''
+
+        result,chamada=self.generate_with_scripts(escreve)
+        self.assertEqual(sorted(calls),['Azul','Branco','Preto'])
+        self.assertEqual({v['color']:v['prompts']['hook'] for v in result['variants']},{k:v[0] for k,v in textos.items()})
 
     def test_ai_writing_gives_up_when_the_provider_hangs(self):
         # Uma chamada presa nao pode segurar a funcao ate o limite da nuvem.
