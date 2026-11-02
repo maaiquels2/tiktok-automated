@@ -36,7 +36,7 @@ PRODUCTS = {
 }
 BASE = dict(model_name='Micaela', audience='', benefit='', angle='', tone='', style='', movements='',
             objection='', offer='')
-ARCS = ('motivos', 'questionada')
+ARCS = ('motivos', 'questionada', 'problema', 'mito')
 CLIPS = (2, 3)
 GENERATORS = ('grok', 'flow')
 BASE_IMAGE = (False, True)

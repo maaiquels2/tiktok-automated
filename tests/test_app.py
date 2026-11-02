@@ -2729,11 +2729,11 @@ class WorkflowTests(unittest.TestCase):
                         self.assertIn('ÂNCORA',text,(label,index))
                         self.assertIn(c['model_name'],text)
                         self.assertIn(c['color'],text)
-                        self.assertLess(len(text),len(clip['prompt'])*0.6,(label,index))
+                        self.assertLess(len(text),len(clip.get('prompt_image') or clip['prompt'])*0.6,(label,index))
                         self.assertEqual(msgs[index-1]['attach'],[f'Vídeo do clipe {index-1} (o que o agente gerou)'])
                     # Gestos do clipe (AÇÕES) tambem vao por inteiro.
                     for clip,m in zip(seq['clips'],msgs):
-                        acoes=re.search(r'AÇÕES \([^)]*\): (.*?) ENCERRAMENTO',clip['prompt'],re.S).group(1)
+                        acoes=re.search(r'AÇÕES \([^)]*\): (.*?) ENCERRAMENTO',clip.get('prompt_image') or clip['prompt'],re.S).group(1)
                         self.assertIn(acoes.replace('da imagem anexada',f'do último quadro do clipe {clip["index"]-1}'),
                                       m['text'],(label,clip['index']))
 
@@ -2755,11 +2755,11 @@ class WorkflowTests(unittest.TestCase):
         c=self.arc_campaign()
         seq=story_arcs.build_story_arc(c,c['color'],'motivos',2)
         clips=[dict(clip) for clip in seq['clips']]
-        clips[1]['prompt']=clips[1]['prompt'].replace('SHOT LIST','LISTA DE CENAS')
+        clips[1]['prompt_image']=clips[1]['prompt_image'].replace('SHOT LIST','LISTA DE CENAS')
         pack=story_arcs.agent_pack(c,{**c,'color':c['color']},True,clips)
         second=pack['messages'][1]
         self.assertIn('não consegui separar',' '.join(second['problems']))
-        self.assertIn(clips[1]['prompt'],second['text'])
+        self.assertIn(clips[1]['prompt_image'],second['text'])
 
     def test_agent_pack_flags_a_message_over_the_limit_instead_of_cutting_speech(self):
         from services import story_arcs
@@ -2794,7 +2794,7 @@ class WorkflowTests(unittest.TestCase):
         from services.story_arcs import WORD_CEILING,WORD_FLOOR,build_story_arc
         for name in self.ARC_PRODUCTS:
             c=self.arc_campaign(name)
-            for arc in ('motivos','questionada'):
+            for arc in ('motivos','questionada','problema','mito'):
                 for clips in (2,3):
                     seq=build_story_arc(c,c['color'],arc,clips)
                     label=(name,arc,clips)
@@ -2812,14 +2812,23 @@ class WorkflowTests(unittest.TestCase):
                         self.assertIn(fato.casefold(),dito,(label,fato))
             motivos=build_story_arc(c,c['color'],'motivos',3)
             self.assertIn('Três motivos',motivos['clips'][0]['lines'][0])
-            self.assertIn('não te valoriza',build_story_arc(c,c['color'],'questionada',3)['clips'][0]['lines'][0])
+            self.assertIn('vale mesmo a pena',build_story_arc(c,c['color'],'questionada',3)['clips'][0]['lines'][0])
 
     def test_story_arc_prompts_keep_the_structure_validated_on_grok(self):
         from services.prompts import generate
         from services.story_arcs import build_story_arc
         c=self.arc_campaign()
         seq=build_story_arc(c,c['color'],'motivos',3)
-        primeiro,meio,ultimo=(clip['prompt'] for clip in seq['clips'])
+        primeiro=seq['clips'][0]['prompt']
+        # O prompt completo dos clipes 2 e 3 (a partir da imagem aprovada) fica em prompt_image; o que o operador cola
+        # por padrao no Grok e o enxuto, que parte do ultimo quadro do clipe anterior.
+        meio,ultimo=(clip['prompt_image'] for clip in seq['clips'][1:])
+        for clip in seq['clips'][1:]:
+            lean=clip['prompt']
+            self.assertIn('ANEXE o ÚLTIMO QUADRO do clipe',lean)
+            self.assertNotIn('IMAGEM APROVADA',lean)
+            self.assertNotIn('CENÁRIO FIXO',lean)
+            self.assertLess(len(lean),len(clip['prompt_image']))
         # Clipe 1: o gancho do espelho do app, intacto, e a imagem aprovada como primeiro quadro.
         original=generate({**c,'video_mode':'espelho'},script=dict(
             hook=seq['clips'][0]['lines'][0],development=seq['clips'][0]['lines'][1],cta=seq['clips'][0]['lines'][2]))['video']
@@ -2931,7 +2940,7 @@ class WorkflowTests(unittest.TestCase):
         # clipes nao falam de espelho nem de celular na mao, e o formato da campanha nao entra nos clipes.
         from services.story_arcs import build_story_arc
         for modo in ('','teste','comentario','troca_cor'):
-            for arc in ('motivos','questionada'):
+            for arc in ('motivos','questionada','problema','mito'):
                 for clips in (2,3):
                     c=self.arc_campaign(video_mode=modo)
                     r=build_story_arc(c,c['color'],arc,clips)
@@ -3162,6 +3171,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(ok.status_code,201,ok.json)
         self.assertEqual((ok.json['sequence_clips'],ok.json['sequence_arc']),('3','motivos'))
         self.assertEqual(criar(sequence_clips='2',sequence_arc='questionada').json['sequence_arc'],'questionada')
+        for arc in ('problema','mito'):
+            self.assertEqual(criar(sequence_clips='3',sequence_arc=arc).json['sequence_arc'],arc)
         sem_fatos=criar(sequence_clips='2',details='Destacar textura e modelagem.')
         self.assertEqual(sem_fatos.status_code,400)
         self.assertIn('Detalhes',sem_fatos.json['error'])

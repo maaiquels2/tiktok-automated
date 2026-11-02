@@ -38,7 +38,7 @@ class ClipTurnsTests(unittest.TestCase):
         for name in PRODUCTS:
             for mode in ('espelho', ''):
                 c = campaign(name, video_mode=mode)
-                for arc in ('motivos', 'questionada'):
+                for arc in ('motivos', 'questionada', 'problema', 'mito'):
                     for clips in (2, 3):
                         before = build_story_arc(c, c['color'], arc, clips)
                         for same in (dict(clip_turns=None), dict(clip_turns=[''] * clips), dict(texture=False)):
@@ -97,7 +97,8 @@ class ClipTurnsTests(unittest.TestCase):
             hold = actions(clip['prompt'])
             for piece in ('de 3 a 6 s', 'UMA vez por cima do ombro', 'nada sensualizado', 'sem pose',
                           'iguais à imagem aprovada', 'sem laço, zíper, recorte ou bolso novo'):
-                self.assertIn(piece, hold, (mode, piece))
+                # O prompt do clipe 2 parte do ultimo quadro: a trava "iguais a imagem aprovada" vira "ao quadro anexado".
+                self.assertIn('iguais ao quadro anexado' if 'imagem aprovada' in piece else piece, hold, (mode, piece))
                 self.assertIn(piece, clip['guide'], (mode, piece))      # o Guia leva as mesmas travas
             self.assertEqual(hold.count('UMA vez por cima do ombro'), 1)
             self.assertIn('ORIENTAÇÃO CORPORAL (experimental)', clip['prompt'])

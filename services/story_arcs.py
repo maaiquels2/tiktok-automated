@@ -9,9 +9,11 @@ de cerca de 30 s (2 clipes) ou 45 s (3 clipes).
 
 Validado no Grok com a calca jeans no espelho (480p): identidade, roupa e cenario iguais entre os clipes.
 O que o teste real ensinou e esta aqui:
-  - existem dois modos para o clipe 2 (e o 3): no PROMPT COMPLETO (o padrao) ele parte da MESMA imagem aprovada do
-    clipe 1, e o prompt diz isso em vez de pedir para "retomar o ultimo quadro", que o Grok da tela nao recebe; no
-    PACOTE DO AGENTE (agent_pack, experimental) o primeiro quadro e o video do clipe anterior, anexado na conversa;
+  - no Grok, o clipe 2 (e o 3) parte do ULTIMO QUADRO do clipe anterior (o Grok pediu assim): o prompt dele e ENXUTO
+    (_lean_prompt: sem cenario fixo, enquadramento e camera longa, que o quadro ja mostra; falas, gestos, maos e
+    regras de identidade ficam inteiros). O prompt completo, que parte da MESMA imagem aprovada do clipe 1 (o que foi
+    validado no espelho), continua em ``prompt_image``; o PACOTE DO AGENTE (agent_pack, experimental) usa o completo
+    e o video do clipe anterior;
   - so o ultimo clipe pede a compra e aponta para o carrinho; os anteriores terminam no meio do gesto, com
     uma pergunta aberta;
   - o clipe 1 sai com o prompt original do espelho (os ajustes finos o deixaram lento);
@@ -42,11 +44,15 @@ from services.script_budget import count_words as _count_words
 
 ARCS = {
     'motivos': dict(label='Motivos', hint='"Três motivos pra essa peça estar no seu guarda-roupa", um fato por motivo'),
-    'questionada': dict(label='Questionada',
-                        hint='"Sabe o que dizem por aí? Que ela não te valoriza", e a resposta, motivo a motivo'),
+    'questionada': dict(label='Dúvida e resposta',
+                        hint='"Será que vale a pena?": abre com a dúvida que a cliente teria e responde com 3 fatos da peça'),
+    'problema': dict(label='Problema e solução',
+                     hint='"Sabe aquela hora de montar o look e nada parece certo?": abre no problema e a peça responde, com 3 fatos'),
+    'mito': dict(label='Mito e verdade',
+                 hint='"Dizem que é tudo igual": desfaz a ideia comum com 3 verdades, um fato por vez'),
 }
 CLIP_COUNTS = (2, 3)
-MIN_FACTS = 3            # os dois arcos usam 3 motivos
+MIN_FACTS = 3            # todos os arcos usam 3 motivos
 MAX_FACTS = 4
 WORD_FLOOR, WORD_CEILING = script_budget.FILL[0], script_budget.CEILING   # abaixo sobra silencio no fim; acima a fala fica corrida
 GROK_LIMIT = generators.GROK.prompt_target   # o Grok corta sem avisar; folga para o nome e a cor
@@ -250,16 +256,61 @@ def draft_lines(c, arc, clips, facts):
              f'{imagino} É daquelas peças que dá vontade de usar a semana inteira.',
              cta),
         ]
-    # questionada
-    pergunta = f'Sabe o que dizem por aí de {piece}? Que {pron} não te valoriza.'
-    promessa = (f'Pode ser que você pense assim também. Mas eu vou te mostrar três motivos pra {dem} {piece} '
-                f'merecer um lugar no teu guarda-roupa, um por um, olha comigo.')
+    if arc == 'problema':
+        abre = f'Sabe aquela hora de montar o look e nada parece certo? Então olha {dem} {piece}.'
+        alivio = f'Pra mim, {pron} já resolve boa parte disso.'
+        if clips == 2:
+            return [
+                (abre,
+                 f'Primeiro: {f1}. Repara bem aqui nessa parte{mix}. Segundo: {f2}. Repara nesse detalhe de pertinho.',
+                 'E o terceiro motivo? Esse eu guardei pra você ver logo em seguida.'),
+                (f'O terceiro: {f3}. Repara bem nisso aqui, olha só.',
+                 f'{imagino} Quando faltar ideia de look, {pron} já tá ali, esperando.',
+                 cta),
+            ]
+        return [
+            (abre,
+             f'{alivio} O primeiro motivo? {f1}. Eu reparei nisso assim que coloquei.',
+             'E o segundo? Esse eu guardei pra você ver logo em seguida.'),
+            (f'O segundo: {f2}. Repara nesse detalhe de pertinho, eu já me vejo usando {pron}.',
+             f'E o terceiro: {f3}. Olha só como isso aparece aqui, dá pra ver direitinho de pertinho.',
+             'Agora vem a parte que eu mais queria te falar.'),
+            (f'É que {l1}, {l2} e {l3}: pra mim, esse é o fim do "não tenho o que vestir".',
+             imagino,
+             cta),
+        ]
+    if arc == 'mito':
+        abre = f'Dizem que {piece} é tudo igual. Pra mim isso é mito, e eu vou te mostrar três verdades, olha só.'
+        if clips == 2:
+            return [
+                (abre,
+                 f'Primeira verdade: {f1}. Repara bem aqui nessa parte{mix}. Segunda verdade: {f2}.',
+                 'A terceira verdade eu guardei pra você ver logo em seguida.'),
+                (f'Terceira verdade: {f3}. Repara bem nisso aqui, olha só.',
+                 f'Então, pra mim, {piece} não é tudo igual não. {imagino}',
+                 cta),
+            ]
+        return [
+            (abre,
+             f'Primeira verdade: {f1}. Eu reparei nisso assim que coloquei.',
+             'A segunda verdade eu guardei pra você ver logo em seguida.'),
+            (f'Segunda verdade: {f2}. Repara nesse detalhe de pertinho, dá pra ver direitinho.',
+             f'Terceira verdade: {f3}. Olha só como isso aparece aqui, de pertinho.',
+             'Agora me diz com sinceridade: ainda parece tudo igual?'),
+            (f'Pois é. {_cap(l1)}, {l2} e {l3}: pra mim, é aí que o mito cai.',
+             f'{imagino} Tem peça que só parece igual de longe.',
+             cta),
+        ]
+    # questionada (Dúvida e resposta)
+    pergunta = f'Sei que dá aquela dúvida: será que {dem} {piece} vale mesmo a pena?'
+    promessa = (f'Então olha comigo. Eu vou te mostrar três motivos pra {dem} {piece} '
+                f'merecer um lugar no teu guarda-roupa, um por um.')
     if clips == 2:
         return [
             (pergunta, promessa,
              f'Começando pelo primeiro motivo: {l1}. Os outros eu já mostro.'),
             (f'O segundo motivo? {f2}. Repara nesse detalhe de pertinho.',
-             f'O terceiro motivo? {f3}. Então a pergunta nunca foi se {piece} valoriza ou não, foi qual {piece}. '
+             f'O terceiro motivo? {f3}. Dúvida respondida: pra mim, {pron} vale a pena por esses três motivos. '
              f'{imagino}',
              cta),
         ]
@@ -269,8 +320,8 @@ def draft_lines(c, arc, clips, facts):
         (f'O primeiro: {f1}. Olha só como aparece aqui, de pertinho.',
          f'O segundo motivo? {f2}. E o terceiro? {f3}. Repara em cada detalhe de pertinho, um de cada vez.',
          'Agora me responde com sinceridade: ainda sobrou algum motivo pra duvidar?'),
-        (f'Pois é. No fundo, a pergunta nunca foi se {piece} valoriza ou não.',
-         f'Foi qual {piece}. {imagino} {_cap(l1)}, {l2}, {l3}: se faltava motivo, é esse.',
+        (f'Pois é. Quando eu juntei esses três motivos, a dúvida passou pra mim.',
+         f'{imagino} {_cap(l1)}, {l2}, {l3}: se faltava motivo, é esse.',
          cta),
     ]
 
@@ -278,7 +329,7 @@ def draft_lines(c, arc, clips, facts):
 def _clip_facts(arc, clips, index, facts):
     """Quais fatos a modelo demonstra (com gesto) em cada clipe."""
     f = facts[:3]
-    if arc == 'motivos':
+    if arc in ('motivos', 'problema', 'mito'):
         layout = {2: [f[:2], f[2:3]], 3: [f[:1], f[1:3], []]}
     else:
         layout = {2: [f[:1], f[1:3]], 3: [f[:1], f[:3], []]}
@@ -288,12 +339,18 @@ def _clip_facts(arc, clips, index, facts):
 _ROLES = {
     ('motivos', 2): ('Gancho + motivos 1 e 2', 'Motivo 3 + projeção de uso + fechamento (CTA)'),
     ('motivos', 3): ('Gancho + motivo 1', 'Motivos 2 e 3', 'Projeção de uso + fechamento (CTA)'),
-    ('questionada', 2): ('A pergunta + o primeiro motivo', 'Os outros dois motivos + a resposta + fechamento (CTA)'),
-    ('questionada', 3): ('A pergunta', 'A resposta: desmonta cada motivo', 'A resposta final + fechamento (CTA)'),
+    ('questionada', 2): ('A dúvida + o primeiro motivo', 'Os outros dois motivos + a dúvida respondida + fechamento (CTA)'),
+    ('questionada', 3): ('A dúvida', 'A resposta: desmonta cada motivo', 'A dúvida respondida + fechamento (CTA)'),
+    ('problema', 2): ('O problema + a peça + motivos 1 e 2', 'Motivo 3 + projeção de uso + fechamento (CTA)'),
+    ('problema', 3): ('O problema + a peça + motivo 1', 'Motivos 2 e 3', 'O problema resolvido + fechamento (CTA)'),
+    ('mito', 2): ('O mito + verdades 1 e 2', 'Verdade 3 + o mito desfeito + fechamento (CTA)'),
+    ('mito', 3): ('O mito + verdade 1', 'Verdades 2 e 3', 'O mito desfeito + fechamento (CTA)'),
 }
 _SCREEN = {
     'motivos': ('3 motivos pra ter essa peça', 'O 2º e o 3º motivo', 'Qual é o seu motivo?'),
-    'questionada': ('Não te valoriza?', 'Desmontando cada motivo', 'A pergunta é qual peça'),
+    'questionada': ('Vale a pena?', 'Tirando a dúvida', 'Qual peça é a sua?'),
+    'problema': ('Nada pra vestir?', 'A solução em 3 motivos', 'Qual é o seu look?'),
+    'mito': ('Mito ou verdade?', 'As 3 verdades', 'Ainda parece tudo igual?'),
 }
 
 
@@ -454,6 +511,48 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, 
     return _trim(text, GROK_LIMIT), opening, acoes
 
 
+_LEAN_ANCHORS = (
+    ('header', re.compile(r'\A(.*?)ANEXE a IMAGEM APROVADA', re.S)),
+    ('identity', re.compile(r'A modelo é [^\n]*')),
+    ('avoid', re.compile(r'EVITAR: [^\n]*')),
+    ('orientation', re.compile(r'ORIENTAÇÃO CORPORAL[^\n]*')),
+    ('actions', re.compile(r'MÃOS:.*?(?=\nSHOT LIST)', re.S)),
+    ('shots', None),   # _SHOT_LIST_SPAN, definido mais abaixo
+    ('tail', re.compile(r'ATRIBUTOS NÃO CONFIRMADOS.*\Z', re.S)),
+)
+LEAN_CAMERA_ESPELHO = ('CÂMERA: a mesma do quadro anexado: o reflexo no espelho de corpo inteiro, o celular sempre na mão '
+                       'dela, na altura do peito, sem cobrir o rosto; um único take contínuo, sem cortes nem zoom.')
+LEAN_CAMERA_FRENTE = ('CÂMERA: a mesma do quadro anexado: de frente para a lente, câmera estável, rosto inteiro no '
+                      'quadro; um único take contínuo, sem cortes nem zoom.')
+
+
+def _lean_prompt(full, n, total, w, espelho):
+    """Prompt do clipe 2 e seguintes quando ele parte do ULTIMO QUADRO do clipe anterior (e nao da imagem aprovada).
+
+    O quadro ja mostra modelo, roupa, cenario e luz, entao saem o CENARIO FIXO, o ENQUADRAMENTO e a descricao longa
+    da camera (uma linha a substitui). Fica inteiro tudo o que o quadro NAO conta: identidade e fatos, o que evitar,
+    orientacao do corpo, maos, cabelo, acoes, encerramento, expressao, shot list com as falas, atributos nao
+    confirmados e audio. None se algum trecho nao for encontrado (o chamador usa o prompt completo e avisa)."""
+    found = {}
+    for name, pattern in _LEAN_ANCHORS:
+        hit = (_SHOT_LIST_SPAN if name == 'shots' else pattern).search(full)
+        if not hit:
+            return None
+        found[name] = hit.group(1) if name == 'header' else hit.group(0).strip()
+    anchor = (f'ANEXE o ÚLTIMO QUADRO do clipe {n - 1} (extraído do vídeo gerado) como primeiro quadro e referência '
+              'contínua: modelo, roupa, cenário e luz são os dele. ' + w['continuity'].format(n=n, total=total))
+    text = '\n'.join((
+        (found['header'] + anchor).strip(), found['identity'],
+        LEAN_CAMERA_ESPELHO if espelho else LEAN_CAMERA_FRENTE, found['avoid'],
+        found['orientation'], found['actions'], found['shots'], found['tail']))
+    for old in ('da imagem anexada', 'à imagem aprovada', 'à imagem anexada', 'à imagem'):
+        text = text.replace(old, 'do quadro anexado' if old.startswith('da') else 'ao quadro anexado')
+    text = re.sub(r' {2,}', ' ', text)
+    if re.search(r'imagem anexada|IMAGEM APROVADA|imagem aprovada', text):
+        return None
+    return text
+
+
 def _guide(source, n, total, lines, acoes, w=None):
     w = w or _wording(True)
     final = n == total
@@ -468,7 +567,7 @@ def _guide(source, n, total, lines, acoes, w=None):
     if n > 1:
         text = _sub1(r'(?m)^A imagem anexada é o primeiro quadro: ',
                      w['continuity'].format(n=n, total=total) + 'A imagem anexada é o primeiro quadro: ', text)
-    return text
+    return text   # o Guia compacto continua partindo da imagem anexada; o operador anexa a imagem que quiser
 
 
 def _extend(n, total, lines, acoes, w=None):
@@ -507,7 +606,7 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_tur
     CLIP_TURNS) e ``texture`` (close de textura nos motivos que sao material ou detalhe confirmado). Desligados, a
     saida e a de sempre."""
     if arc not in ARCS:
-        raise ArcError('Escolha o arco Motivos ou Questionada.', 400)
+        raise ArcError('Escolha um dos arcos da sequência.', 400)
     if clips not in CLIP_COUNTS:
         raise ArcError('Escolha 2 ou 3 clipes.', 400)
     turns = _clip_turn_list(clip_turns, clips)
@@ -525,7 +624,7 @@ def write_lines_with_ai(c, arc, clips, settings):
     dos 3 fatos citado. Devolve (falas, fatos, motivo_da_falha). So roda pelo botao proprio: gasta tokens."""
     from services import copywriter
     if arc not in ARCS:
-        raise ArcError('Escolha o arco Motivos ou Questionada.', 400)
+        raise ArcError('Escolha um dos arcos da sequência.', 400)
     if clips not in CLIP_COUNTS:
         raise ArcError('Escolha 2 ou 3 clipes.', 400)
     espelho, facts = check_campaign(c)
@@ -672,10 +771,10 @@ def agent_pack(c, source, espelho, clips):
               f'{f" na cor {color}" if color else ""}, {"o mesmo espelho" if espelho else "o mesmo cenário"} e a mesma luz.')
     for clip in clips[1:]:
         k = clip['index']
-        delta = _clip_delta(clip['prompt'], k - 1)
+        delta = _clip_delta(clip.get('prompt_image') or clip['prompt'], k - 1)
         if delta is None:
             # Sem separar o clipe com seguranca, vale o prompt completo dele (mais longo, mas inteiro).
-            body = f'Agora gere o CLIPE {k} de {total}.\n{clip["prompt"]}'
+            body = f'Agora gere o CLIPE {k} de {total}.\n{clip.get("prompt_image") or clip["prompt"]}'
         else:
             body = (f'Agora gere o CLIPE {k} de {total}, mesmas REGRAS da mensagem 1 (formato, identidade, cenário, '
                     f'câmera, mãos, atributos não confirmados e áudio), tudo igual ao clipe {k - 1}.\n{anchor}\n'
@@ -735,15 +834,27 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         full, opening, acoes = _full_prompt(clip_source, i, clips, trio, facts_here, base_image, opening, w, extra)
         words = sum(_count_words(part) for part in trio)
         problems = clip_problems(trio, i, clips, source)
+        image_prompt, lean_ok = '', True
+        if i > 1 and generators.of(c) is generators.GROK:
+            # O Grok pediu que o clipe 2 em diante parta do ultimo quadro do clipe anterior: prompt enxuto. O completo
+            # (a partir da imagem aprovada, o que foi validado) continua em ``prompt_image``.
+            lean = _lean_prompt(full, i, clips, w, espelho)
+            if lean is None:
+                lean_ok = False
+                problems.append('não consegui montar a versão enxuta deste clipe; use o prompt completo, que parte '
+                                'da imagem aprovada')
+            else:
+                image_prompt, full = full, lean
         if generators.of(c) is generators.GROK and len(full) > GROK_LIMIT:  # o Flow nao tem limite de prompt
             problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em '
                             f'{generators.GROK.max_prompt_chars:,}'.replace(',', '.'))
         clip = dict(
             index=i, role=role, final=i == clips, seconds=SECONDS_PER_CLIP, lines=list(trio), words=words,
             spoken=' '.join(trio), screen_text=screen, problems=problems,
-            prompt=full, guide=_guide(clip_source, i, clips, trio, acoes, w),
+            prompt=full, prompt_image=image_prompt, guide=_guide(clip_source, i, clips, trio, acoes, w),
             extend=_extend(i, clips, trio, acoes, w) if i > 1 else '',
-            start='imagem aprovada' if i == 1 else 'a mesma imagem aprovada do clipe 1')
+            start='imagem aprovada' if i == 1 else (f'último quadro do clipe {i - 1}' if image_prompt
+                                                    else 'a mesma imagem aprovada do clipe 1'))
         if turns:
             clip['turn'] = turn
             clip['turn_label'] = CLIP_TURNS[turn]['label']
@@ -753,11 +864,14 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
                 found = re.search(r'ORIENTAÇÃO CORPORAL[^\n]*', full)
                 clip['orientation'] = found.group(0).strip() if found else ''
         result.append(clip)
+    from_last_frame = any(clip['prompt_image'] for clip in result)
     capcut = [
         'Todos os clipes na mesma resolução e fps antes de soltar na timeline.',
         'Apare 2 a 4 quadros do início e do fim de cada clipe (é onde o Grok deforma) e a última palavra do clipe.',
-        'Corte seco entre os clipes, sem transição chamativa: os clipes partem da mesma imagem, então a pose '
-        'reinicia no corte e a continuidade vem da fala.',
+        ('Corte seco entre os clipes, sem transição chamativa: o clipe seguinte abre no último quadro do anterior, '
+         'então o corte é quase invisível.') if from_last_frame else
+        ('Corte seco entre os clipes, sem transição chamativa: os clipes partem da mesma imagem, então a pose '
+         'reinicia no corte e a continuidade vem da fala.'),
         'Normalize o volume da voz (Áudio > Normalizar volume) e use o mesmo ajuste de cor nos clipes.',
         'Legendas automáticas (Português) uma vez, sobre a timeline já unida; revise palavra por palavra.',
         'O texto na tela de cada clipe é para colar no CapCut (não vai dentro do vídeo gerado). Carrinho ou seta '
@@ -765,8 +879,12 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         'Exporte em 1080×1920, 30 fps ou mais, H.264.',
     ]
     tips = [
-        'Todos os clipes usam a MESMA imagem aprovada desta cor como primeiro quadro: anexe a mesma imagem em cada '
-        'clipe e cole o prompt do clipe. Gere na mesma qualidade (480p ou 720p) em todos.',
+        ('O clipe 1 parte da imagem aprovada desta cor. O clipe 2 em diante parte do ÚLTIMO QUADRO do clipe anterior '
+         '(na etapa Criar vídeo, anexe o clipe e use "Baixar último quadro"), com o prompt enxuto. Se a peça ou o rosto '
+         'derivarem, use o botão do prompt completo, que parte da imagem aprovada. Gere na mesma qualidade (480p ou 720p).')
+        if from_last_frame else
+        ('Todos os clipes usam a MESMA imagem aprovada desta cor como primeiro quadro: anexe a mesma imagem em cada '
+         'clipe e cole o prompt do clipe. Gere na mesma qualidade (480p ou 720p) em todos.'),
         'Gere 2 ou 3 vezes cada clipe e traga o melhor. Se um clipe ficar corrido ou lento, edite as falas e '
         'gere o prompt de novo.',
         'Se preferir uma emenda invisível, use o prompt de Extend Video do clipe 2 no vídeo do clipe 1.',
@@ -777,8 +895,14 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
                      'espelho): gere o clipe 1 primeiro e confira antes de seguir. O formato da campanha (teste, '
                      'comentário...) não entra nos clipes: a sequência traz falas próprias.')
     if arc == 'questionada':
-        notes.append('"Sabe o que dizem por aí..." é recurso retórico: não cita pessoa nem comentário real. Se '
-                     'houver um comentário de verdade, vale trocar pela pergunta dele.')
+        notes.append('A dúvida é uma pergunta retórica: não cita pessoa nem comentário real. Se houver um '
+                     'comentário de verdade, vale trocar pela pergunta dele.')
+    if arc == 'problema':
+        notes.append('O problema é uma situação comum (montar o look), não um defeito de outra peça nem uma promessa '
+                     'de resultado: a peça "ajuda" só nos 3 fatos confirmados.')
+    if arc == 'mito':
+        notes.append('"Dizem que é tudo igual" é recurso retórico: não cita pessoa nem comentário real, e cada '
+                     'verdade é um fato confirmado da peça.')
     if turns:
         notes.append('Experimental: o giro do corpo por clipe nunca foi testado no Grok (nem no espelho). Gere '
                      'primeiro o clipe com giro e confira peça, costas, rosto e mãos antes de seguir.')

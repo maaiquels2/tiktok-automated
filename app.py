@@ -1238,8 +1238,9 @@ def create_app(config=None):
             raise Invalid('Tipo de vídeo inválido: clipe único, sequência de 2 ou de 3 clipes.')
         if seq_clips:
             seq_arc=seq_arc or 'motivos'
-            if seq_arc not in ('motivos','questionada'):
-                raise Invalid('Escolha o arco da sequência: Motivos ou Questionada.')
+            from services.story_arcs import ARCS as ARC_IDS
+            if seq_arc not in ARC_IDS:
+                raise Invalid('Escolha o arco da sequência: '+', '.join(a['label'] for a in ARC_IDS.values())+'.')
             from services.story_arcs import sequence_problem
             problema=sequence_problem(values)
             if problema:

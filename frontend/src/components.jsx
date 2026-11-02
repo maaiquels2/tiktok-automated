@@ -286,7 +286,9 @@ export function HomeReveal({campaignId,variantId=null,onError}){
 // nao grava nada na campanha. Todos os clipes partem da MESMA imagem aprovada (e como foi validado no Grok).
 const ARC_OPTIONS=[
   ['motivos','Motivos','“Três motivos pra essa peça estar no seu guarda-roupa”'],
-  ['questionada','Questionada','“Sabe o que dizem por aí? Que ela não te valoriza”, e a resposta'],
+  ['questionada','Dúvida e resposta','“Será que vale a pena?”: a dúvida da cliente respondida com 3 fatos'],
+  ['problema','Problema e solução','“Sabe aquela hora de montar o look e nada parece certo?” e a peça responde'],
+  ['mito','Mito e verdade','“Dizem que é tudo igual”: desfeito com 3 verdades'],
 ];
 const ARC_CLIPS=[[2,'2 clipes','cerca de 30 s'],[3,'3 clipes','cerca de 45 s']];// De onde vieram as falas mostradas (written_by do servidor): editadas por você ficam guardadas até descartar.
 const WRITTEN_BY={ai:'Falas escritas pela IA agora',ai_saved:'Falas escritas pela IA (guardadas)',
@@ -319,7 +321,7 @@ export function SequenceChoice({clips,arc,format,onClips,onArc,idPrefix='seq'}){
           <span><strong>{label}</strong><small>{hint}</small></span>
         </label>)}
       </div>
-      <small className="help">Todos os clipes partem da mesma imagem aprovada: a etapa de imagem não muda. Os prompts de cada clipe ficam prontos na etapa de vídeo.</small>
+      <small className="help">O clipe 1 parte da imagem aprovada. No Grok, os seguintes partem do último quadro do clipe anterior (prompt enxuto); no Flow, da mesma imagem. A etapa de imagem não muda. Os prompts de cada clipe ficam prontos na etapa de vídeo.</small>
       {foraDoFormato&&<small className="help story-arc-problem">⚠ A sequência funciona em Celular no espelho e nos formatos com a modelo de frente falando (Com fala, Teste de prova, Respondendo comentário, Troca de cor, 3 jeitos). Troque o formato do vídeo.</small>}
     </>}
   </div>;
@@ -464,7 +466,8 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
             </label>
             {clip.problems.map(problem=><small key={problem} className="help story-arc-problem">⚠ {problem}</small>)}
             <div className="story-arc-copy">
-              <CopyButton text={clip.prompt} label="Copiar prompt completo"/>
+              <CopyButton text={clip.prompt} label={clip.prompt_image?'Copiar prompt enxuto (último quadro)':'Copiar prompt completo'}/>
+              {clip.prompt_image&&<CopyButton text={clip.prompt_image} label="Copiar prompt completo (imagem aprovada)"/>}
               <CopyButton text={clip.guide} label="Copiar Guia do Grok"/>
               {clip.extend&&<CopyButton text={clip.extend} label="Copiar Extend Video"/>}
             </div>
@@ -1231,6 +1234,9 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [descriptionPhoto,setDescriptionPhoto]=useState(null);
   const [showAdvanced,setShowAdvanced]=useState(false);
   const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.body_turns));
+  // Secoes recolhidas do formulario: abrem sozinhas so se a campanha salva ja tem algo preenchido nelas.
+  const [sellOpen,setSellOpen]=useState(()=>!!(campaign?.objection||campaign?.offer||campaign?.social_proof));
+  const [aiOpen,setAiOpen]=useState(false);
   const published=campaign?.status==='published';
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
   const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
@@ -1361,16 +1367,16 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <small className="help">Ao escolher o nicho, público, benefício, ângulo, tom, estilo, detalhes e movimentos são preenchidos automaticamente. Você só ajusta produto, cores e nome.</small>
       </div>
       <div className="form-grid">{essential.map(([k,l,p])=>field(k,l,p))}</div>
-      <section className="ai-analysis-field" aria-label="Análise automática do produto">
-        <div className="section-title"><h3>Análise automática do produto</h3><span className="help">Opcional</span></div>
+      <details className="more-options brief-fold ai-analysis-field" open={aiOpen||!!descriptionPhoto} onToggle={e=>setAiOpen(e.currentTarget.open)}>
+        <summary><strong>Análise automática do produto</strong><small>Opcional{descriptionPhoto?' · foto escolhida':''}</small></summary>
         <label>Foto da descrição do produto (print da página da loja/TikTok Shop)
           <input type="file" accept="image/*" onChange={e=>setDescriptionPhoto(e.target.files?.[0]||null)}/>
           <small className="help">Ao salvar, a IA lê essa foto (e a primeira foto do produto, se houver) e preenche automaticamente benefício, ângulo, movimentos e detalhes — sem sobrescrever o que você já preencheu. Precisa da IA configurada em "Configurações de Escrita com IA".</small>
         </label>
         {descriptionPhoto&&<small className="help">Selecionada: {descriptionPhoto.name}</small>}
-      </section>
-      <section className="sell-fields" aria-label="Argumento de venda">
-        <div className="section-title"><h3>Argumento de venda</h3><span className="help">Opcional, mas muda muito o roteiro</span></div>
+      </details>
+      <details className="more-options brief-fold sell-fields" open={sellOpen} onToggle={e=>setSellOpen(e.currentTarget.open)}>
+        <summary><strong>Argumento de venda</strong><small>{[draft.objection,draft.offer,draft.social_proof].filter(x=>String(x||'').trim()).length} de 3 preenchidos · muda muito o roteiro</small></summary>
         {/* Antes era um <datalist>: no computador a lista abre ao clicar, mas no
             celular (Safari do iPhone e boa parte dos Android) ela nao aparece,
             entao as opcoes "nao carregavam". Botoes funcionam em qualquer tela. */}
@@ -1394,6 +1400,8 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <small className="help">Copie da página do produto. Sem isso, o roteiro nunca fala em vendidos, nota ou avaliações.</small>
         </label>
         <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''}/>
+      </details>
+      <section className="video-fields" aria-label="Formato e sequência do vídeo">
         {/* O formato (UGC, POV, Só movimento) muda o vídeo inteiro: fica sempre
             à vista. Escondido em "Mais opções" parecia que tinha sumido. */}
         <div className="option-field">
@@ -1475,8 +1483,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         </details>
       </section>
       <section className="generator-choice" aria-label="Escolha do gerador">
-        <div className="section-title"><h3>Gerador</h3><span className="help">Escolha como criar imagem e vídeo</span></div>
-        <p className="help generator-choice-help">A opção fica visível para você trocar entre os dois serviços antes de salvar o briefing.</p>
+        <div className="section-title"><h3>Gerador</h3><span className="help">Como criar imagem e vídeo</span></div>
         <div className="generator-options" role="radiogroup" aria-label="Gerador de imagem e vídeo">
           <label className={'generator-option '+(draft.generator==='flow'?'selected':'')}>
             <input type="radio" name="generator" value="flow" checked={(draft.generator||'flow')==='flow'} onChange={e=>change('generator',e.target.value)}/>

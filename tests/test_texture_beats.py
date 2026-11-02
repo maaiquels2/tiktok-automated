@@ -36,7 +36,7 @@ class TextureBeatTests(unittest.TestCase):
         for name in PRODUCTS:
             for mode in ('espelho', ''):
                 c = campaign(name, video_mode=mode)
-                for arc in ('motivos', 'questionada'):
+                for arc in ('motivos', 'questionada', 'problema', 'mito'):
                     for clips in (2, 3):
                         off = build_story_arc(c, c['color'], arc, clips)
                         on = build_story_arc(c, c['color'], arc, clips, texture=True)
