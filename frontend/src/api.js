@@ -87,6 +87,7 @@ export const health=()=>api('/health');
 export const storySequence=(cid,variantId)=>api(`/campaigns/${cid}/sequence${variantId?`?variant=${variantId}`:''}`);
 export const homeReveal=(cid,variantId)=>api(`/campaigns/${cid}/home-reveal${variantId?`?variant=${variantId}`:''}`);
 export const storyArc=(cid,body)=>api(`/campaigns/${cid}/story-arc`,{method:'POST',body});
+export const agentImages=cid=>api(`/campaigns/${cid}/agent-images`);
 
 // Upload direto ao Supabase Storage (usado na versao online, no lugar do
 // FormData de sempre): o navegador manda o arquivo para o Storage sem

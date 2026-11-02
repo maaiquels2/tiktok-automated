@@ -11,7 +11,7 @@ import { swatchFor } from './ui';
 import { warningsFor, downloadLastFrame } from './mediaChecks';
 import { isFewFacts, pointToFacts } from './sequenceText';
 import { CLIP_TURN_OPTIONS, arcOptions, resizeTurns } from './arcOptions';
-import { api, modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, persuasionPreview, savePromptToLibrary } from './api';
+import { api, modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, agentImages, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
 export function Dialog({title,children,onClose}){
   const ref=useRef(null);
@@ -348,6 +348,33 @@ function AgentPack({pack}){
   </section>;
 }
 
+// Uma mensagem so para o agente do Grok gerar a imagem de todas as cores (services/agent_images.py).
+export function AgentImages({campaignId,colorCount,onError}){
+  const [open,setOpen]=useState(false),[pack,setPack]=useState(null),[problem,setProblem]=useState('');
+  if(colorCount<2)return null;
+  const toggle=async()=>{
+    const next=!open;setOpen(next);
+    if(next&&!pack){try{setProblem('');setPack(await agentImages(campaignId))}catch(e){setProblem(e.message||'Não foi possível montar a mensagem.');onError?.(e)}}
+  };
+  return <section className="rd-agent-pack">
+    <button type="button" className="rd-agent-toggle" aria-expanded={open} onClick={toggle}>
+      <span className="rd-story-eyebrow">EXPERIMENTAL · AGENTE DO GROK</span>
+      <strong>{open?'Fechar a mensagem do agente':`Todas as ${colorCount} cores numa mensagem só`}</strong>
+      <small>Cole uma vez no agente e ele gera a imagem de cada cor. Os prompts por cor abaixo continuam valendo.</small>
+    </button>
+    {open&&<div className="rd-agent-body">
+      {problem&&<small className="help story-arc-problem">⚠ {problem}</small>}
+      {pack&&<div className="variant-prompt rd-agent-message">
+        <div className="section-title"><strong>Mensagem única · {pack.colors.join(', ')}</strong><CopyButton text={pack.text} label="Copiar mensagem"/></div>
+        <p className="help"><strong>Anexe:</strong> a referência da modelo e as fotos do produto. Depois anexe aqui cada imagem pronta, na cor certa.</p>
+        <PromptBox text={pack.text}/>
+        <PromptMeter length={pack.chars} limit={pack.limit}/>
+        {!pack.fits&&<small className="help story-arc-problem">⚠ A mensagem passa de {pack.limit} caracteres, o limite relatado do agente. Use os prompts por cor abaixo.</small>}
+      </div>}
+    </div>}
+  </section>;
+}
+
 export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=0,autoBuild=false}){
   // Escolhida na criacao da campanha: ja abre com o arco e os clipes marcados e monta sozinha.
   const [open,setOpen]=useState(autoBuild);
@@ -472,6 +499,19 @@ export const FORMAT_OPTIONS=[
   ['pov','POV (último caso)','Só mãos e produto, sem rosto. Nos testes o Grok errou mãos e giro da peça'],
 ];
 const VIDEO_FORMATS=FORMAT_OPTIONS.map(([id,label])=>[id,label]);
+// So estes dois tem teste real aprovado (reports/revisao-formatos-2026-10-30.md). Os outros continuam existindo
+// (campanhas antigas guardam o id), mas ficam num grupo recolhido "Experimentais".
+export const CHAMPION_FORMATS=['','espelho'];
+export const isExperimentalFormat=id=>!CHAMPION_FORMATS.includes(id||'');
+const MAIN_FORMATS=VIDEO_FORMATS.filter(([id])=>!isExperimentalFormat(id));
+const EXPERIMENTAL_FORMATS=VIDEO_FORMATS.filter(([id])=>isExperimentalFormat(id));
+// Formatos em grupos: principais soltos e experimentais recolhidos (abre sozinho quando o escolhido e experimental).
+export function ExperimentalFormats({value,children}){
+  return <details className="format-experimental" open={isExperimentalFormat(value)||undefined}>
+    <summary>Experimentais ({EXPERIMENTAL_FORMATS.length}): sem teste aprovado ou com falha no Grok</summary>
+    {children}
+  </details>;
+}
 const CAMERA_OPTIONS=[['closes','Closes no produto'],['ousado','Movimentos ousados']];
 const TECHNIQUE_OPTIONS=[['acao','Começar em movimento'],['aproxima','Aproximação rápida'],['revela','Mão revelando'],['loop','Loop'],['estica','Esticar o tecido']];
 const STYLE_ORDER=['closes','ousado','acao','aproxima','revela','loop','estica'];
@@ -550,7 +590,8 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         <div className="rd-segments">
           <div><span className="rd-segmented-label">Formato</span>
             <select className="rd-format-select" aria-label="Formato do vídeo" value={mode} disabled={busy||immutable} onChange={e=>pickFormat(e.target.value)}>
-              {VIDEO_FORMATS.map(([value,label])=><option key={value||'fala'} value={value}>{label}</option>)}
+              <optgroup label="Principais">{MAIN_FORMATS.map(([value,label])=><option key={value||'fala'} value={value}>{label}</option>)}</optgroup>
+              <optgroup label="Experimentais">{EXPERIMENTAL_FORMATS.map(([value,label])=><option key={value} value={value}>{label}</option>)}</optgroup>
             </select>
           </div>
           <div><span className="rd-segmented-label">Versão do prompt</span>
@@ -1194,6 +1235,10 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
   const advanced=[['model_name','Modelo','Nome da modelo fixa'],['outfit','Roupa','Ex.: Legging com top branco'],['audience','Público','Para quem é o produto?'],['benefit','Benefício','Um benefício que você pode demonstrar'],['angle','Ângulo','Ex.: Mostrar caimento e detalhes'],['tone','Tom','Ex.: Conversacional'],['style','Estilo visual','Ex.: Natural e realista']];
   const change=(key,value)=>{setDraft(d=>({...d,[key]:value}));onDirty?.(true)};
+  const formatRadio=([id,label,hint])=><label key={id||'fala'} className={'generator-option '+((draft.video_mode||'')===id?'selected':'')}>
+    <input type="radio" name="video_mode" value={id} checked={(draft.video_mode||'')===id} onChange={()=>change('video_mode',id)}/>
+    <span><strong>{label}</strong><small>{hint}</small></span>
+  </label>;
   // Trocar a modelo aqui troca tambem as fotos dos nichos logo abaixo, e o
   // nome automatico ("Modelo · Nicho") acompanha.
   function chooseModel(model){
@@ -1354,11 +1399,13 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         <div className="option-field">
           <span className="option-field-title" id="video-mode-title">Formato do vídeo</span>
           <div className="generator-options pov-options" role="radiogroup" aria-labelledby="video-mode-title">
-            {FORMAT_OPTIONS.map(([id,label,hint])=><label key={id||'fala'} className={'generator-option '+((draft.video_mode||'')===id?'selected':'')}>
-              <input type="radio" name="video_mode" value={id} checked={(draft.video_mode||'')===id} onChange={()=>change('video_mode',id)}/>
-              <span><strong>{label}</strong><small>{hint}</small></span>
-            </label>)}
+            {FORMAT_OPTIONS.filter(([id])=>!isExperimentalFormat(id)).map(formatRadio)}
           </div>
+          <ExperimentalFormats value={draft.video_mode}>
+            <div className="generator-options pov-options" role="radiogroup" aria-label="Formatos experimentais">
+              {FORMAT_OPTIONS.filter(([id])=>isExperimentalFormat(id)).map(formatRadio)}
+            </div>
+          </ExperimentalFormats>
           {draft.video_mode==='pov'&&<small className="help">No modo POV a câmera vira ponto de vista em primeira pessoa: nunca mostra o rosto, só as mãos testando o produto na mesma referência aprovada. O hook, o desenvolvimento e o CTA continuam os mesmos — só a direção de câmera e a atuação mudam para um tom espontâneo, sem parecer anúncio.</small>}
           {draft.video_mode==='movimento'&&<small className="help">Em "Só movimento" ninguém fala: a modelo mostra e ajusta a peça no corpo seguindo a orientação escolhida abaixo. O quadro fica limpo, sem voz e sem texto na tela — o som é a trend que você escolhe ao publicar e a mensagem fica na legenda. O roteiro continua sendo gerado (ele alimenta a legenda e os outros formatos), mas não é falado neste vídeo.</small>}
         </div>

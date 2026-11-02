@@ -3335,6 +3335,15 @@ def create_app(config=None):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de montar a sequência.',409)
         return jsonify(build_story_sequence(c,prompts,color))
 
+    # Mensagem unica para o Grok Agente gerar a imagem de todas as cores (services/agent_images.py). So leitura.
+    @app.get('/api/campaigns/<int:cid>/agent-images')
+    def agent_images(cid):
+        from services.agent_images import ImagesError, build_agent_images
+        try:
+            return jsonify(build_agent_images(detail(cid)['variants']))
+        except ImagesError as error:
+            raise Invalid(str(error),error.status)
+
     # Formato "Recebi em casa": 2 cenas (abre a caixa de pijama e tampa a lente -> ja no corpo, com as falas do
     # roteiro) e a montagem no CapCut (services/home_reveal.py). So leitura, como a sequencia acima.
     @app.get('/api/campaigns/<int:cid>/home-reveal')

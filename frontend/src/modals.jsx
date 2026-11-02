@@ -6,7 +6,7 @@ import { NICHE_DEFAULTS } from './nicheDefaults';
 import { deleteFromSpeechBank, deletePromptFromLibrary, promptLibrary, quickBrief, saveStudioIdentity, saveWriterSettings, speechBank, testWriter, writerSettings } from './api';
 import { isCloudMode } from './serviceLinks';
 import { pointToFacts } from './sequenceText';
-import { CopyButton, FORMAT_OPTIONS, SequenceChoice, StyleChips, emptyBrief } from './components';
+import { CopyButton, FORMAT_OPTIONS, ExperimentalFormats, isExperimentalFormat, SequenceChoice, StyleChips, emptyBrief } from './components';
 
 export function StudioIdentityPanel({identity,setIdentity,busy,onError,onFlash,onSaved}){
   const [draft,setDraft]=useState(()=>({...(identity||{})}));
@@ -318,6 +318,8 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
   const [hint,setHint]=useState('');
   const [colors,setColors]=useState('');
   const [format,setFormat]=useState('');
+  const formatChip=([id,label])=><button type="button" key={id||'fala'} role="radio" aria-checked={format===id} className="rd-chip-tab"
+    aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>;
   const [turn,setTurn]=useState(true);
   const [style,setStyle]=useState('');
   const [seqClips,setSeqClips]=useState('');
@@ -378,10 +380,13 @@ export function AutoCreatePanel({modelName='Micaela',busy,onCreate,onError}){
     </label>
     <span className="option-field-title" id="auto-format">Formato do vídeo</span>
     <div className="quick-niches" role="radiogroup" aria-labelledby="auto-format">
-      {FORMAT_OPTIONS.map(([id,label])=>
-        <button type="button" key={id||'fala'} role="radio" aria-checked={format===id} className="rd-chip-tab"
-          aria-selected={format===id} onClick={()=>setFormat(id)}>{label}</button>)}
+      {FORMAT_OPTIONS.filter(([id])=>!isExperimentalFormat(id)).map(formatChip)}
     </div>
+    <ExperimentalFormats value={format}>
+      <div className="quick-niches" role="radiogroup" aria-label="Formatos experimentais">
+        {FORMAT_OPTIONS.filter(([id])=>isExperimentalFormat(id)).map(formatChip)}
+      </div>
+    </ExperimentalFormats>
     <SequenceChoice clips={seqClips} arc={seqArc} format={format} onClips={setSeqClips} onArc={setSeqArc} idPrefix="auto-seq"/>
     {seqClips&&<label>Fatos da peça (opcional, completam o que a IA lê)<input autoComplete="off" value={facts} onChange={e=>setFacts(e.target.value)} placeholder="Ex.: capuz, zíper frontal, bolsos laterais" maxLength={300}/></label>}
     {seqClips&&<small className="help">A sequência precisa de 3 fatos da peça. Se a IA não achar 3 na foto e no print, a campanha não é criada e o aviso diz o que faltou: escreva aqui e tente de novo.</small>}
