@@ -724,6 +724,26 @@ def _enrich(cat: dict) -> None:
 for _cat in CATEGORIES:
     _enrich(_cat)
 
+# Moldes curados (services/speech_curated.py). Entram INTERCALADOS com os que ja existiam (antigo, curado, antigo, ...):
+# o primeiro de cada lista continua sendo o mesmo (a cor 0 recebe o que sempre recebeu) e as cores seguintes, que pegam o
+# 2o, 3o... da lista, passam a alcancar os curados. No fim da lista eles nunca eram usados: o gerador escolhe por posicao.
+from services.speech_curated import CURATED as _CURATED  # noqa: E402
+
+
+def _intercalar(antigos, novos):
+    saida = []
+    for i in range(max(len(antigos), len(novos))):
+        if i < len(antigos):
+            saida.append(antigos[i])
+        if i < len(novos):
+            saida.append(novos[i])
+    return saida
+
+
+for _cat in CATEGORIES:
+    for _kind, _items in _CURATED.get(_cat['id'], {}).items():
+        _cat[_kind] = _intercalar(_cat[_kind], _items)
+
 _BY_ID = {cat['id']: cat for cat in CATEGORIES}
 
 

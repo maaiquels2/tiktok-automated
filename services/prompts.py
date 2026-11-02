@@ -1685,7 +1685,11 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
         alvo = with_em(novas[0])
         fechos.append(('fe-repara', f'E repara {alvo}, ficou um charme.'))
     if cat:
-        for n, occ in enumerate(cat['occasions'][:2]):
+        # Duas ocasioes por vez, girando pela posicao da cor: antes eram sempre as 2 primeiras ("no trabalho" em 4 de 7
+        # cores). A cor 0 continua com as duas primeiras.
+        ocasioes = cat['occasions']
+        inicio = int(index or 0) % len(ocasioes) if ocasioes else 0
+        for occ in [ocasioes[(inicio + k) % len(ocasioes)] for k in range(min(2, len(ocasioes)))]:
             fechos += _category_lines(c, 'closers', forms, occ=occ)
     occasion = ('' if _product_family(c) in _NO_APPAREL_FAMILIES
                 else SPOKEN_OCCASION.get((c.get('niche') or '').strip(), ''))
@@ -1724,11 +1728,24 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
             texto = f'{reacao} {fecho}'
             if _count_words(texto) > 36:
                 texto = reacao
-            candidates.append(((ri + fi, ri), (f'{rid}+{fid}', texto)))
+            candidates.append(((ri + fi, ri, fi), (f'{rid}+{fid}', texto)))
     # Com objecao, a prova abre todas as variantes; sem ela, cada variante
     # troca reacao e fechamento juntos, e nao so o fim da frase.
     if not pain:
-        candidates.sort(key=lambda item: item[0])
+        candidates.sort(key=lambda item: item[0][:2])
+        # Antes, as 7 cores de uma campanha repetiam as mesmas 2 ou 3 reacoes e os mesmos fechos (45% das frases do
+        # desenvolvimento se repetiam). Agora a ordem anda pelos dois ao mesmo tempo: cada posicao nova usa uma reacao E
+        # um fecho que ainda nao saiu (o primeiro continua o (0, 0) de sempre).
+        por_par = {(chave[1], chave[2]): item for chave, item in candidates}
+        total_r, total_f = len(reacoes), len(fechos)
+        ordem, vistos = [], set()
+        for passo in range(total_r * total_f):
+            par = (passo % total_r, (passo + passo // total_r) % total_f)
+            if par in por_par and par not in vistos:
+                ordem.append(por_par[par])
+                vistos.add(par)
+        resto = [item for chave, item in candidates if (chave[1], chave[2]) not in vistos]
+        candidates = [(None, item) for item in ordem + resto]
     candidates = [item[1] for item in candidates]
     # Sem piso alto: frase natural curta vale mais que enchimento.
     return pick_in_budget(apparel_free(c, candidates), index, *script_budget.LOCAL_PICK['development'], used_keys)
@@ -1813,6 +1830,10 @@ def _category_lines(c, kind, forms, det='', occ=''):
         if req and req not in feats:
             continue
         if item.get('pain') and not slots['pain']:
+            continue
+        if item.get('for_pain') and item['for_pain'] != slots['pain']:
+            # Molde feito para uma dor so serve quando o briefing tem essa dor ("Confere as medidas..." sem duvida de
+            # tamanho no briefing soava como se a peça tivesse tabela).
             continue
         values = {**slots, 'det': with_article(req) if req else det, 'occ': occ,
                   'feat': req or re.sub(r'^(o|a|os|as)\s+', '', det or '')}
@@ -1932,6 +1953,17 @@ _FUTURE_BY_FAMILY = {
                   'Imagina chegar num jantar {com} e já resolver o look.',
                   'É daquelas que fazem o look inteiro mudar sem esforço.'),
 }
+
+
+# Frases curadas (services/speech_future.py) entram DEPOIS das 3 originais de cada grupo: as 3 primeiras cores recebem o
+# que sempre receberam e as seguintes deixam de repetir as mesmas 3 frases.
+from services.speech_future import FUTURE as _FUTURE_EXTRA  # noqa: E402
+
+for _grupo, _linhas in _FUTURE_EXTRA.items():
+    if _grupo in _FUTURE_LINES:
+        _FUTURE_LINES[_grupo] = tuple(_FUTURE_LINES[_grupo]) + tuple(_linhas)
+    elif _grupo in _FUTURE_BY_FAMILY:
+        _FUTURE_BY_FAMILY[_grupo] = tuple(_FUTURE_BY_FAMILY[_grupo]) + tuple(_linhas)
 
 
 def _future_options(c, forms, index=0):

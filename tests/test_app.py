@@ -3682,17 +3682,20 @@ class WorkflowTests(unittest.TestCase):
         self.upload('reference')
         self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
 
+        comecos=[]
+
         def lento(campaign, settings, **_):
+            comecos.append(_time.monotonic())
             _time.sleep(0.4)
             return None, 'teste'
 
-        inicio=_time.monotonic()
         with patch('services.copywriter.write_script',side_effect=lento) as chamada:
             response=self.post('/generate')
-        duracao=_time.monotonic()-inicio
         self.assertEqual(response.status_code,200,response.json)
         self.assertEqual(chamada.call_count,3)
-        self.assertLess(duracao,1.0,'as tres cores deviam ser escritas em paralelo')
+        # Em paralelo as tres chamadas comecam quase juntas; uma a uma a ultima so comecaria 0,8 s depois da primeira.
+        # Medir o inicio (e nao a duracao total) mantem o teste valido numa maquina ocupada.
+        self.assertLess(max(comecos)-min(comecos),0.35,'as tres cores deviam ser escritas em paralelo')
         self.assertEqual(len(response.json['variants']),3)
 
     def generate_with_scripts(self,escreve,colors='Azul, Branco, Preto'):
