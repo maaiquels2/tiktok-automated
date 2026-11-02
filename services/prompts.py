@@ -2972,6 +2972,45 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     return texto
 
 
+def _cta_norm(text):
+    return ' '.join(re.findall(r'\w+', str(text or '').casefold()))
+
+
+def _cta_opening(text, n=3):
+    return ' '.join(_cta_norm(text).split()[:n])
+
+
+def distinct_ctas(c, entries, used=(), reject=None):
+    """CTA diferente em cada cor da mesma campanha: nem o mesmo texto nem a mesma abertura (3 primeiras palavras).
+
+    ``entries``: [{'color', 'cta'}] na ordem das cores; ``used``: CTAs de outras cores que ja estao decididos. A primeira cor
+    com um CTA fica com ele (inclusive o escrito pela IA); quem repete troca por um CTA do pool da propria categoria, que
+    ja respeita a honestidade (oferta real, "carrinho laranja", orcamento de 6 a 10 palavras). ``reject(texto)`` descarta
+    candidatos: recebe (texto, entrada) e devolve True para descartar (ex.: a auditoria do roteiro com o CTA novo). Sem pool que resolva, mantem o texto (so a abertura pode repetir)."""
+    used_text = {_cta_norm(t) for t in used}
+    used_open = {_cta_opening(t) for t in used}
+    lo, hi = script_budget.LOCAL_PICK['cta']
+    out = []
+    for index, entry in enumerate(entries):
+        cta = entry.get('cta') or ''
+        if not (cta and _cta_norm(cta) not in used_text and _cta_opening(cta) not in used_open):
+            campaign = {**c, 'color': entry.get('color') or c.get('color')}
+            textos = []
+            for item in cta_pool(campaign, piece_forms(campaign)):
+                texto = _phrase(item[1] if isinstance(item, tuple) else item)
+                if texto and texto not in textos:
+                    textos.append(texto)
+            ok = [t for t in textos if lo <= _count_words(t) <= hi and not (reject and reject(t, entry))]
+            fresh = [t for t in ok if _cta_norm(t) not in used_text and _cta_opening(t) not in used_open]
+            pool = fresh or [t for t in ok if _cta_norm(t) not in used_text]
+            if pool:
+                cta = _clean_punct(pool[index % len(pool)])
+        out.append(cta)
+        used_text.add(_cta_norm(cta))
+        used_open.add(_cta_opening(cta))
+    return out
+
+
 def generate_variants(c, audit=None):
     colors = color_variants(c.get('color'))
     # A primeira cor edita a referencia; as seguintes editam a base aprovada,
@@ -2989,6 +3028,14 @@ def generate_variants(c, audit=None):
             if pacote.get(campo):
                 memoria.setdefault(campo, []).append(pacote[campo])
         saida.append({'color': color, 'prompts': pacote})
+    # A chamada tambem tem que ser diferente entre as cores (decisao do estudio): quem repete outra troca por um CTA da categoria
+    # e o prompt de video e refeito com ele.
+    ctas = distinct_ctas(c, [{'color': item['color'], 'cta': item['prompts'].get('cta', '')} for item in saida])
+    for index, (item, cta) in enumerate(zip(saida, ctas)):
+        if cta and cta != item['prompts'].get('cta'):
+            item['prompts']['cta'] = cta
+            item['prompts']['video'] = generate({**c, 'color': item['color']}, script=item['prompts'],
+                                                variant_index=index, base_image=index > 0)['video']
     return saida
 
 

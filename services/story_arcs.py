@@ -34,7 +34,7 @@ from services import generators, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
-    PRODUCT_FEATURES, SPOKEN_OCCASION, back_rule, body_turns, cta_pool, pick_in_budget, piece_forms,
+    PRODUCT_FEATURES, SPOKEN_OCCASION, back_rule, body_turns, cta_pool, distinct_ctas, pick_in_budget, piece_forms,
     product_features, proof_gestures, texture_beat, video_details, generate,
     without_niche_defaults,
 )
@@ -224,6 +224,14 @@ def _cta(c, forms, variation=0):
     return pick_in_budget(cta_pool(c, forms), variation, *script_budget.LOCAL_PICK['cta'], fuzzy=False)
 
 
+def _cta_for_slot(c, forms, variation=0):
+    """A chamada da cor ``variation`` sem repetir texto nem abertura (3 primeiras palavras) das cores anteriores: refaz a
+    sequencia das cores 0..variation e deixa distinct_ctas resolver (a cor 0 continua com a de sempre)."""
+    v = max(0, int(variation or 0))
+    cor = c.get('color')
+    return distinct_ctas(c, [{'color': cor, 'cta': _cta(c, forms, k)} for k in range(v + 1)])[v]
+
+
 def draft_lines(c, arc, clips, facts, variation=0):
     """Rascunho das falas: lista de clipes, cada um com 3 trechos (0-4 s, 4-12 s, 12-15 s).
 
@@ -238,7 +246,7 @@ def draft_lines(c, arc, clips, facts, variation=0):
     verbo = 'imagino' if (v // 2) % 2 == 0 else 'vejo'
     imagino = f'Eu já me {verbo} com {pron} {_join_pt(occasions)}.'
     mix = f' e já imagina com {combos[0]}, com {combos[1]}' if combos else ''
-    cta = _cta(c, forms, v)
+    cta = _cta_for_slot(c, forms, v)
     if arc == 'motivos':
         abre = (f'Três motivos pra {dem} {piece} estar no teu guarda-roupa, olha só.' if v % 2 == 0
                 else f'Olha só três motivos pra {dem} {piece} entrar no teu guarda-roupa.')

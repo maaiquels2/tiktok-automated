@@ -3744,6 +3744,90 @@ class WorkflowTests(unittest.TestCase):
         for cor,prompts in by_color.items():
             self.assertIn(prompts['hook'][:28].casefold(),' '.join(prompts['video'].split()).casefold(),cor)
 
+    @staticmethod
+    def cta_key(texto):
+        return ' '.join(re.findall(r'\w+',str(texto or '').casefold()))
+
+    def assert_distinct_ctas(self,variants):
+        ctas=[v['prompts']['cta'] for v in variants]
+        self.assertEqual(len({self.cta_key(c) for c in ctas}),len(ctas),ctas)
+        self.assertEqual(len({' '.join(self.cta_key(c).split()[:3]) for c in ctas}),len(ctas),ctas)
+        for v in variants:
+            self.assertIn(v['prompts']['cta'].rstrip('.'),v['prompts']['video'],v['color'])
+
+    def test_every_color_gets_its_own_call_to_action_without_ai(self):
+        # Decisao do estudio: a chamada (CTA) tem que ser diferente entre as cores (texto e abertura).
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco, Preto, Verde, Rosa, Amarelo, Marrom'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        result=self.post('/generate')
+        self.assertEqual(result.status_code,200,result.json)
+        self.assertEqual(len(result.json['variants']),7)
+        self.assert_distinct_ctas(result.json['variants'])
+
+    def test_ai_scripts_that_share_one_call_to_action_are_given_distinct_ones(self):
+        def escreve(campaign,settings,**_):
+            cor=campaign['color']
+            return self.ai_pack(f'Hoje fui testar a {cor} com uma ideia completamente diferente das outras',
+                                f'Na {cor} o que me conquistou foi o jeito de assentar, sem apertar e sem sobrar nada no corpo',
+                                'Toca no carrinho laranja e vê todos os detalhes'),''
+        result,_chamada=self.generate_with_scripts(escreve,colors='Azul, Branco, Preto, Verde')
+        self.assert_distinct_ctas(result['variants'])
+        # A primeira cor mantem o CTA escrito pela IA.
+        self.assertEqual(result['variants'][0]['prompts']['cta'],'Toca no carrinho laranja e vê todos os detalhes')
+
+    def test_a_replacement_call_to_action_never_pushes_a_long_ai_script_over_the_word_ceiling(self):
+        from services import script_budget
+        def escreve(campaign,settings,**_):
+            cor=campaign['color']
+            return self.ai_pack(f'Testei a {cor} num dia comum e fiquei parada no espelho',
+                                f'Na {cor} o jeito de cair no corpo me fez trocar de roupa duas vezes antes de sair e eu nem quis voltar atrás, '
+                                'porque o conjunto combinou com o que eu já tinha guardado no armário',
+                                'Passa no carrinho laranja'),''
+        result,_chamada=self.generate_with_scripts(escreve,colors='Azul, Branco, Preto')
+        for v in result['variants']:
+            p=v['prompts']
+            total=sum(len(re.findall(r'\w+',p[k])) for k in ('hook','development','cta'))
+            self.assertLessEqual(total,script_budget.CEILING,(v['color'],total,p['cta']))
+
+    def test_refresh_all_gives_each_color_a_distinct_call_to_action(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco, Preto'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        variants=self.get()['variants']
+        textos=[('Eu quase descartei esse vestido até reparar melhor no acabamento',
+                 'A costura ficou bonita no corpo, e o tecido leve acompanhou meus passos sem tirar a aparência arrumada da produção.'),
+                ('Eu precisava de uma peça que acompanhasse dois momentos do dia',
+                 'Com esse caimento, montei uma produção para o trabalho e outra para sair, aproveitando o mesmo vestido de maneiras diferentes.'),
+                ('Eu me senti muito mais arrumada quando coloquei esse vestido',
+                 'O visual ganhou presença sem complicação, e eu gostei de como a peça acompanhou meu corpo enquanto caminhava pela cidade.')]
+        gerado={str(v['id']):{'hook':textos[i][0],'development':textos[i][1],
+                              'cta':'Toca no carrinho laranja e vê todos os detalhes','caption':'Legenda curta #moda'}
+                for i,v in enumerate(variants)}
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        with patch('services.copywriter.write_scripts_in_groups',return_value=(gerado,'')):
+            response=self.post('/variants/refresh-all',{'fields':['hook','development','cta'],'writer_mode':'ai'})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assert_distinct_ctas(response.json['variants'])
+
+    def test_refreshing_one_color_never_repeats_the_call_to_action_of_another_color(self):
+        other=self.client.post('/api/campaigns',json={**self.brief,'color':'Azul, Branco'},headers=self.headers).json
+        self.cid=other['id']
+        self.upload('reference')
+        self.assertEqual(self.post('/generate').status_code,200)
+        antes=self.get()
+        primeira,segunda=antes['variants']
+        repetida=primeira['prompts']['cta']
+        aprovado={'hook':'Testei a branca com uma ideia completamente diferente da primeira cor',
+                  'development':'Na branca o que me conquistou foi o jeito de assentar, sem apertar e sem sobrar nada no corpo',
+                  'cta':repetida,'caption':'Legenda curta #moda'}
+        self.client.patch('/api/writer',json={'provider':'openai','api_key':'sk-x','enabled':True},headers=self.headers)
+        with patch('services.copywriter.write_script',return_value=(aprovado,'')):
+            response=self.post(f"/variants/{segunda['id']}/refresh",{'fields':['hook','development','cta'],'writer_mode':'ai'})
+        self.assertEqual(response.status_code,200,response.json)
+        self.assert_distinct_ctas(response.json['variants'])
+
     def test_generate_does_not_rewrite_colors_that_are_already_different(self):
         textos={'Azul':('Pedi a azul sem esperar muito e ela chegou melhor do que eu imaginava aqui',
                          'O caimento solto da barra dá movimento quando eu caminho e a alça ajusta fácil no pescoço',

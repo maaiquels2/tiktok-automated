@@ -357,7 +357,7 @@ export function AgentImages({campaignId,colorCount,onError}){
   if(colorCount<2)return null;
   const toggle=async()=>{
     const next=!open;setOpen(next);
-    if(next&&!pack){try{setProblem('');setPack(await agentImages(campaignId))}catch(e){setProblem(e.message||'Não foi possível montar a mensagem.');onError?.(e)}}
+    if(next&&!pack){try{setProblem('');setPack(await agentImages(campaignId))}catch(e){setProblem(e?.message||'Não foi possível montar a mensagem.')}}
   };
   return <section className="rd-agent-pack">
     <button type="button" className="rd-agent-toggle" aria-expanded={open} onClick={toggle}>

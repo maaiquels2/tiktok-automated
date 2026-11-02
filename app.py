@@ -28,7 +28,7 @@ import secrets
 from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
-                              sync_video_spoken_lines)
+                              sync_video_spoken_lines, distinct_ctas)
 from services import media_checks, niche_safety, piece_niche
 from services import ai_budget, copywriter, formats, generators, package_zip, prompt_library, publish_tags, speech_bank, stages
 from services.campaign_write import CampaignWriter
@@ -2239,6 +2239,28 @@ def create_app(config=None):
         registrar(settings.get('provider') or 'ia')
         return merged, ''
 
+    def cta_reject(texto,entry):
+        """Descarta o CTA candidato se for fraco ou se o roteiro da cor (gancho e desenvolvimento ja escritos) deixar de passar
+        na auditoria com ele (ex.: estourar o teto de palavras do clipe)."""
+        if copywriter._weak_cta(texto):
+            return True
+        pack={k:(entry.get('pack') or {}).get(k,'') for k in ('hook','development')}
+        pack['cta']=texto
+        return bool(copywriter.audit(pack,entry.get('brief') or {},require_caption=False,strict_style=False))
+
+    def make_ctas_distinct(campaign,variants):
+        """Cada cor com a sua chamada (nem o mesmo texto nem a mesma abertura): a que repete outra troca por um CTA da propria
+        categoria e a fala dentro do prompt de video acompanha."""
+        ctas=distinct_ctas(campaign,[{'color':v['color'],'cta':v['prompts'].get('cta',''),'pack':v['prompts'],
+                                      'brief':{**campaign,'color':v['color']}} for v in variants],reject=cta_reject)
+        for index,(v,cta) in enumerate(zip(variants,ctas)):
+            prompts=v['prompts']
+            if cta and cta!=prompts.get('cta'):
+                prompts['cta']=cta
+                patched=sync_video_spoken_lines(prompts.get('video'),prompts.get('hook',''),prompts.get('development',''),cta)
+                prompts['video']=patched if patched is not None else variacao.video_prompt(
+                    {**campaign,'color':v['color']},v['color'],index,prompts)
+
     def writer_public():
         dados=copywriter.public_settings(app.config['DATA_DIR'], storage_get=(_storage_get if cloud_mode else None))
         try:
@@ -2323,6 +2345,7 @@ def create_app(config=None):
             results=write_scripts_parallel(briefs)
             for index,(variant,brief,result) in enumerate(zip(variants,briefs,results)):
                 variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result,index=index)
+            make_ctas_distinct(current,variants)
         else:
             pack,_=write_with_llm(current,generate(current,audit=copywriter.audit),cid)
         # Só reivindica a versão e grava depois de terminar toda a geração.
@@ -2362,6 +2385,7 @@ def create_app(config=None):
         briefs=[{**current,'color':variant['color']} for variant in variants]
         for index,(variant,brief,result) in enumerate(zip(variants,briefs,write_scripts_parallel(briefs))):
             variant['prompts'],_=write_with_llm(brief,variant['prompts'],cid,precomputed=result,index=index)
+        make_ctas_distinct(current,variants)
         with writer.write(cid,expected_version=c['version']):
             db().execute('DELETE FROM campaign_variants WHERE campaign_id=?',(cid,))
             for variant in variants:
@@ -3128,6 +3152,15 @@ def create_app(config=None):
                     current.get('video'), merged.get('hook',''),
                     merged.get('development',''), merged.get('cta',''))
                 merged['video']=patched or rewritten.get('video',merged.get('video'))
+        if 'cta' in fields and slot['id'] is not None:
+            # A chamada nova nao pode repetir a de outra cor.
+            outras=[s['prompts'].get('cta','') for s in slots(cid) if s['id']!=slot['id']]
+            nova=distinct_ctas(c,[{'color':slot['color'],'cta':merged.get('cta',''),'pack':merged,
+                                   'brief':{**c,'color':slot['color']}}],used=outras,reject=cta_reject)[0]
+            if nova and nova!=merged.get('cta'):
+                merged['cta']=nova
+                patched=sync_video_spoken_lines(merged.get('video'),merged.get('hook',''),merged.get('development',''),nova)
+                merged['video']=patched if patched is not None else variacao.video_prompt(c,slot['color'],slot['index'],merged)
         with writer.write(cid,expected_version=c['version']):
             if writer_mode=='local':
                 patch_checklist(cid, {'writer': {'by': 'local', 'reason': '',
@@ -3210,6 +3243,13 @@ def create_app(config=None):
             raise Invalid('O ChatGPT repetiu o mesmo roteiro entre as cores: '
                           +'; '.join(diversity_issues)+'. Nenhuma cor foi alterada.',422)
 
+        if 'cta' in fields:
+            # Cada cor com a sua chamada: a repetida troca por um CTA da propria categoria (sem gastar IA).
+            novas=distinct_ctas(campaign,[{'color':row['color'],'cta':written[key].get('cta',''),'pack':written[key],
+                                           'brief':{**campaign,'color':row['color']}} for row,_,_,key in prepared],reject=cta_reject)
+            for (row,_,_,key),nova in zip(prepared,novas):
+                if nova:
+                    written[key]['cta']=nova
         saved=[]
         with writer.write(cid,expected_version=c['version']):
             for row,current,merged,key in prepared:

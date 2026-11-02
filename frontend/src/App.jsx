@@ -1,6 +1,6 @@
 import { getDeviceInfo } from './device';
 import { ServiceLaunch, TikTokLaunchButtons, isMobileDevice, mobileServiceUrl, setCloudMode, isCloudMode } from './serviceLinks';
-import { Suspense, createContext, lazy, useContext, useEffect, useRef, useState } from 'react';
+import { Suspense, createContext, lazy, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Smartphone, Monitor, Tablet, Plus, ArrowRight, Download, FolderHeart, Check, ArrowLeft, ExternalLink, RefreshCw, AlertCircle, X, ShieldCheck, Copy as CopyIcon, Pencil, Trash2, UserCog, Sparkles, Wand2, Clapperboard, LogOut, UserPlus, KeyRound, Users, House, BarChart3, MoreHorizontal, Scissors, BookOpen, BookmarkPlus } from 'lucide-react';
 import Canvas from './Canvas';
 import { AboveDialogs } from './aboveDialogs.jsx';
@@ -15,6 +15,7 @@ import SCRIPT_RULES from './scriptRules.json';
 import {FieldCount,ScriptBudget,countWords} from './scriptBudget';
 import FORMAT_RULES from './formatRules.json';
 import { briefResetMessage } from './briefReset';
+import { errorText } from './errorText';
 // Resultados num pedaco separado do bundle: so baixa quando a aba abre.
 const ResultsQuickTools=lazy(()=>import('./results').then(m=>({default:m.ResultsQuickTools})));
 const PerformancePanel=lazy(()=>import('./results').then(m=>({default:m.PerformancePanel})));
@@ -51,7 +52,9 @@ export default function App(){
   const [homeLimit,setHomeLimit]=useState(60); // cartoes desenhados de uma vez: com centenas de campanhas o Inicio passava de 6 mil nos do DOM
   const [resultsTab,setResultsTab]=useState('agora'); // agora | studio | lote | playbook | historico | campanha
   const bootHash=useRef(true);
-  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
+  const [error,setErrorRaw]=useState(''),[notice,setNotice]=useState(''),[modal,setModal]=useState(null),[dirty,setDirty]=useState(false);
+  // O aviso e desenhado como texto: um objeto de erro (Error) derrubava a pagina inteira ("Objects are not valid as a React child").
+  const setError=useCallback(value=>setErrorRaw(errorText(value)),[]);   // identidade estavel, como o setter do useState
   const [renaming,setRenaming]=useState(false),[renameDraft,setRenameDraft]=useState('');
   const [showCampaignList,setShowCampaignList]=useState(false);
   const [identity,setIdentity]=useState(null);
