@@ -616,6 +616,8 @@ def create_app(config=None):
         response.headers['X-Frame-Options']='DENY'
         response.headers['Content-Security-Policy']=content_security_policy
         response.headers['Permissions-Policy']='camera=(), microphone=(), geolocation=(), payment=(), usb=()'
+        if request.path.startswith('/api/') or request.path=='/creator':
+            response.headers['X-Robots-Tag']='noindex, nofollow'
         if request.path.startswith('/assets/'):
             # Os arquivos em /assets/ saem do Vite com hash no nome
             # (index-XXXXXXXX.js) - o nome so muda quando o conteudo muda.
@@ -1272,6 +1274,12 @@ def create_app(config=None):
         if not re.fullmatch(r'tiktok[A-Za-z0-9]+\.txt', name):
             return jsonify(error='Nao encontrado.'), 404
         return send_from_directory(app.config['FRONTEND_DIR'], name, mimetype='text/plain')
+
+    @app.get('/robots.txt')
+    def robots():
+        # So a pagina inicial e as paginas legais podem aparecer em buscas; o app e a API sao privados.
+        corpo='User-agent: *\nAllow: /$\nAllow: /termos\nAllow: /privacidade\nDisallow: /\n'
+        return corpo, 200, {'Content-Type':'text/plain; charset=utf-8'}
 
     @app.get('/termos')
     @app.get('/privacidade')

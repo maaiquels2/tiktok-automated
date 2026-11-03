@@ -61,6 +61,14 @@ class WorkflowTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_robots_allows_only_public_pages_and_api_is_noindex(self):
+        robots=self.client.get('/robots.txt')
+        self.assertEqual(robots.status_code,200)
+        self.assertIn('Disallow: /\n',robots.get_data(as_text=True))
+        self.assertIn('Allow: /termos',robots.get_data(as_text=True))
+        self.assertIn('noindex',self.client.get('/api/campaigns',headers=self.headers).headers['X-Robots-Tag'])
+        self.assertNotIn('X-Robots-Tag',self.client.get('/termos').headers)
+
     def get(self):
         return self.client.get(f'/api/campaigns/{self.cid}').json
 

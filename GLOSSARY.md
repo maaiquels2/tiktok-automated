@@ -1,119 +1,39 @@
-# Fábrica TikTok
+# Glossário
 
-Estúdio para produzir vídeos UGC de 15 s para o TikTok Shop: do briefing de uma peça até a publicação, uma campanha por produto, uma versão por cor.
+Termos do domínio da Fábrica TikTok. Use estes nomes no código, nos testes e nas conversas.
 
-## Campanha e cores
+**Campanha** — Um produto a ser vendido, com briefing (produto, público, benefício, tom, detalhes), modelo e uma ou mais cores. É a unidade que o usuário cria, aprova e acompanha.
 
-**Campanha**:
-Um produto a ser vendido, com seu briefing, suas cores e todo o material produzido para ele.
-_Avoid_: projeto, job
+**Cor** — Variante do produto dentro de uma campanha. Cada cor tem seu próprio prompt de imagem, de vídeo e sua própria fala (variante em `generate_variants`).
 
-**Cor**:
-Uma das cores do produto na campanha; cada cor tem imagem, roteiro, prompts e vídeo próprios. Campanha com uma só cor também tem uma cor.
-_Avoid_: variação, variante, slot, versão
+**Briefing** — Campos que descrevem a campanha. Mudar qualquer campo além do nome apaga prompts, variantes e mídia já gerados; o app pede confirmação antes.
 
-**Cor principal**:
-A primeira cor da campanha; o que vale para a campanha como um todo é o que vale para ela.
-_Avoid_: cor padrão, variante 0
+**Fala** — Texto falado no vídeo, escrito em primeira pessoa no tom de UGC (nunca voz de catálogo). Tem três partes: gancho, desenvolvimento e CTA.
 
-**Foto de referência da modelo**:
-A fotografia fixa da modelo que dá rosto, corpo e cenário à cor principal.
-_Avoid_: foto base, referência
+**Gancho (hook)** — Primeiros segundos da fala; prende a atenção.
 
-**Imagem aprovada**:
-A imagem gerada para uma cor e aprovada; a partir da segunda cor, é ela que dá cenário e enquadramento ao vídeo.
-_Avoid_: base aprovada, imagem final
+**Desenvolvimento** — Miolo da fala, que mostra o produto e o motivo de compra.
 
-**Trava de cena**:
-A instrução de que o vídeo mantém exatamente o ambiente de uma imagem: a foto de referência na cor principal, a imagem aprovada nas demais.
-_Avoid_: cenário fixo, scene lock
+**CTA** — Chamada final para comprar. Tem que ser diferente em cada cor (texto e as três primeiras palavras), ver `distinct_ctas` e o ADR 0001.
 
-## Roteiro
+**Banco de falas** — Moldes de frases curadas (`speech_bank`, `speech_curated`, `speech_future`) que o gerador mistura antes de recorrer a uma IA externa.
 
-**Roteiro**:
-As três falas de um vídeo de 15 s (gancho, desenvolvimento e chamada) mais a legenda.
-_Avoid_: script, copy, texto
+**Eixo** — Ângulo de venda que diferencia uma fala da outra (dor, desejo, escassez). Usado na reescrita de falas repetidas.
 
-**Gancho**:
-A fala de abertura, que prende quem está rolando o feed.
-_Avoid_: hook, abertura
+**Arco** — Roteiro de uma sequência, por exemplo `motivos` ou `problema`, com um papel para cada clipe (`story_arcs`).
 
-**Desenvolvimento**:
-A fala do meio, que prova o que o gancho prometeu.
-_Avoid_: meio, corpo
+**Sequência** — Vídeo de venda de 30 a 45 s formado por 2 ou 3 clipes encadeados, montados depois no CapCut.
 
-**Chamada**:
-A fala final, com uma ação só: levar ao carrinho.
-_Avoid_: CTA, fechamento
+**Clipe** — Trecho de até ~15 s gerado de uma vez no Grok ou no Flow. Tem limite de palavras; acima de 60 o app avisa que a fala fica corrida.
 
-**Orçamento do roteiro**:
-Quantas palavras cabem em cada fala e no total para ocupar os 15 s sem silêncio no fim nem fala acelerada.
-_Avoid_: limite de palavras, word budget
+**Imagem-base** — Primeiro quadro que ancora identidade, cenário e roupa de todos os clipes.
 
-**Sequência de clipes**:
-Um vídeo dividido em 2 ou 3 clipes encadeados, para roteiros que não cabem num clipe de 15 s.
-_Avoid_: extend, storytelling
+**Espelho** — Modo de vídeo em que a modelo se grava em selfie no espelho, com o celular na mão.
 
-**Motor de persuasão**:
-O tipo de argumento que move o roteiro: necessidade (há objeção), escassez (há oferta real) ou desejo.
-_Avoid_: gatilho, ângulo
+**Enquadramento** — Quanto do corpo aparece: corpo inteiro, joelhos ou cintura. O app escolhe pela peça (blusas ficam fechadas); o usuário pode forçar com as fichas `enq_*` em `video_style`.
 
-**Oferta real**:
-Desconto, prazo ou estoque informados no briefing; só com ela o roteiro pode falar em urgência.
-_Avoid_: promoção, urgência
+**Agente do Grok** — Pacote de mensagens para o modo agente do Grok gerar as imagens de todas as cores de uma vez (`agent_images`).
 
-## Produção
+**Gerador** — Ferramenta externa de vídeo: Grok Imagine ou Google Flow.
 
-**Etapa**:
-Um passo da campanha, em ordem: briefing, imagem, aprovação da imagem, roteiro, vídeo, aprovação do vídeo, preparação e publicação.
-_Avoid_: fase, status, stage
-
-**Aprovação**:
-A confirmação humana de que a imagem ou o vídeo de cada cor está certo; libera a etapa seguinte.
-_Avoid_: validação, revisão
-
-**Prontidão**:
-O que ainda falta para aprovar uma etapa.
-_Avoid_: pendências, readiness
-
-**Retrocesso**:
-A volta de etapa causada por uma edição: prompt de imagem novo descarta imagens e vídeos; falas novas depois das imagens descartam só os vídeos.
-_Avoid_: reset, rewind
-
-**Gravação da Campanha**:
-Um bloco de escrita que lê a Campanha na versão esperada e só vale se ninguém a mudou nesse meio tempo: ou tudo o que a rota gravou vale, ou nada vale e a tela recebe um aviso de que a Campanha mudou em outra janela. Sobe a versão da Campanha uma vez, ao abrir.
-_Avoid_: transação, lock, bloqueio
-
-**Gerador**:
-A ferramenta de IA que transforma a imagem e o prompt em vídeo: Grok Imagine ou Google Flow.
-_Avoid_: motor, engine, plataforma
-
-**Prompt de vídeo**:
-O texto colado no gerador. O completo traz todas as regras e encosta no limite do gerador; o guia é a versão enxuta.
-_Avoid_: prompt Grok, descrição
-
-**Formato**:
-O jeito de gravar o vídeo (com fala, só movimento, POV, espelho, respondendo comentário...). Cada formato roda sobre uma base.
-_Avoid_: modo de vídeo, template
-
-**Base do formato**:
-A imagem de partida que o formato exige: modelo de frente, primeira pessoa (POV) ou selfie no espelho. Trocar de base passa de novo por Definir look.
-_Avoid_: modo base
-
-## Peça
-
-**Peça**:
-O produto como aparece no vídeo, com seu gênero gramatical e família (moda, beleza, casa, acessório...).
-_Avoid_: item, artigo
-
-**Nicho**:
-O contexto de uso da peça que define cenário e clima: praia, academia, casual, dia a dia, íntima, fantasia.
-_Avoid_: categoria, segmento
-
-**Enquadramento**:
-O plano que mostra a peça inteira com folga (corpo inteiro, plano americano, plano médio).
-_Avoid_: framing, ângulo
-
-**Clima**:
-A referência visual do vídeo, por nicho ("fit check de provador gravado no iPhone").
-_Avoid_: mood, vibe
+**Curadoria** — Pipeline offline (`ferramentas/curadoria_falas`) que gera, verifica e julga frases para alimentar o banco de falas.
