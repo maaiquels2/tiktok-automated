@@ -5,7 +5,7 @@ const LABELS = {
   video_mode: 'Formato do vídeo', color: 'Cores', product: 'Produto', outfit: 'Roupa', model_name: 'Modelo',
   niche: 'Nicho', audience: 'Público', benefit: 'Benefício', angle: 'Ângulo', tone: 'Tom', style: 'Estilo',
   movements: 'Movimentos', details: 'Detalhes', generator: 'Gerador', objection: 'Objeção', offer: 'Oferta',
-  body_turns: 'Giro do corpo',
+  body_turns: 'Giro do corpo', social_proof: 'Prova social', size_proof: 'Prova de tamanho',
 };
 
 // Formatos que a etapa Criar vídeo troca sem apagar nada (usam a mesma imagem-base, de frente).

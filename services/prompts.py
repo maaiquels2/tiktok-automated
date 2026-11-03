@@ -6,6 +6,7 @@ import unicodedata
 from services import formats, generators, persuasion, piece, script_budget, speech_bank
 from services.framing import (mirror_cover, mirror_image_rules, mirror_phone, mirror_scope, mood, push_target,
                               speech_framing)
+from services.framing import framing as _frame_shot
 
 
 def _phrase(value):
@@ -390,6 +391,13 @@ def with_em(value):
     return re.sub(r'^(o|a|os|as)\b', lambda m: {'o': 'no', 'a': 'na', 'os': 'nos', 'as': 'nas'}[m.group(1).casefold()], value, flags=re.I)
 
 
+# Beneficio que ja comeca por verbo ("alonga as pernas"): nao leva "tem" na frente.
+_BENEFIT_VERB = re.compile(
+    r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega|'
+    r'alonga|afina|realça|destaca|levanta|garante|cria|transforma|define|mostra|acompanha|dá|cai|modela|sustenta|abraça|não)\b',
+    re.I)
+
+
 def benefit_clause(c):
     """Create a grammatical, bounded benefit clause without adding claims."""
     raw = _pt_br(c.get('benefit')).rstrip('.').strip()
@@ -436,9 +444,7 @@ def benefit_clause(c):
     raw = raw[0].lower() + raw[1:] if raw else raw
     # Benefits commonly arrive as a noun phrase ("caimento firme") or as a
     # sentence ("veste muito bem..."). Handle both without guessing facts.
-    verb_start = re.match(
-        r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega|não\b)',
-        raw, re.I)
+    verb_start = _BENEFIT_VERB.match(raw)
     if re.match(r'^versát(?:il|eis)\b', raw, re.I) or re.match(r'^versat(?:il|eis)\b', raw, re.I):
         return f'A peça é {raw}'
     if verb_start:
@@ -658,6 +664,37 @@ def proof_gestures(features, limit=3, turns=()):
         if len(plan) >= limit:
             break
     return plan
+
+
+_BOTTOM_PIECES = ('legging', 'calça', 'short', 'saia', 'bermuda')
+
+
+def fit_proof_gesture(c, spoken=False):
+    """Gesto do caimento, so quando o operador declarou a prova de tamanho (altura ou anotacao) e a peca e de baixo.
+
+    O gesto mostra o comprimento da peca no corpo; nunca afirma "sobrou na barra" ou "ficou perfeita":
+    o que a modelo diz e o que o operador escreveu, e isso fica na fala. Sem virar o corpo."""
+    facts = persuasion.size_facts(c.get('size_proof'))
+    if not (facts.get('height') or facts.get('notes')):
+        return ''
+    piece = piece_forms(c)['piece']
+    blob = f"{c.get('product') or ''} {c.get('outfit') or ''}".casefold()
+    if piece not in _BOTTOM_PIECES and not (piece == 'vestido' and 'longo' in blob):
+        return ''
+    # O gesto segue o plano que o MESMO prompt pede: com fala, corpo inteiro vira plano americano (speech_framing).
+    if (speech_framing(c) if spoken else _frame_shot(c)).startswith('corpo inteiro'):
+        gesto = 'mostra onde a barra termina em relação ao pé, com a câmera estável e a peça inteira no quadro'
+    else:
+        gesto = 'passa a mão do cós até a coxa mostrando o comprimento da peça no corpo, com a câmera estável'
+    return f'caimento → {gesto}'
+
+
+def _with_fit_gesture(c, gestures, limit, spoken=False):
+    """Soma o gesto do caimento sem passar do limite de gestos do gerador (substitui o ultimo se lotado)."""
+    fit = fit_proof_gesture(c, spoken)
+    if not fit:
+        return gestures
+    return (gestures[:limit - 1] if len(gestures) >= limit else gestures) + [fit]
 
 
 # No POV a camera e o olho de quem veste: nao da para "girar de costas para a
@@ -1533,6 +1570,10 @@ def _hook_pool(c, detail, forms):
         'escassez': [escassez, descoberta, cat_fato, contraste, decide, cat_livre, uso],
     }[motor]
     order.insert(2 if motor == 'necessidade' else 1, prova)
+    # Publico com identidade declarada ("mulheres baixinhas"): o gancho chama por ela.
+    order.insert(0, persuasion.identity_hooks(persuasion.audience_identity(c.get('audience')), forms))
+    # Altura que o operador declarou: um gancho de prova de tamanho, logo depois do de identidade.
+    order.insert(1, persuasion.size_hooks(persuasion.size_facts(c.get('size_proof')), forms))
     if offer and motor != 'escassez':
         order.insert(1, escassez)
     pool = []
@@ -1656,12 +1697,13 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
             reacoes.append(('re-agita', f'{agita} {prova_falada}'))
         # O gancho ja disse a dor; o meio continua dali, sem repeti-la.
         reacoes.append(('re-porisso', prova_falada))
+    # Prova de tamanho declarada: abre a fila, e cada cor pega uma das frases (mesmo fato, jeitos diferentes).
+    reacoes = persuasion.size_reactions(persuasion.size_facts(c.get('size_proof')), forms) + reacoes
     social = persuasion.social_facts(c.get('social_proof'))
     reacoes += [r for r in persuasion.social_reactions(social, forms)
                 if not any(v and v in (hook or '') for v in (social.get('sold'), social.get('rating')))]
     if benefit_text:
-        verbo = '' if re.match(r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|combina|entrega)\b',
-                               benefit_text, re.I) else 'tem '
+        verbo = '' if _BENEFIT_VERB.match(benefit_text) else 'tem '
         if _own_subject(benefit_text):
             reacoes.append(('re-melhor', f'E o melhor é que {benefit_text[0].lower() + benefit_text[1:]}.'))
         else:
@@ -1875,6 +1917,7 @@ def _cover_text(c, forms, detail, index=0):
     nu = _sem_artigo(det)
     piece = forms['piece']
     opcoes = [
+        persuasion.identity_screen_text(persuasion.audience_identity(c.get('audience')), forms),
         f'{nu.capitalize()}?',
         f'{piece.capitalize()} com {nu}',
         f'Repara {with_em(det)}',
@@ -1910,6 +1953,7 @@ def _screen_text(c, forms, detail, index=0):
         else:
             opcoes.append(f'{pain[:1].upper() + pain[1:]}?')
             opcoes.append(f'A dúvida: {pain}?')
+    opcoes.insert(0, persuasion.identity_screen_text(persuasion.audience_identity(c.get('audience')), forms))
     opcoes.extend([
         f'{piece.capitalize()}: {nu}',
         f'Não sabia que tinha {det}',
@@ -2256,6 +2300,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     gestures = proof_gestures(
         product_features(c, limit=2 if _limite_video(c) else 4),
         turns=body_turns(c))
+    gestures = _with_fit_gesture(c, gestures, 2 if _limite_video(c) else 4)
     proof_block = (
         'PROVA VISUAL — cada fato abaixo precisa do seu gesto correspondente, executado entre 3s e 11s: '
         + '; '.join(gestures) + '.\n'
@@ -2791,6 +2836,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     # Cada fato confirmado ganha o gesto que o prova; onde o gerador tem
     # limite de caracteres, dois gestos bem escolhidos cabem e provam.
     gestures = proof_gestures(product_features(c, limit=2 if _limite_video(c) else 4), turns=body_turns(c))
+    gestures = _with_fit_gesture(c, gestures, 2 if _limite_video(c) else 4, spoken=True)
     estilo = video_style(c)
     if 'closes' not in estilo:
         # Sem closes autorizados, a prova acontece no plano, com o rosto no quadro.

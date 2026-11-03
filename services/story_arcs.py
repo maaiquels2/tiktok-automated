@@ -736,6 +736,8 @@ def write_lines_with_ai(c, arc, clips, settings):
         f'Benefício que o briefing confirma: {c.get("benefit")}' if c.get('benefit') else '',
         f'O que mais segura a compra (objeção): {c.get("objection")}' if c.get('objection') else '',
         f'Prova social real: {c.get("social_proof")}' if c.get('social_proof') else '',
+        (f'Prova de tamanho declarada (única fonte de altura e numeração; não acrescente outra): {c.get("size_proof")}'
+         if c.get('size_proof') else ''),
     ) if x)
 
     def validate(dados):

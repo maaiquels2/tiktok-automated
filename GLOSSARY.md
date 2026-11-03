@@ -12,6 +12,10 @@ Termos do domínio da Fábrica TikTok. Use estes nomes no código, nos testes e 
 
 **Gancho (hook)** — Primeiros segundos da fala; prende a atenção.
 
+**Gancho de identidade** — Gancho que chama o público pelo nome ("Amigas baixinhas que não acham calça…"). Só aparece quando o campo Público declara baixinha, alta, plus size, quadril largo ou curvilínea.
+
+**Prova de tamanho** — Altura, numeração e observação de caimento que o operador escreve no briefing ("1,47 m, tamanho 34, sobrou um pouco na barra"). É a única fonte: o app nunca deduz nem inventa esses dados, e a falsa afirmação é barrada na auditoria.
+
 **Desenvolvimento** — Miolo da fala, que mostra o produto e o motivo de compra.
 
 **CTA** — Chamada final para comprar. Tem que ser diferente em cada cor (texto e as três primeiras palavras), ver `distinct_ctas` e o ADR 0001.

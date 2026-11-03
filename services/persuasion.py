@@ -207,6 +207,144 @@ def social_hooks(s: dict, forms: dict) -> list[tuple[str, str]]:
     return out
 
 
+# Identidade do publico, so quando o briefing a declara (campo "publico").
+# (trecho do briefing, "amigas ___", "se voce ___")
+_IDENTITIES = (
+    (r'baixinh', 'baixinhas', 'é baixinha'),
+    # "cintura alta" nao e publico: "alta" so conta depois de quem a descreve.
+    (r'\b(?:mulher(?:es)?|garotas?|meninas?|pessoas?|amigas?|quem\s+(?:é|e|são|sao))\s+(?:bem\s+)?altas?\b', 'altas', 'é alta'),
+    (r'plus[\s-]?size', 'plus size', 'é plus size'),
+    (r'quadris?\s+largos?', 'de quadril largo', 'tem quadril largo'),
+    (r'curvilíne|curvilin|\bcom\s+curvas\b', 'curvilíneas', 'é curvilínea'),
+)
+
+
+def audience_identity(raw) -> dict:
+    """'mulheres baixinhas' -> {'plural': 'baixinhas', 'verb': 'é baixinha'}; sem marca, {}."""
+    low = _clean(raw).casefold()
+    for pattern, plural, verb in _IDENTITIES:
+        if re.search(pattern, low):
+            return {'plural': plural, 'verb': verb}
+    return {}
+
+
+def identity_hooks(ident: dict, forms: dict) -> list[tuple[str, str]]:
+    """Ganchos que chamam o publico pelo nome, como nos videos que mais vendem."""
+    if not ident:
+        return []
+    dem, piece = forms['dem'], forms['piece']
+    return [
+        ('id-amigas', f'Amigas {ident["plural"]} que não acham {piece}, olha {dem} que eu achei pra gente.'),
+        ('id-se-voce', f'Se você {ident["verb"]}, olha {dem} {piece} que eu achei pra gente.'),
+        ('id-pra-quem', f'{_cap(piece)} pra quem {ident["verb"]}: olha {dem} que eu achei.'),
+    ]
+
+
+def identity_screen_text(ident: dict, forms: dict) -> str:
+    """Texto de tela/capa para colar no editor: 'Calça jeans pra quem é baixinha'."""
+    return f'{_cap(forms["piece"])} pra quem {ident["verb"]}' if ident else ''
+
+
+# --------------------------------------------------------------------------
+# Prova de tamanho: altura e numeracao que o OPERADOR escreveu no briefing
+# ("1,47 m, tamanho 34, sobrou um pouco na barra"). Nada aqui e deduzido da
+# foto: a modelo e um avatar e a altura e uma afirmacao do operador.
+# --------------------------------------------------------------------------
+_HEIGHT_M = re.compile(r'\b1[,.]([4-9]\d)\b')
+_HEIGHT_CM = re.compile(r'\b1([4-9]\d)\s*cm\b')
+_SIZE_WORD = r'(\d{2}|pp|p|m|g|gg|xg)'
+_SIZE_A = re.compile(r'(?:tamanho|tam\.?|numera[çc][ãa]o|n[úu]mero|manequim)\s*:?\s*' + _SIZE_WORD + r'\b', re.I)
+_SIZE_B = re.compile(r'\bpeguei\s+(?:o\s+)?(?:tamanho\s+)?' + _SIZE_WORD + r'\b', re.I)
+
+
+def size_facts(raw) -> dict:
+    """'1,47 m, tamanho 34, sobrou na barra' -> {'height': '1,47 m', 'size': '34', 'notes': ['sobrou na barra']}."""
+    text = _clean(raw)
+    if not text:
+        return {}
+    facts: dict = {'raw': text}
+    m = _HEIGHT_M.search(text)
+    if m:
+        facts['height'] = f'1,{m.group(1)} m'
+    else:
+        m = _HEIGHT_CM.search(text)
+        if m:
+            facts['height'] = f'1,{m.group(1)} m'
+    m = _SIZE_A.search(text) or _SIZE_B.search(text)
+    if m:
+        facts['size'] = m.group(1).upper()
+    notes = []
+    for part in re.split(r'(?<!\d),|,(?!\d)|[;·\n]+', text):
+        part = part.strip(' .')
+        if not part or _HEIGHT_M.search(part) or _HEIGHT_CM.search(part) or _SIZE_A.search(part) or _SIZE_B.search(part):
+            continue
+        if len(part) <= 80:
+            notes.append(part)
+    if notes:
+        facts['notes'] = notes[:2]
+    return facts if len(facts) > 1 else {}
+
+
+def size_hooks(f: dict, forms: dict) -> list[tuple[str, str]]:
+    if not f.get('height'):
+        return []
+    return [('sz-altura', f'Eu tenho {f["height"]}, olha como {forms["dem"]} {forms["piece"]} fica em mim.')]
+
+
+def size_reactions(f: dict, forms: dict) -> list[tuple[str, str]]:
+    """Frases do meio da fala; cada uma so diz o que o operador escreveu."""
+    out = []
+    h, s, pron = f.get('height'), f.get('size'), forms['pron']
+    # Tres jeitos de dizer o mesmo fato: as cores nao podem repetir a frase (falas iguais entre cores).
+    if h and s:
+        out += [('re-tam-completo', f'Eu tenho {h} e peguei o tamanho {s}.'),
+                ('re-tam-com', f'Com {h}, peguei o tamanho {s}.'),
+                ('re-tam-nocao', f'Pra você ter noção: eu tenho {h} e vesti o tamanho {s}.')]
+    elif h:
+        out += [('re-tam-altura', f'Eu tenho {h}, pra você ter noção de como {pron} veste.'),
+                ('re-tam-corpo', f'Eu tenho {h}, olha como {pron} fica no meu corpo.'),
+                ('re-tam-nocao', f'Pra você ter noção, eu tenho {h}.')]
+    elif s:
+        out += [('re-tam-numero', f'Peguei o tamanho {s}.'),
+                ('re-tam-foi', f'O tamanho que eu peguei foi o {s}.'),
+                ('re-tam-vesti', f'Vesti o tamanho {s}.')]
+    notes = f.get('notes', [])
+    if out and notes:
+        # A observacao do operador ("sobrou um pouco na barra") acompanha a 1a e a 3a frase.
+        for pos, note in zip((0, 2), notes + notes):
+            out[pos] = (out[pos][0], f'{out[pos][1]} {_cap(note)}.')
+    elif notes:
+        out += [('re-tam-nota', f'{_cap(note)}.') for note in notes]
+    return out
+
+
+def size_problems(spoken: str, size_raw) -> list[str]:
+    """Altura ou numeracao falada que o briefing nao declarou (a IA nao pode inventar)."""
+    low = str(spoken or '').casefold()
+    f = size_facts(size_raw)
+    problems = []
+    for m in re.finditer(r'\b1[,.](\d{2})\s*m\b', low):
+        if f'1,{m.group(1)} m' != f.get('height'):
+            problems.append(f'"{m.group(0)}" não bate com a altura declarada no briefing')
+    for m in _SIZE_A.finditer(low):
+        if m.group(1).upper() != f.get('size'):
+            problems.append(f'"{m.group(0)}" não bate com a numeração declarada no briefing')
+    if re.search(r'\bpeguei\s+(?:o\s+)?(?:tamanho\s+)?\d{2}\b', low) and not f.get('size'):
+        problems.append('numeração falada, mas o briefing não declarou a prova de tamanho')
+    return problems
+
+
+def size_brief_lines(size_raw) -> list[str]:
+    f = size_facts(size_raw)
+    if not f:
+        return ['PROVA DE TAMANHO: não existe — PROIBIDO falar altura, numeração, "sobrou na barra" ou "não precisei de ajuste".']
+    dados = [f'altura {f["height"]}' if f.get('height') else '', f'tamanho {f["size"]}' if f.get('size') else '',
+             *f.get('notes', [])]
+    return [f'PROVA DE TAMANHO DECLARADA (única fonte de altura, numeração e caimento): {", ".join(d for d in dados if d)}. '
+            'Use no desenvolvimento, em primeira pessoa e exatamente com esses dados; não acrescente nenhum outro. '
+            'Se o produto tem outras cores, o fato é o mesmo em todas, mas varie a frase de uma cor para a outra.']
+
+
 def social_reactions(s: dict, forms: dict) -> list[tuple[str, str]]:
     out = []
     if s.get('sold'):

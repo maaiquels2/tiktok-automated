@@ -53,7 +53,7 @@ AI_LIMIT, AI_WINDOW = 20, 60
 AI_ENDPOINTS = {'analyze_product_photo', 'analyze_product_photo_confirm', 'quick_brief', 'save_writer_settings',
                 'test_writer', 'generate_prompts', 'generate_prompt_variants', 'refresh_single_script',
                 'refresh_variant_script', 'refresh_all_variant_scripts', 'story_arc'}
-FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','video_style','sequence_clips','sequence_arc']
+FIELDS = ['name','model_name','niche','outfit','color','product','audience','benefit','angle','tone','style','details','movements','body_turns','objection','offer','generator','motor','video_mode','social_proof','size_proof','video_style','sequence_clips','sequence_arc']
 PROMPTS = ['image','video','hook','development','cta','caption']
 # Textos que vao na POSTAGEM, nao dentro do video gerado (o prompt de video
 # continua proibindo letra no quadro). Ficam fora de PROMPTS de proposito:
@@ -69,7 +69,7 @@ EXTRA_PROMPTS = ['cover_text','screen_text']
 # da nuvem, que nao era migrado, respondia 'column does not exist'.
 CAMPAIGN_COLUMNS = {k: "TEXT NOT NULL DEFAULT ''" for k in
                     ['audience','benefit','angle','tone','style','details','movements','body_turns',
-                     'migration_note','niche','objection','offer','motor','video_mode','social_proof','video_style',
+                     'migration_note','niche','objection','offer','motor','video_mode','social_proof','size_proof','video_style',
                      'sequence_clips','sequence_arc']}
 CAMPAIGN_COLUMNS.update(version='INTEGER NOT NULL DEFAULT 1',
                         layout="TEXT NOT NULL DEFAULT '{}'",
@@ -2073,9 +2073,15 @@ def create_app(config=None):
         social_chips = [x for x in (f"vendeu {s['sold']}" if s.get('sold') else '',
                                     f"nota {s['rating']}" if s.get('rating') else '',
                                     f"{s['reviews']} avaliações" if s.get('reviews') else '') if x]
-        return jsonify(offer=chips, social=social_chips,
+        size = data.get('size_proof') if isinstance(data.get('size_proof'), str) else ''
+        z = persuasion.size_facts(size[:500])
+        size_chips = [x for x in (f"altura {z['height']}" if z.get('height') else '',
+                                  f"tamanho {z['size']}" if z.get('size') else '',
+                                  *z.get('notes', [])) if x]
+        return jsonify(offer=chips, social=social_chips, size=size_chips,
                        offer_unread=bool(offer.strip()) and not chips,
-                       social_unread=bool(social.strip()) and not social_chips)
+                       social_unread=bool(social.strip()) and not social_chips,
+                       size_unread=bool(size.strip()) and not size_chips)
 
     @app.get('/api/speech-bank')
     def speech_bank_index():

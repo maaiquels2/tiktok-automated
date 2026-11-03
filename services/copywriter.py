@@ -448,6 +448,7 @@ def build_brief(c: dict) -> str:
         linhas.append("OFERTA REAL: não existe — PROIBIDO usar qualquer palavra de urgência.")
     linhas.extend(persuasion.brief_lines(dominant_motor(c), c.get('offer') if offer else '',
                                          c.get('social_proof'), bool(pain)))
+    linhas.extend(persuasion.size_brief_lines(c.get('size_proof')))
     linhas.extend(formats.brief_lines(c, pain))
     if len(colors) > 1:
         linhas.append(f"O produto tem outras cores ({', '.join(colors)}), mas este vídeo é só da cor {c.get('color')}.")
@@ -570,6 +571,7 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
     # desconto com o numero exato...); prova social so se declarada.
     problemas.extend(persuasion.urgency_problems(
         falado, c.get('offer') if offer_text(c) else '', c.get('social_proof')))
+    problemas.extend(persuasion.size_problems(falado, c.get('size_proof')))
 
     for padrao in STAGE_DIRECTION_PATTERNS:
         achado = re.search(padrao, falado)

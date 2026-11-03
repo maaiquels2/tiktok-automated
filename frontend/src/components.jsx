@@ -142,7 +142,7 @@ export function DeviceVideoCard({record,localFile}){
     {record.approved_at&&<span className="approved-label"><Check size={13}/>Aprovação registrada</span>}
   </div>;
 }
-export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:'',video_style:'',sequence_clips:'',sequence_arc:''};
+export const emptyBrief={name:'',model_name:'Micaela',niche:'casual',product:'',outfit:'',color:'',audience:'',benefit:'',angle:'',tone:'Conversacional',style:'Natural e realista',details:'',movements:'',body_turns:'',objection:'',offer:'',generator:'flow',motor:'',video_mode:'',social_proof:'',size_proof:'',video_style:'',sequence_clips:'',sequence_arc:''};
 // Objecoes mais comuns no TikTok Shop de moda. O campo aceita texto livre: a
 // lista so evita digitacao e mantem o texto no formato que o gerador reconhece.
 export const OBJECTIONS=['Fica transparente no agachamento','A peça desce ou escorrega','Não sei se serve em mim','Parece barata de perto','Não dura / desbota na lavagem','Incomoda ou aperta no uso','Acho caro para uma peça só','Marca o corpo'];
@@ -1271,7 +1271,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
   const [showAdvanced,setShowAdvanced]=useState(false);
   const [moreOpen,setMoreOpen]=useState(()=>!!(campaign?.motor||campaign?.body_turns));
   // Secoes recolhidas do formulario: abrem sozinhas so se a campanha salva ja tem algo preenchido nelas.
-  const [sellOpen,setSellOpen]=useState(()=>!!(campaign?.objection||campaign?.offer||campaign?.social_proof));
+  const [sellOpen,setSellOpen]=useState(()=>!!(campaign?.objection||campaign?.offer||campaign?.social_proof||campaign?.size_proof));
   const [aiOpen,setAiOpen]=useState(false);
   const published=campaign?.status==='published';
   const essential=[['name','Nome da campanha','Ex.: Look de verão'],['product','O que é o produto?','Ex.: Calça legging de cintura alta'],['color','Cores / variações','Ex.: azul, branco, preto, rosa pink']];
@@ -1412,7 +1412,7 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
         {descriptionPhoto&&<small className="help">Selecionada: {descriptionPhoto.name}</small>}
       </details>
       <details className="more-options brief-fold sell-fields" open={sellOpen} onToggle={e=>setSellOpen(e.currentTarget.open)}>
-        <summary><strong>Argumento de venda</strong><small>{[draft.objection,draft.offer,draft.social_proof].filter(x=>String(x||'').trim()).length} de 3 preenchidos · muda muito o roteiro</small></summary>
+        <summary><strong>Argumento de venda</strong><small>{[draft.objection,draft.offer,draft.social_proof,draft.size_proof].filter(x=>String(x||'').trim()).length} de 4 preenchidos · muda muito o roteiro</small></summary>
         {/* Antes era um <datalist>: no computador a lista abre ao clicar, mas no
             celular (Safari do iPhone e boa parte dos Android) ela nao aparece,
             entao as opcoes "nao carregavam". Botoes funcionam em qualquer tela. */}
@@ -1435,7 +1435,11 @@ export function BriefForm({campaign,onSave,busy,onDirty,onCancel}){
           <input autoComplete="off" value={draft.social_proof||''} onChange={e=>change('social_proof',e.target.value)} placeholder="Ex.: mais de 2 mil vendidos · nota 4,8" maxLength={500}/>
           <small className="help">Copie da página do produto. Sem isso, o roteiro nunca fala em vendidos, nota ou avaliações.</small>
         </label>
-        <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''}/>
+        <label>Prova de tamanho real (se existir)
+          <input autoComplete="off" id="size-proof-input" value={draft.size_proof||''} onChange={e=>change('size_proof',e.target.value)} placeholder="Ex.: 1,47 m · tamanho 34 · sobrou um pouco na barra" maxLength={500}/>
+          <small className="help">Só o que você afirma: altura, numeração e o que sobrou ou ficou justo. O roteiro usa exatamente isso e nunca inventa altura nem “não precisei de ajuste”.</small>
+        </label>
+        <PersuasionPreview offer={draft.offer||''} social={draft.social_proof||''} size={draft.size_proof||''}/>
       </details>
       <section className="video-fields" aria-label="Formato e sequência do vídeo">
         {/* O formato (UGC, POV, Só movimento) muda o vídeo inteiro: fica sempre
@@ -1933,17 +1937,18 @@ export function AiUsage({usage}){
 
 // Mostra o que o gerador entendeu da oferta e da prova social: so esses
 // fatos viram urgencia ou "ja vendeu" no roteiro.
-export function PersuasionPreview({offer,social}){
+export function PersuasionPreview({offer,social,size=''}){
   const [data,setData]=useState(null);
   useEffect(()=>{
-    if(!offer.trim()&&!social.trim()){setData(null);return}
+    if(!offer.trim()&&!social.trim()&&!size.trim()){setData(null);return}
     let alive=true;
-    const timer=setTimeout(()=>{persuasionPreview({offer,social_proof:social}).then(res=>{if(alive)setData(res)}).catch(()=>{})},400);
+    const timer=setTimeout(()=>{persuasionPreview({offer,social_proof:social,size_proof:size}).then(res=>{if(alive)setData(res)}).catch(()=>{})},400);
     return()=>{alive=false;clearTimeout(timer)};
-  },[offer,social]);
+  },[offer,social,size]);
   if(!data)return null;
   return <div className="persuasion-preview" aria-live="polite">
     {(data.offer.length>0||data.offer_unread)&&<div><span>O roteiro pode usar</span>{data.offer.map(x=><em key={x}>{x}</em>)}{data.offer_unread&&<small className="field-error">Não entendi a oferta. Escreva como “20% até domingo”, “últimas 30 peças” ou “frete grátis”.</small>}</div>}
     {(data.social.length>0||data.social_unread)&&<div><span>Prova social</span>{data.social.map(x=><em key={x}>{x}</em>)}{data.social_unread&&<small className="field-error">Não entendi. Escreva como “2 mil vendidos” ou “nota 4,8”.</small>}</div>}
+    {((data.size||[]).length>0||data.size_unread)&&<div><span>Prova de tamanho</span>{(data.size||[]).map(x=><em key={x}>{x}</em>)}{data.size_unread&&<small className="field-error">Não entendi. Escreva como “1,47 m, tamanho 34”.</small>}</div>}
   </div>;
 }
