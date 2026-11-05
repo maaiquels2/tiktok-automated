@@ -2368,8 +2368,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(formats.video_format(creme),'mesa')
         self.assertEqual(formats.video_format(brinco),'mesa')
         self.assertEqual(formats.video_format(legging),'')
-        # Familias que nao sao beleza nem acessorio seguem como antes.
-        self.assertEqual(formats.video_format({'product':'Panela','outfit':'','video_mode':''}),'')
+        # Casa tambem vai para a mesa (cena de uso do produto); as demais familias seguem como antes.
+        self.assertEqual(formats.video_format({'product':'Panela','outfit':'','video_mode':''}),'mesa')
+        self.assertEqual(formats.video_format({'product':'Fone bluetooth','outfit':'','video_mode':''}),'')
         # A base escolhida pelo operador continua valendo.
         self.assertEqual(formats.video_format({**creme,'video_mode':'espelho'}),'')
         # Teste de prova e 3 jeitos sao falas de roupa: fora dela viram "Na mesa".

@@ -25,6 +25,13 @@ ACCESSORY_RE = re.compile(
     r'rel[oó]gios?|[oó]culos|bolsas?|mochilas?|necessaires?|carteiras?|tiaras?|presilhas?|piercings?)(?!\w)',
     re.I)
 
+# Casa/limpeza pelo NOME do produto (palavra inteira, so product/outfit): "mancha", "tecido" ou "limpeza" nos
+# detalhes de um vestido nao podem puxar a campanha para ca. Roda depois das familias acima.
+CASA_RE = re.compile(
+    r'(?<!\w)(?:removedor(?:es)?|tira[- ]manchas?|limpador(?:es)?|desengordurante|detergente|esponjas?|multiuso|'
+    r'sab[aã]o|amaciante|escorredor(?:es)?|porta[- ]talheres|gaveteiro|t[aá]buas?|frigideiras?|vassouras?|rodos?)(?!\w)',
+    re.I)
+
 
 def _phrase(value):
     return ' '.join(str(value or '').strip().rstrip('.').split())
@@ -37,6 +44,8 @@ def product_family(c):
     for family, needles in FAMILY_WORDS:
         if any(n in blob for n in needles):
             return family
+    if CASA_RE.search(' '.join(_phrase(c.get(k)) for k in ('product', 'outfit'))):
+        return 'casa'
     return 'moda'
 
 

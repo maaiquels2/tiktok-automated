@@ -117,6 +117,17 @@ PRODUCT_FEATURES = (
     ('aro ajustável', ('aro ajustável', 'aro ajustavel')),
     ('proteção uv', ('proteção uv', 'protecao uv', 'lente uv')),
     ('acetato', ('acetato',)),
+    # Casa e limpeza: idem. Ficam por ultimo para nao disputar o foco com os fatos de roupa.
+    ('divisórias ajustáveis', ('divisória ajustável', 'divisórias ajustáveis', 'divisoria ajustavel',
+                               'divisorias ajustaveis')),
+    ('empilhável', ('empilhável', 'empilhavel')),
+    ('plástico resistente', ('plástico resistente', 'plastico resistente')),
+    ('cabe em gaveta', ('cabe em gaveta', 'cabe na gaveta', 'cabe em qualquer gaveta')),
+    ('sem cloro', ('sem cloro',)),
+    ('roupa colorida', ('roupa colorida', 'roupas coloridas')),
+    ('spray', ('spray', 'borrifador')),
+    ('antiaderente', ('antiaderente',)),
+    ('inox', ('inox', 'aço inox', 'aco inox')),
 )
 
 _MATERIAL_LABELS = {'poliamida', 'courino', 'algodão', 'lã', 'elastano', 'poliéster', 'viscose', 'cetim'}
@@ -217,6 +228,7 @@ _FALLBACK_DETAIL = 'o caimento e os detalhes visíveis'
 _FALLBACK_BY_FAMILY = {
     'beleza': ('a textura e os detalhes visíveis', 'a textura'),
     'acessorio': ('o brilho e os detalhes visíveis', 'o brilho'),
+    'casa': ('o acabamento e os detalhes visíveis', 'o acabamento'),
 }
 
 
@@ -230,20 +242,26 @@ def _fallback_short(c):
 
 # Familias sem corpo a vestir: os moldes genericos do gerador ("Vesti...",
 # "como ela veste", "com uma blusinha basica") foram escritos para roupa.
-_NO_APPAREL_FAMILIES = ('beleza', 'acessorio')
+_NO_APPAREL_FAMILIES = ('beleza', 'acessorio', 'casa')
 APPAREL_RE = re.compile(
     r'caimento|vest(?:e|i|ir|indo|ida|ido)|vestid[ao]s?|blus|barra|agach|provador|fit check|'
     r'cintura|cós|jaqueta|cinto|no corpo|costura|tecido|gir(?:a|ar|o|inho)', re.I)
+
+
+CASA_NOISE_RE = re.compile(r'\bpeças?\b|\blooks?\b|\bvest\w*|se ajeitando|na rua|ficou um charme|usar todo dia|caimento', re.I)
 
 
 def apparel_free(c, candidates):
     """Tira dos candidatos (texto ou (molde, texto)) o que fala como roupa,
     quando o produto nao e roupa. Se nada sobrar, devolve a lista inteira:
     melhor uma fala genérica que nenhuma."""
-    if _product_family(c) not in _NO_APPAREL_FAMILIES:
+    family = _product_family(c)
+    if family not in _NO_APPAREL_FAMILIES:
         return candidates
+    # Casa tambem nao fala de "peça", de look nem de "se ajeitar na rua" (agitacao e fechos de roupa).
     keep = [item for item in candidates
-            if not APPAREL_RE.search(item[1] if isinstance(item, tuple) else item)]
+            if not APPAREL_RE.search(item[1] if isinstance(item, tuple) else item)
+            and not (family == 'casa' and CASA_NOISE_RE.search(item[1] if isinstance(item, tuple) else item))]
     return keep or candidates
 
 
@@ -340,6 +358,8 @@ def with_article(value):
     inventar nenhuma propriedade nova.
     """
     value = _phrase(value)
+    if re.match(r'^sem\s+cloro\b', value, re.I):
+        return f'o produto {value}'
     if re.match(r'^sem\s+', value, re.I):
         return f'o tecido {value}'
     if not value or re.match(r'^(o|a|os|as)\b', value, re.I):
@@ -394,7 +414,7 @@ def with_em(value):
 # Beneficio que ja comeca por verbo ("alonga as pernas"): nao leva "tem" na frente.
 _BENEFIT_VERB = re.compile(
     r'^(é|são|tem|têm|possui|oferece|veste|valoriza|ajuda|permite|seca|fica|deixa|traz|renova|combina|economiza|melhora|entrega|'
-    r'alonga|afina|realça|destaca|levanta|garante|cria|transforma|define|mostra|acompanha|dá|cai|modela|sustenta|abraça|não)\b',
+    r'alonga|afina|realça|destaca|levanta|garante|cria|transforma|define|mostra|acompanha|dá|cai|modela|sustenta|abraça|não|tira|remove|elimina|limpa|organiza|separa|guarda|cabe|facilita|evita|encaixa|protege|reduz)\b',
     re.I)
 
 
@@ -445,13 +465,14 @@ def benefit_clause(c):
     # Benefits commonly arrive as a noun phrase ("caimento firme") or as a
     # sentence ("veste muito bem..."). Handle both without guessing facts.
     verb_start = _BENEFIT_VERB.match(raw)
+    subject = 'O produto' if _product_family(c) == 'casa' else 'A peça'
     if re.match(r'^versát(?:il|eis)\b', raw, re.I) or re.match(r'^versat(?:il|eis)\b', raw, re.I):
-        return f'A peça é {raw}'
+        return f'{subject} é {raw}'
     if verb_start:
-        return f'A peça {raw}'
+        return f'{subject} {raw}'
     if _own_subject(raw):
         return raw[0].upper() + raw[1:]
-    return f'A peça tem {raw}'
+    return f'{subject} tem {raw}'
 
 
 _OWN_SUBJECT_VERBS = re.compile(
@@ -1226,7 +1247,16 @@ def build_caption(c, color=None, cta=None, variation_index=0):
             f'Olha {art} {nick} em movimento e confere {detail}.',
             f'{essa.capitalize()} {nick} merece um olhar de perto: {detail}.',
         ]
-        persuasion_captions = {
+        if _product_family(c) == 'casa':
+            # Casa: nada de caimento, corpo nem movimento; so o produto, o detalhe e o uso.
+            openings = [
+                f'Olha {esta} {nick}{color_word} de pertinho e repara {with_em(detail)}.',
+                f'Antes de decidir {"pela" if fem else "pelo"} {nick}, veja este detalhe{color_word}: {detail}.',
+                f'Para quem procura {nick}{color_word}, o ponto principal é observar {detail}.',
+                f'{essa.capitalize()} {nick}{color_word} merece um olhar de perto: {detail}.',
+                f'Quer ver {art} {nick}{color_word} em uso? Repara {with_em(detail)}.',
+            ]
+        persuasion_captions = {} if _product_family(c) == 'casa' else {
             'economia': f'Quer economizar sem abrir mão do visual? Olha {esta} {nick}{color_word}.',
             'qualidade': f'Quer ver qualidade nos detalhes? Repara {"nesta" if fem else "neste"} {nick}{color_word}: {detail}.',
         'versatilidade': f'{uma.capitalize()} {nick}, vários momentos: olha {esta} {nick}{color_word} em movimento.',
@@ -1569,6 +1599,9 @@ def _hook_pool(c, detail, forms):
         'desejo': [cat_fato, decide, cat_livre, uso, descoberta, contraste, cat_dor, necessidade],
         'escassez': [escassez, descoberta, cat_fato, contraste, decide, cat_livre, uso],
     }[motor]
+    if cat and cat.get('lead_free'):
+        # Casa e limpeza: o gancho de problema ("gaveta bagunçada") vem antes dos moldes genéricos de descoberta.
+        order = [order[0], cat_livre] + [lines for lines in order[1:] if lines is not cat_livre]
     order.insert(2 if motor == 'necessidade' else 1, prova)
     # Publico com identidade declarada ("mulheres baixinhas"): o gancho chama por ela.
     order.insert(0, persuasion.identity_hooks(persuasion.audience_identity(c.get('audience')), forms))
@@ -1676,7 +1709,7 @@ def _development_line(c, detail, features, forms, index, used_keys=(), hook=''):
     cat_hit = speech_bank.objection(speech_bank.category(speech_bank.detect(c)), _phrase(c.get('objection')))
     spoken_check = cat_hit['proof'] if cat_hit else _SPOKEN_CHECK.get(_objection_key(c), '')
     benefit = benefit_clause(c)
-    benefit_text = re.sub(r'^A peça\s+', '', benefit, flags=re.I).strip().rstrip('.')
+    benefit_text = re.sub(r'^(?:A peça|O produto)\s+', '', benefit, flags=re.I).strip().rstrip('.')
     if benefit_text and hook_fact and hook_fact.split()[-1] in benefit_text.casefold():
         benefit_text = ''
     second = with_article(feats[1]) if len(feats) > 1 else ''
@@ -1994,6 +2027,9 @@ _FUTURE_BY_FAMILY = {
     'beleza': ('Já tô pensando em usar logo cedo, antes de sair, sem pensar duas vezes.',
                'Imagina se arrumar de manhã com um toque assim, sem pressa.',
                'É daquelas coisinhas que dão vontade de ter sempre à mão.'),
+    'casa': ('Já tô me imaginando com isso à mão aqui em casa.',
+             'Imagina ter isso sempre por perto.',
+             'É daquelas coisinhas que a gente fica feliz de ter à mão.'),
     'acessorio': ('Já tô me imaginando {com} numa festa, sério, nem vou esperar.',
                   'Imagina chegar num jantar {com} e já resolver o look.',
                   'É daquelas que fazem o look inteiro mudar sem esforço.'),
@@ -2263,7 +2299,7 @@ def _build_movement_video_prompt(c, *, resolution, color, product, benefit, move
     color_l = _phrase(color) or "a cor escolhida"
     product_l = product or "o produto"
     benefit_l = _phrase(benefit)
-    benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
+    benefit_l = re.sub(r'^(?:A peça|O produto)\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis da peça"
     moves = movement_plan(_filter_actions(
         _movement_without_unapproved_turns(without_fastening_moves(movements, c)), _CTA_ACTION_RE))
@@ -2381,7 +2417,7 @@ def _build_pov_video_prompt(c, *, resolution, color, product, benefit, movements
     color_l = _phrase(color) or "a cor escolhida"
     product_l = product or "o produto"
     benefit_l = _phrase(benefit)
-    benefit_l = re.sub(r'^A peça\s+', '', benefit_l, flags=re.I).strip()
+    benefit_l = re.sub(r'^(?:A peça|O produto)\s+', '', benefit_l, flags=re.I).strip()
     benefit_l = benefit_l or "somente fatos visíveis do produto"
     moves = (movement_plan(_filter_actions(without_fastening_moves(movements, c), _POV_SKIP_RE))
              or "manuseio natural que mostre o produto de perto")
@@ -2817,7 +2853,7 @@ def _build_video_prompt(c, *, resolution, color, product, benefit, movements, de
     model = _phrase(c.get("model_name")) or "a modelo"
     color_l = _phrase(color) or "a cor escolhida"
     product_l = product or "o produto"
-    benefit_l = re.sub(r'^A peça\s+', '', _phrase(benefit), flags=re.I).strip() or "somente fatos visíveis da peça"
+    benefit_l = re.sub(r'^(?:A peça|O produto)\s+', '', _phrase(benefit), flags=re.I).strip() or "somente fatos visíveis da peça"
     moves = _configured_movement_plan(movements, c)
     # Pose, close e "CTA final" do padrao do nicho contradiziam o rosto sempre
     # no quadro e o encerramento sem pose; ficam so as acoes.

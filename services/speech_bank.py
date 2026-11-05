@@ -682,6 +682,102 @@ CATEGORIES.extend([
                {'det': 'o zíper', 'pain': 'não saber se cabe tudo'}),
 ])
 
+# --------------------------------------------------------------------------
+# Casa e limpeza: produto que resolve um problema pequeno. O gancho abre pelo problema (gaveta bagunçada, mancha),
+# o meio narra UMA ação de uso e o resultado que a câmera mostra. Nada de promessa ("tira qualquer mancha", "nunca
+# mais"): o desempenho só entra com o fato no briefing (`req`). `lead_free` leva os ganchos de problema para a
+# frente da fila; sem ele os moldes genéricos de descoberta ("Achei esse item e não esperava...") vinham primeiro.
+# --------------------------------------------------------------------------
+_CASA_AVOID = ('Não prometer resultado, medida, capacidade, material nem durabilidade sem isso no briefing. Abrir pelo '
+               'problema do dia a dia, mostrar uma ação de uso e o que a câmera vê; nunca falar de roupa vestida.')
+
+
+def _casa(cid, label, piece, keywords, occasions, tone, objections, hooks, reactions, closers, ctas, example):
+    cat = _sem_corpo(cid, label, piece, 'm', 'casa', keywords, occasions, tone, _CASA_AVOID, objections, hooks,
+                     reactions, example, closers)
+    cat['ctas'] = [*ctas, *_BASE_CTAS]
+    cat['lead_free'] = True
+    return cat
+
+
+CATEGORIES.extend([
+    _casa('organizador', 'Organizador', 'organizador',
+          ['organizador', 'divisória', 'divisorias', 'porta-talheres', 'porta talheres', 'gaveteiro', 'cesto'],
+          ['no dia a dia', 'na hora de arrumar'],
+          'Prático e do dia a dia, de quem mostra o problema e o jeito simples que achou.',
+          [{'needles': ['cabe', 'medida', 'tamanho', 'gaveta', 'espaço', 'espaco'], 'pain': 'não caber na minha gaveta',
+            'proof': 'Por isso tô mostrando ele aqui com os objetos, pra você ter noção do tamanho.'},
+           {'needles': ['bagunça', 'bagunca', 'desarruma', 'volta'], 'pain': 'a bagunça voltar',
+            'proof': 'Por isso coloco um objeto em cada divisória, bem devagar.'}],
+          [{'t': 'Gaveta bagunçada é comigo mesmo, por isso vim te mostrar {dem} {piece}.'},
+           {'t': 'Quem nunca perdeu tempo procurando algo na gaveta? Olha {dem} {piece}.'},
+           {'t': 'Cansei de não achar nada na gaveta, então olha {dem} {piece}.'},
+           {'t': 'Ninguém me contou que dava pra deixar a gaveta assim, olha só.'},
+           {'t': 'As divisórias ajustáveis {de} {piece} me chamaram atenção na hora.', 'req': 'divisórias ajustáveis'},
+           {'t': 'Ser empilhável foi o que me fez separar {dem} {piece}.', 'req': 'empilhável'}],
+          [{'t': 'Olha só, um objeto em cada divisória e tudo já fica à vista.'},
+           {'t': 'Repara que eu coloco um de cada vez e cada coisa ganha o seu lugarzinho.'},
+           {'t': 'Começo pelo que mais some na bagunça e vou encaixando devagar.'},
+           {'t': 'E as divisórias ajustáveis deixam eu mexer no espaço do meu jeito.', 'req': 'divisórias ajustáveis'},
+           {'t': 'E o plástico é resistente, dá pra sentir na mão.', 'req': 'plástico resistente'},
+           {'t': 'E cabe numa gaveta comum, como eu mostro aqui.', 'req': 'cabe em gaveta'}],
+          ['Eu usaria {occ} sem pensar duas vezes.', 'Pra mim faz sentido {occ}.', 'Dá pra usar {occ} numa boa.'],
+          [{'t': 'Mede a tua gaveta e vê no carrinho laranja.', 'for_pain': 'não caber na minha gaveta'},
+           'Dá uma olhada no carrinho laranja e imagina a tua gaveta assim.',
+           'Vai no carrinho laranja e vê se combina com o teu espaço.'],
+          {'det': 'as divisórias ajustáveis', 'pain': 'não caber na minha gaveta'}),
+    _casa('limpeza', 'Limpeza', 'produto',
+          ['removedor', 'tira-manchas', 'tira manchas', 'limpador', 'desengordurante', 'detergente', 'esponja',
+           'multiuso', 'sabão', 'sabao', 'amaciante'],
+          ['no dia a dia', 'na hora da faxina'],
+          'Direto e do dia a dia, de quem mostra a mancha e o passo a passo sem pular nada.',
+          [{'needles': ['estraga', 'desbota', 'colorida', 'cor da roupa'], 'pain': 'estragar a cor da roupa',
+            'proof': 'Por isso tô mostrando o produto e o pano de pertinho.'},
+           {'needles': ['cheiro', 'forte', 'irrita', 'pele'], 'pain': 'ter cheiro forte',
+            'proof': 'Por isso quis mostrar o frasco de pertinho.'},
+           {'needles': ['funciona', 'resolve', 'tira', 'sai'], 'pain': 'não funcionar de verdade',
+            'proof': 'Por isso tô mostrando o passo a passo, sem pular nada.'}],
+          [{'t': 'Mancha na roupa é meu pesadelo, por isso vim te mostrar {dem} {piece}.'},
+           {'t': 'Quem nunca encarou uma mancha sem saber como começar? Olha {dem} {piece}.'},
+           {'t': 'Cansei de ficar olhando mancha sem saber o que fazer, olha {dem} {piece}.'},
+           {'t': 'Ser sem cloro foi o que me chamou atenção {prep} {piece}.', 'req': 'sem cloro'},
+           {'t': 'O fato de servir em roupa colorida me fez separar {dem} {piece}.', 'req': 'roupa colorida'}],
+          [{'t': 'Olha o pano aqui, essa é a mancha que eu vou tratar.'},
+           {'t': 'Borrifo uma vez, só no ponto, e passo o pano limpo devagar.'},
+           {'t': 'Vou mostrando passo a passo, sem pular nada.'},
+           {'t': 'E é sem cloro, como tá na descrição.', 'req': 'sem cloro'},
+           {'t': 'E serve em roupa colorida, como tá na descrição.', 'req': 'roupa colorida'},
+           {'t': 'E vem em spray, fica fácil de aplicar só no ponto.', 'req': 'spray'}],
+          ['Eu deixaria à mão {occ}, sem pensar duas vezes.', 'Pra mim faz sentido {occ}.',
+           'Dá pra usar {occ} numa boa.'],
+          [{'t': 'Lê a descrição no carrinho laranja e vê se serve pro teu caso.', 'for_pain': 'estragar a cor da roupa'},
+           'Dá uma olhada no carrinho laranja e vê como usar direitinho.',
+           'Vai no carrinho laranja e confere o que tem na descrição.'],
+          {'det': 'o spray', 'pain': 'estragar a cor da roupa'}),
+    _casa('casa_geral', 'Casa e cozinha', 'item',
+          ['panela', 'utensílio', 'utensilio', 'escorredor', 'tábua', 'tabua', 'frigideira', 'pote', 'luminária',
+           'luminaria', 'tapete', 'cortina', 'almofada', 'edredom', 'suporte de parede', 'vassoura', 'rodo'],
+          ['no dia a dia', 'na cozinha'],
+          'Prático e do dia a dia, de quem mostra uma ação de cada vez.',
+          [{'needles': ['cabe', 'medida', 'tamanho', 'espaço', 'espaco'], 'pain': 'errar o tamanho',
+            'proof': 'Por isso tô segurando aqui perto, pra você ter noção do tamanho.'},
+           {'needles': ['difícil', 'dificil', 'complicado', 'lavar', 'limpar'], 'pain': 'dar trabalho no dia a dia',
+            'proof': 'Por isso mostro como eu uso, devagar e de pertinho.'}],
+          [{'t': 'Olha {dem} {piece} que eu separei pra facilitar a rotina de casa.'},
+           {'t': 'Quem nunca quis um jeito mais fácil de fazer isso? Olha {dem} {piece}.'},
+           {'t': 'Tem coisa pequena que muda a rotina, e olha {dem} {piece}.'},
+           {'t': 'O material antiaderente {de} {piece} me chamou atenção na hora.', 'req': 'antiaderente'},
+           {'t': 'O inox {de} {piece} me chamou atenção logo de cara, olha só.', 'req': 'inox'}],
+          [{'t': 'Olha como é simples de usar, uma ação de cada vez.'},
+           {'t': 'Vou mostrando devagar, pra você ver direitinho como funciona.'},
+           {'t': 'E é antiaderente, como tá na descrição.', 'req': 'antiaderente'},
+           {'t': 'E é de inox, olha o acabamento de perto.', 'req': 'inox'}],
+          ['Eu usaria {occ} sem pensar duas vezes.', 'Pra mim faz sentido {occ}.', 'Dá pra usar {occ} numa boa.'],
+          ['Dá uma olhada no carrinho laranja e imagina na tua rotina.',
+           'Vai no carrinho laranja e vê se combina com a tua casa.'],
+          {'det': 'o inox', 'pain': 'errar o tamanho'}),
+])
+
 # Combinacoes que a modelo veste junto (opiniao de estilo, nao fato da peca).
 # Vem dos exemplos de "uma peca, varias combinacoes" do material de vendas,
 # reescritos em primeira pessoa.

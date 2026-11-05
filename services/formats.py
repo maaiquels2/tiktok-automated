@@ -32,7 +32,7 @@ FORMATS = {
 # acessorios): fit check, provador e barra da peca nao fazem sentido num creme
 # nem num brinco. Teste de prova e 3 jeitos sao falas de roupa; nessas
 # familias viram "Na mesa".
-MESA_FAMILIES = ('beleza', 'acessorio')
+MESA_FAMILIES = ('beleza', 'acessorio', 'casa')
 APPAREL_ONLY = ('teste', 'tres_jeitos')
 
 TECHNIQUES = ('acao', 'aproxima', 'revela', 'loop', 'estica')
@@ -279,6 +279,9 @@ _MESA_KINDS = (
     ('pulso', ('pulseira', 'bracelete', 'anel', 'aliança', 'alianca', 'relógio', 'relogio')),
     ('oculos', ('óculos', 'oculos')),
     ('bolsa', ('bolsa', 'mochila', 'necessaire', 'carteira')),
+    ('organizar', ('organizador', 'divisória', 'divisoria', 'porta-talheres', 'porta talheres', 'gaveteiro', 'cesto')),
+    ('limpeza', ('removedor', 'tira-manchas', 'tira manchas', 'limpador', 'desengordurante', 'detergente',
+                 'esponja', 'multiuso', 'sabão', 'sabao', 'amaciante')),
 )
 
 # Cena de cada tipo: o que aparece no primeiro quadro e as tres batidas de 15 s.
@@ -366,6 +369,35 @@ MESA_SCENES = {
         close='segura a bolsa pela alça, junto ao corpo, de frente, e sorri',
         avoid='objetos inventados dentro da bolsa, bolsa mudando de forma ou de cor, alça que muda',
         frame='plano médio (da cabeça até a mesa)'),
+    # Casa: o produto resolve um problema pequeno, entao a cena mostra o problema, UMA ação de uso e o produto na
+    # lente. Um objeto por vez (muitos objetos e muitas maos sao o que o Grok mais erra).
+    'organizar': dict(
+        start='sentada a uma mesa, o organizador vazio à frente e três objetos pequenos soltos ao lado',
+        open='mostra os objetos soltos na palma da mão e aponta o organizador, bem perto da lente',
+        middle='coloca um objeto de cada vez em uma divisória do organizador, com uma mão só e a outra descansando '
+               'na mesa',
+        close='empurra o organizador, já com os três objetos, para perto da lente, de frente, e sorri',
+        avoid='mais de três objetos, objetos aparecendo ou sumindo, organizador mudando de forma, de tamanho ou de '
+              'número de divisórias, duas mãos mexendo ao mesmo tempo, letras legíveis inventadas',
+        frame='plano médio (da cabeça até a mesa)'),
+    'limpeza': dict(
+        start='sentada a uma mesa, um pano claro com uma mancha pequena à frente e o frasco do produto fechado ao lado',
+        open='pega o frasco com uma mão e o mostra de frente, bem perto da lente, e aponta a mancha no pano',
+        middle='borrifa o produto uma vez sobre a mancha, com o frasco longe do rosto, e passa um pano limpo por cima, '
+               'devagar, com uma mão só',
+        close='mostra o pano à lente, de frente, e sustenta por um instante, sorrindo',
+        avoid='borrifar perto do rosto, névoa ou espuma exagerada, mancha mudando de forma, pano mudando de cor, '
+              'letras legíveis inventadas no frasco',
+        frame='plano médio (da cabeça até a mesa)'),
+    'objeto': dict(
+        start='sentada a uma mesa, o produto sobre a mesa à frente',
+        open='pega o produto com uma mão e o mostra de frente, bem perto da lente',
+        middle='usa o produto uma vez, devagar, do jeito para o qual ele foi feito, com uma mão só e a outra '
+               'descansando na mesa',
+        close='aproxima o produto da lente, de frente, e sustenta por um instante, sorrindo',
+        avoid='duas ações ao mesmo tempo, produto mudando de forma, de cor ou de tamanho, o produto saindo do quadro, '
+              'letras legíveis inventadas',
+        frame='plano médio (da cabeça até a mesa)'),
     'roupa': dict(
         start='sentada a uma mesa, a peça dobrada sobre a mesa à frente',
         open='pega a peça dobrada e a levanta devagar, segurando pelas laterais, de frente para a lente',
@@ -377,6 +409,9 @@ MESA_SCENES = {
 
 _BELEZA_KINDS = ('pele', 'labios', 'unhas', 'perfume')
 _ACESSORIO_KINDS = ('brinco', 'colar', 'pulso', 'oculos', 'bolsa')
+_CASA_KINDS = ('organizar', 'limpeza', 'objeto')
+# Familias sem roupa que nao casam com nenhum tipo: cena generica de objeto, nunca a da peca dobrada.
+_OBJETO_FAMILIES = ('casa', 'gadget', 'pet')
 
 # Atributos que cada grupo NAO pode inventar (sai da lista o que o briefing
 # confirma). Sao as promessas que mais aparecem em video de creme e de joia.
@@ -395,19 +430,31 @@ _MESA_UNCONFIRMED = {
         ('resistência', ('resist', 'água', 'agua', 'não escurece', 'nao escurece')),
         ('medidas', ('mm', 'cm', 'tamanho')),
     ),
+    'casa': (
+        ('resultado garantido', ('resultado', 'tira', 'remove', 'elimina', 'some')),
+        ('que serve em tudo', ('qualquer', 'todo', 'tudo')),
+        ('medidas e capacidade', ('mm', 'cm', 'tamanho', 'cabe', 'litro', 'ml')),
+        ('material e durabilidade', ('plástico', 'plastico', 'aço', 'aco', 'inox', 'madeira', 'dura', 'resist')),
+        ('segurança no uso', ('seguro', 'sem cloro', 'atóxico', 'atoxico', 'antibacteri')),
+    ),
 }
 
 
 def mesa_kind(c):
     """Tipo de produto para a cena "Na mesa" ('roupa' quando nada casa)."""
     text = _text(c)
+    family = product_family(c)
     best = None
     for kind, words in _MESA_KINDS:
+        if kind in _CASA_KINDS and family != 'casa':
+            continue
         for word in words:
             hit = re.search(r'(?<!\w)' + re.escape(word) + r'(?!\w)', text)
             if hit and (best is None or hit.start() < best[0]):
                 best = (hit.start(), kind)
-    return best[1] if best else 'roupa'
+    if best:
+        return best[1]
+    return 'objeto' if family in _OBJETO_FAMILIES else 'roupa'
 
 
 def mesa_scene(c):
@@ -418,7 +465,8 @@ def mesa_unconfirmed(c, confirmed_text=''):
     """Frase "ATRIBUTOS NAO CONFIRMADOS" do grupo do produto, sem o que o
     briefing confirma. '' para roupa (ai vale a lista de roupa do prompt)."""
     kind = mesa_kind(c)
-    group = 'beleza' if kind in _BELEZA_KINDS else 'acessorio' if kind in _ACESSORIO_KINDS else ''
+    group = ('beleza' if kind in _BELEZA_KINDS else 'acessorio' if kind in _ACESSORIO_KINDS
+             else 'casa' if kind in _CASA_KINDS else '')
     if not group:
         return ''
     low = str(confirmed_text or '').casefold()

@@ -3409,7 +3409,11 @@ def create_app(config=None):
     @app.get('/api/campaigns/<int:cid>/sequence')
     def story_sequence(cid):
         from services.story_sequence import build_story_sequence
+        from services.piece import product_family
         c=detail(cid)
+        if product_family(c)=='casa':
+            # Os clipes da sequencia sao de roupa ("toca a peça..."); casa usa o formato "Na mesa, de perto".
+            raise Invalid('A sequência está disponível para roupas. Para produtos de casa e limpeza use o formato "Na mesa, de perto".')
         prompts,color=c['prompts'],c.get('color') or ''
         vid=request.args.get('variant',type=int)
         if vid is not None:
