@@ -2147,6 +2147,19 @@ def _replace_spoken_lines(video_text, hook, development, cta):
     return _WORD_COUNT_RE.sub(rf'\g<1>{total}\g<2>', updated)
 
 
+def spoken_lines_in(video_text):
+    """As tres falas entre aspas de um prompt de video completo, ou None quando o texto
+    nao tem exatamente as 3 marcacoes (prompt do Guia do Grok, que cita tudo numa fala so)."""
+    matches = _SPOKEN_LINE_RE.findall(video_text or '')
+    return matches if len(matches) == 3 else None
+
+
+def clean_spoken(text):
+    """Fala que vai entre aspas no prompt: aspas dentro dela fecham a citacao antes da hora
+    e a troca seguinte das falas passa a acertar o pedaço errado."""
+    return re.sub(r'\s+', ' ', str(text or '').replace('"', "'").replace('“', "'").replace('”', "'")).strip()
+
+
 def sync_video_spoken_lines(video_text, hook, development, cta):
     """Public entry point for updating only the spoken copy in a video prompt.
 

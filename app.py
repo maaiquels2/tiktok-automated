@@ -28,7 +28,7 @@ import secrets
 from services.media import inspect_media
 from services.prompts import (generate, generate_variants,
                               package_text, refresh_script_fields, build_caption,
-                              sync_video_spoken_lines, distinct_ctas)
+                              sync_video_spoken_lines, distinct_ctas, spoken_lines_in, clean_spoken)
 from services import media_checks, niche_safety, piece_niche
 from services import ai_budget, copywriter, formats, generators, package_zip, prompt_library, publish_tags, speech_bank, stages
 from services.campaign_write import CampaignWriter
@@ -2428,13 +2428,27 @@ def create_app(config=None):
         current=slot['prompts']
         if vid is None and not current:
             raise Invalid('Gere os textos pelo briefing primeiro.',409)
-        changed={k:v.strip() for k,v in values.items() if v.strip()!=current.get(k)}
+        spoken={'hook','development','cta'}
+        values={k:(clean_spoken(v) if k in spoken else v.strip()) for k,v in values.items()}
+        changed={k:v for k,v in values.items() if v and v!=current.get(k)}
         if not changed:
             return jsonify(detail(cid))
         merged={**current,**changed}
-        if set(changed)&{'hook','development','cta'}:
-            merged['video']=variacao.video_prompt(c,slot['color'],slot['index'],merged)
+        if set(changed)&spoken:
+            # A fala editada tem que chegar ao prompt de video sem desfazer o que o operador ja ajustou nele.
+            if 'video' in changed:
+                # Ele escreveu o video junto: o texto dele vence, so as falas digitadas entram nas aspas.
+                merged['video']=sync_video_spoken_lines(merged['video'],merged['hook'],merged['development'],merged['cta']) or merged['video']
+            else:
+                merged['video']=speech_edit_video(cid,c,slot,current,merged)
             changed['video']=merged['video']
+        elif 'video' in changed:
+            # Ele editou as falas dentro do prompt de video: os campos de fala acompanham, senao a legenda, o
+            # pacote e a proxima regravacao voltam para a fala antiga.
+            for key,line in zip(('hook','development','cta'),spoken_lines_in(merged['video']) or ()):
+                line=clean_spoken(line)
+                if line and line!=merged.get(key):
+                    merged[key]=changed[key]=line
         # A versao so sobe quando algo mudou de fato (acima, sem mudanca, a rota ja respondeu sem gravar).
         with writer.write(cid,expected_version=c['version']):
             rewind(cid,c,changed)
@@ -3301,6 +3315,28 @@ def create_app(config=None):
         if any(not str(prompts.get(key) or '').strip() for key in ('hook','development','cta')):
             raise Invalid('Conclua o hook, o desenvolvimento e o CTA antes de recriar o prompt de vídeo.',409)
         return ensure_fits(c,variacao.video_prompt(detail(cid),color,index,prompts))
+
+    def speech_edit_video(cid,c,slot,current,merged):
+        """Prompt de video depois que o operador mudou uma fala.
+
+        So as aspas trocam quando o prompt atual tem as tres marcacoes (ajustes manuais de camera, gesto e
+        encerramento ficam). No Guia do Grok a fala e uma citacao so: refaz o guia, nao o prompt completo.
+        """
+        guia=str(current.get('video') or '').startswith('Vídeo vertical')
+        def rebuild(prompts):
+            return compact_video_prompt(cid,prompts,slot['color']) if guia else variacao.video_prompt(c,slot['color'],slot['index'],prompts)
+        # Gesto de prova, abertura e tempos nascem das proprias falas: se o prompt ainda e o que o gerador faria
+        # com as falas antigas, ninguem mexeu nele e ele e refeito inteiro com as novas.
+        if current.get('video') and rebuild(current)!=current['video']:
+            if guia:
+                from services.prompt_improve import swap_one_breath
+                patched=swap_one_breath(current['video'],tuple(current.get(k,'') for k in ('hook','development','cta')),
+                                        tuple(merged[k] for k in ('hook','development','cta')))
+            else:
+                patched=sync_video_spoken_lines(current['video'],merged['hook'],merged['development'],merged['cta'])
+            if patched is not None:
+                return patched
+        return rebuild(merged)
 
     def ensure_fits(c,text):
         """O gerador da campanha aceita o prompt inteiro (o Grok corta o fim sem avisar)."""

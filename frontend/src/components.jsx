@@ -702,7 +702,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
 // prompt"), e sem isto voltava a abrir a primeira cor em vez da que o
 // usuario estava mexendo.
 const openVariantByFocus={};
-export function VariantList({variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRemoveColor,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator,onSaveToBank,onOpenBank}){
+export function VariantList({onDirty,variants=[],onError,focus,images=[],videos=[],deviceVideos=[],deviceFiles={},onUpload,onDeviceVideo,busy,disabled,onSaveVariant,onRefreshVariant,onRefreshAllVariants,onRemoveColor,onRefreshVideoPrompt,onImproveVideoPrompt,onConfigureWriter,videoPromptLimit,immutable,campaign,onChangeVideoMode,onOpenGenerator,onSaveToBank,onOpenBank}){
   const [writer,setWriter]=useState(null);
   useEffect(()=>{
     if(focus!=='script') return;
@@ -765,7 +765,7 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
           <div className="variant-prompt" key={key}>
             <div className="section-title"><strong>{title}</strong><CopyButton text={p[key]||''} onError={onError}/></div>
             {onSaveVariant&&!immutable
-              ?<VariantScriptField variant={variant} field={key} value={p[key]||''} busy={busy} onSave={onSaveVariant}/>
+              ?<VariantScriptField variant={variant} field={key} value={p[key]||''} busy={busy} onSave={onSaveVariant} onDirty={onDirty}/>
               :<p>{p[key]||'-'}</p>}
           </div>)}
         {(onSaveToBank||onOpenBank)&&<div className="variant-actions speech-bank-actions">
@@ -805,13 +805,21 @@ export function VariantList({variants=[],onError,focus,images=[],videos=[],devic
 }
 
 
-function VariantScriptField({variant,field,value,busy,onSave}){
+// Campos de fala com texto ainda nao salvo, por cor e campo: a tela inteira so conta como limpa quando todos salvaram.
+const unsavedScriptFields=new Set();
+function VariantScriptField({variant,field,value,busy,onSave,onDirty}){
   const [draft,setDraft]=useState(value);
   useEffect(()=>setDraft(value),[value]);
   const dirty=draft!==value;
+  const id=`${variant.id}:${field}`;
+  if(dirty)unsavedScriptFields.add(id);else unsavedScriptFields.delete(id);
+  useEffect(()=>()=>{unsavedScriptFields.delete(id)},[id]);
+  // A cada tela: salvar um campo limpa o aviso geral, e outro campo ainda alterado o acende de novo.
+  useEffect(()=>{onDirty?.(unsavedScriptFields.size>0)});
   return <div className="variant-script-field">
     <textarea autoComplete="off" rows={field==='video'?6:3} maxLength={12000} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)}/>
     <FieldCount field={field} value={draft}/>
+    {dirty&&<small className="help" role="status">Alteração sem salvar: o prompt de vídeo ainda usa a fala anterior.</small>}
     {dirty&&<button type="button" className="full" disabled={busy||!draft.trim()} onClick={()=>onSave(variant.id,{[field]:draft})}>Salvar {field}</button>}
   </div>;
 }

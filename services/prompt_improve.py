@@ -270,6 +270,16 @@ def one_breath(*lines: str) -> str:
     return text
 
 
+def swap_one_breath(video: str, old: tuple, new: tuple):
+    """Troca a citacao unica do Guia do Grok pelas falas novas, sem tocar no resto do texto.
+    ``None`` quando a citacao antiga nao esta la inteira (o operador reescreveu a fala no guia)."""
+    before, after = one_breath(*old), one_breath(*new)
+    marker = f'"{before}"'
+    if not before or video.count(marker) != 1:
+        return None
+    return video.replace(marker, f'"{after}"')
+
+
 POV_LOOP = ' No último quadro, o enquadramento volta ao do primeiro, para o vídeo recomeçar sem emenda.'
 
 
