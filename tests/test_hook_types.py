@@ -141,6 +141,38 @@ class RuleTests(unittest.TestCase):
         self.assertIn('TIPO DE GANCHO OBRIGATÓRIO: Dor e problema', linha)
         self.assertEqual(copywriter._hook_type_line({}), '')
 
+    def test_a_hook_of_another_type_cannot_speak_of_fear_or_doubt(self):
+        # Teste real no site (2026-11-05): com objecao no briefing o GPT abriu todas as cores com medo e duvida.
+        medrosos = ('Meu receio é escolher sem saber se serve; vestida, essa blusa deixa menos dúvida.',
+                    'Nesse corte sem alça, o que tira minha dúvida é ver a peça no corpo.',
+                    'Eu não sabia se esse top ia servir, até ver ele no corpo.',
+                    'Eu travo sem saber se vai servir, mas vendo vestido já me animo.',
+                    'Meu medo era não me sentir bonita, mas esse top mudou minha impressão.')
+        for texto in medrosos:
+            for tipo in ('curiosidade', 'fomo', 'direto', 'historia'):
+                self.assertTrue(hook_types.type_problems(texto, tipo), (tipo, texto))
+            self.assertEqual(hook_types.type_problems(texto, 'dor'), [], texto)
+            self.assertEqual(hook_types.type_problems(texto, ''), [], texto)
+        for texto in ('Você não vai acreditar no que o bojo me mostrou.', 'Para tudo e olha o bojo, eu quase passei batido.'):
+            self.assertEqual(hook_types.type_problems(texto, 'fomo'), [], texto)
+
+    def test_the_audit_sends_back_a_fearful_hook_on_a_color_that_is_not_the_pain_one(self):
+        pack = dict(hook='Eu não sabia se esse top ia servir, até ver ele no corpo.',
+                    development='Eu achei o bolso muito bom e reparei que o tecido é leve de verdade.',
+                    cta='Corre pro carrinho laranja e escolhe o teu', caption='Calça #moda')
+        c = dict(VESTIDO, details='bolso, tecido leve')
+        com_tipo = copywriter.audit(pack, {**c, 'batch_hook_type': 'fomo'}, require_caption=False, strict_style=False)
+        self.assertTrue([p for p in com_tipo if 'medo, receio ou dúvida' in p], com_tipo)
+        for tipo in ('dor', None):
+            sem = copywriter.audit(pack, {**c, 'batch_hook_type': tipo}, require_caption=False, strict_style=False)
+            self.assertFalse([p for p in sem if 'medo, receio ou dúvida' in p], (tipo, sem))
+
+    def test_the_type_line_tells_the_ai_what_to_do_and_what_not_to_say(self):
+        linha = copywriter._hook_type_line({'batch_hook_type': 'fomo'})
+        self.assertIn('fato confirmado', linha)
+        self.assertIn('NÃO fale de medo', linha)
+        self.assertNotIn('NÃO fale de medo', copywriter._hook_type_line({'batch_hook_type': 'dor'}))
+
     def test_a_real_offer_keeps_the_scarcity_hook_in_front(self):
         c = dict(VESTIDO, offer='20% de desconto até domingo')
         hook = generate(c, variant_index=0)['hook']

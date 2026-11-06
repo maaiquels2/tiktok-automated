@@ -169,6 +169,32 @@ def problems(hook: str) -> list[str]:
     return found
 
 
+# Marcas de medo, receio e duvida: so o gancho do tipo Dor pode falar disso (e so da dor que o briefing declarou).
+_FEAR_RE = re.compile(r'\b(?:medo|receio|insegur\w*|trav(?:o|a|ava|ando)|d[úu]vida|sab(?:er|ia) se\b[^.;,]{0,30}\bserv\w+)\b', re.I)
+
+# O que o hook de cada tipo faz (vai no pedido da IA, na linha do tipo obrigatorio da cor).
+TYPE_BRIEF = {
+    'curiosidade': 'abra com um fato confirmado do produto (um dos Detalhes) numa frase que fecha o suspense sozinha',
+    'fomo': 'abra uma lacuna de suspense e feche com um fato confirmado do produto, como "Você não vai acreditar no que o bojo me mostrou"',
+    'direto': 'chame a atenção para um detalhe confirmado do produto, sem rodeio, como "Para tudo e olha o bojo, eu quase passei batido"',
+    'historia': 'conte a expectativa contra o que se vê agora, com um fato confirmado, como "Eu achava comum, até ver o bojo"',
+    'autoridade': 'abra com a prova declarada no briefing (vendas, nota, altura, tamanho ou identidade do público)',
+    'dor': 'parta do receio ou da objeção declarados no briefing e feche com o que resolve a dúvida',
+}
+
+
+def type_problems(hook: str, kind: str) -> list[str]:
+    """O hook de uma cor que NAO e do tipo Dor nao fala de medo, receio nem duvida: era o que a IA fazia em todas as cores
+    quando o briefing tinha objecao (teste real no site, 2026-11-05), e o medo inventado ("medo de nao me sentir bonita")
+    passava pela auditoria. Sem tipo na cor, nao confere."""
+    if not kind or kind == 'dor':
+        return []
+    if _FEAR_RE.search(str(hook or '')):
+        return [f'o hook desta cor é do tipo "{LABELS.get(kind, kind)}" e não pode falar de medo, receio ou dúvida: '
+                'abra com um fato confirmado do produto']
+    return []
+
+
 def classify(hook: str) -> str:
     """Tipo provavel de um gancho escrito (IA ou operador), por padrao de abertura. '' quando nao reconhece."""
     low = re.sub(r'\s+', ' ', str(hook or '')).strip().casefold()

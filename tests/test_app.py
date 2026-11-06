@@ -4250,7 +4250,7 @@ class WorkflowTests(unittest.TestCase):
         ('Eu não esperava gostar tanto da cor quando abri o pacote',
          'Fiquei olhando o tom por um bom tempo, porque ele combinou com os acessórios que eu já tinha guardados em casa.',
          'Dá um pulo no carrinho laranja e escolhe o teu tom.'),
-        ('Eu sempre travo na hora de escolher roupa para viajar',
+        ('Eu sempre demoro na hora de escolher roupa para viajar',
          'Essa peça resolveu minha mala, porque funcionou de dia, com uma sandália, e à noite, com um brinco mais chamativo.',
          'Pelo carrinho laranja você monta a sua mala de viagem.'),
         ('Eu reparei num detalhe que quase passou despercebido',

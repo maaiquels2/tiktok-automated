@@ -3565,7 +3565,7 @@ def create_app(config=None):
                 settings=writer_settings_cached()
                 if not settings.get('enabled'):
                     raise Invalid('Ligue a escrita por IA em Identidade → Escrita das falas para a IA escrever as falas.',409)
-                falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings)
+                falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings,slot_index=slot_index)
                 if falas:
                     lines,extra_resposta=falas,{'written_by':'ai'}
                     guardar('story_arc_ai',chave,{'facts':fatos,'lines':falas,'extra_facts':extra})

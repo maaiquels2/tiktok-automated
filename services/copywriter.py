@@ -275,8 +275,11 @@ def _hook_type_line(campaign: dict) -> str:
     kind = campaign.get('batch_hook_type')
     if not kind:
         return ''
+    brief = hook_types.TYPE_BRIEF.get(kind, '')
+    sem_medo = ('' if kind == 'dor' else ' NÃO fale de medo, receio, insegurança ou dúvida neste hook: a objeção do briefing '
+                'é de outra cor.')
     return (f"TIPO DE GANCHO OBRIGATÓRIO: {hook_types.LABELS.get(kind, kind)}. O hook desta cor segue esse tipo e abre "
-            'diferente dos hooks das outras cores.')
+            f'diferente dos hooks das outras cores: {brief}.{sem_medo}')
 
 
 # --------------------------------------------------------------------------- config
@@ -599,6 +602,7 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
 
     # Regra de gancho (services/hook_types.py): credencial ou historia inventada e pergunta vazia reprovam sempre.
     problemas.extend(hook_types.problems(pack.get('hook')))
+    problemas.extend(hook_types.type_problems(pack.get('hook'), c.get('batch_hook_type')))
 
     if strict_style:
         for padrao in GENERIC_HOOK_PATTERNS:

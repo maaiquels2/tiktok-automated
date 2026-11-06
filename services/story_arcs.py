@@ -30,12 +30,13 @@ So le a campanha: nada e gravado. As falas sao um RASCUNHO que o operador pode e
 import re
 import unicodedata
 
-from services import generators, script_budget, speech_bank
+from services import cta_types, generators, persuasion, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.framing import mirror_cover, mirror_phone, mirror_scope
 from services.prompt_improve import build_compact_video_prompt
 from services.prompts import (
-    PRODUCT_FEATURES, SPOKEN_OCCASION, back_rule, body_turns, cta_pool, distinct_ctas, pick_in_budget, piece_forms,
+    PRODUCT_FEATURES, SPOKEN_OCCASION, back_rule, body_turns, cta_pool, distinct_ctas, objection_parts, offer_text,
+    pick_in_budget, piece_forms,
     product_features, proof_gestures, texture_beat, video_details, generate,
     without_niche_defaults,
 )
@@ -170,6 +171,10 @@ def _cut_optional(trio):
             return first, ' '.join(sem_mix), last
         if total(sem_mix) > alvo:
             frases = sem_mix
+        # Depois, a terceira ocasiao do "eu me imagino" (fechamentos tipados mais longos deixam o clipe no limite).
+        curtas = [re.sub(r'^(Eu já me (?:imagino|vejo) com .*?), ([^,]+) e ([^,.]+)\.$', r'\1 e \2.', f) for f in frases]
+        if curtas != frases and piso <= total(curtas) <= alvo:
+            return first, ' '.join(curtas), last
     while total(frases) > alvo and len(frases) > 1:
         opcoes = [i for i, f in enumerate(frases) if _OPTIONAL_SENTENCE.match(f)]
         if not opcoes:
@@ -275,6 +280,83 @@ def _cta_for_slot(c, forms, variation=0):
     return distinct_ctas(c, [{'color': cor, 'cta': _cta(c, forms, k)} for k in range(v + 1)])[v]
 
 
+def _cta_has(c, arc):
+    """O que o briefing sustenta para escolher o tipo de fechamento (services/cta_types.py)."""
+    pain, _check = objection_parts(c)
+    social, size = persuasion.social_facts(c.get('social_proof')), persuasion.size_facts(c.get('size_proof'))
+    ident = persuasion.audience_identity(c.get('audience'))
+    return pain, social, size, ident, cta_types.profile(bool(offer_text(c)), pain, social, size, ident, arc)
+
+
+def _typed_closings(c, forms, facts, arc, variation):
+    """Fechamentos tipados (os 10 CTAs, so os que o briefing sustenta) das cores 1..``variation``: lista de (tipo, fala).
+    Cada cor usa o tipo da sua posicao; sem fala livre nele (nao repetiria texto nem abertura das cores anteriores) passa
+    para o proximo tipo, e sem nenhum cai no fechamento de sempre da cor (tipo vazio)."""
+    pain, social, size, ident, has = _cta_has(c, arc)
+    offer = persuasion.offer_facts(c.get('offer')) if offer_text(c) else {}
+    kinds = cta_types.available(has)
+    usados = [_cta(c, forms, 0)]
+    saida = []
+    for k in range(1, int(variation) + 1):
+        l1 = _low(facts[(k - 1) % 3]['text'])
+        inicio, volta = (k - 1) % len(kinds), cta_types.slot_in_type(k, has)
+        escolhido = ('', '')
+        for passo in range(len(kinds)):
+            kind = kinds[(inicio + passo) % len(kinds)]
+            opcoes = cta_types.candidates(kind, arc, forms, l1, pain, social, size, ident, offer)
+            ordem = opcoes[volta % len(opcoes):] + opcoes[:volta % len(opcoes)] if opcoes else []
+            livres = [t for t in ordem if _cta_norm(t) not in {_cta_norm(u) for u in usados}
+                      and _cta_opening(t) not in {_cta_opening(u) for u in usados}]
+            if livres:
+                escolhido = (kind, livres[0])
+                break
+        if not escolhido[1]:
+            escolhido = ('', _cta_for_slot(c, forms, k))
+        usados.append(escolhido[1])
+        saida.append(escolhido)
+    return saida
+
+
+def _typed_cta(c, forms, facts, arc, variation):
+    return _typed_closings(c, forms, facts, arc, variation)[-1][1]
+
+
+def closing_type(c, arc, variation=0, facts=None):
+    """Tipo de CTA do fechamento da cor ``variation`` ('' na cor 0, que mantem o fechamento validado de sempre)."""
+    if int(variation or 0) < 1:
+        return ''
+    facts = facts or arc_facts(c)
+    return _typed_closings(c, piece_forms(c), facts, arc, int(variation))[-1][0]
+
+
+def _cta_norm(text):
+    return ' '.join(re.findall(r'\w+', _norm(text)))
+
+
+def _cta_opening(text, n=3):
+    return ' '.join(_cta_norm(text).split()[:n])
+
+
+# Aberturas de suspense e FOMO (decisao do estudio, 2026-11-05): abrem uma lacuna que o proprio video fecha (o ultimo motivo
+# e o que quase ninguem repara). Nao e escassez: estoque, prazo e preco continuam so com oferta real. Nada de carrinho ou
+# compra aqui: so o ultimo clipe pede a compra. Duas opcoes por arco; a cor 1, 3, 5... usa uma delas.
+def _fomo_opening(arc, dem, piece, variation):
+    n = (int(variation) // 2) % 2
+    opcoes = {
+        'motivos': (f'Fica até o fim: o terceiro motivo pra {dem} {piece} é o que quase todo mundo passa batido.',
+                    f'Três motivos pra {dem} {piece} entrar no teu guarda-roupa, e o último quase ninguém repara.'),
+        'questionada': (f'Sei que dá dúvida em {dem} {piece}, mas olha o que quase todo mundo passa batido.',
+                        f'Dúvida em {dem} {piece}? Fica até o fim, que tem um motivo que quase ninguém repara.'),
+        'problema': ('Sabe aquela hora de montar o look e nada parece certo? Fica até o fim, que o último motivo eu quase '
+                     'passei batido.',
+                     f'Quando nada parece certo na hora do look, não sai daí: o último motivo {dem} {piece} eu quase '
+                     f'deixei passar.'),
+        'mito': (f'Dizem que {piece} é tudo igual, mas a terceira verdade quase ninguém conta. Fica até o fim.',
+                 f'Falam que {piece} é tudo igual, e a última verdade eu quase não contei. Fica até o fim.'),
+    }
+    return opcoes[arc][n]
+
+
 def draft_lines(c, arc, clips, facts, variation=0):
     """Rascunho das falas: lista de clipes, cada um com 3 trechos (0-4 s, 4-12 s, 12-15 s).
 
@@ -289,10 +371,12 @@ def draft_lines(c, arc, clips, facts, variation=0):
     verbo = 'imagino' if (v // 2) % 2 == 0 else 'vejo'
     imagino = f'Eu já me {verbo} com {pron} {_join_pt(occasions)}.'
     mix = f' e já imagina com {combos[0]}, com {combos[1]}' if combos else ''
-    cta = _cta_for_slot(c, forms, v)
+    cta = _typed_cta(c, forms, facts, arc, v) if v >= 1 else _cta_for_slot(c, forms, v)
+    fomo = v % 2 == 1
     if arc == 'motivos':
         abre = (f'Três motivos pra {dem} {piece} estar no teu guarda-roupa, olha só.' if v % 2 == 0
                 else f'Olha só três motivos pra {dem} {piece} entrar no teu guarda-roupa.')
+        abre = _fomo_opening(arc, dem, piece, v) if fomo else abre
         if clips == 2:
             return [
                 (abre,
@@ -317,6 +401,7 @@ def draft_lines(c, arc, clips, facts, variation=0):
     if arc == 'problema':
         abre = (f'Sabe aquela hora de montar o look e nada parece certo? Então olha {dem} {piece}.' if v % 2 == 0
                 else f'Sabe quando você monta o look e nada parece certo? Então olha {dem} {piece}.')
+        abre = _fomo_opening(arc, dem, piece, v) if fomo else abre
         alivio = f'Pra mim, {pron} já resolve boa parte disso.'
         if clips == 2:
             return [
@@ -342,6 +427,7 @@ def draft_lines(c, arc, clips, facts, variation=0):
         abre = (f'Dizem que {piece} é tudo igual. Pra mim isso é mito, e eu vou te mostrar três verdades, olha só.'
                 if v % 2 == 0 else
                 f'Falam que {piece} é tudo igual. Pra mim isso é mito, e eu vou te mostrar três verdades, olha só.')
+        abre = _fomo_opening(arc, dem, piece, v) if fomo else abre
         if clips == 2:
             return [
                 (abre,
@@ -365,6 +451,8 @@ def draft_lines(c, arc, clips, facts, variation=0):
     # questionada (Dúvida e resposta)
     pergunta = (f'Sei que dá aquela dúvida: será que {dem} {piece} vale mesmo a pena?' if v % 2 == 0
                 else f'Sei que bate aquela dúvida: será que {dem} {piece} vale mesmo a pena?')
+    if fomo:
+        pergunta = _fomo_opening(arc, dem, piece, v)
     promessa = (f'Então olha comigo. Eu vou te mostrar três motivos pra {dem} {piece} '
                 f'merecer um lugar no teu guarda-roupa, um por um.')
     if clips == 2:
@@ -690,11 +778,16 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_tur
     drafted = lines is None
     clip_lines = ([_cut_optional(_pad(trio)) for trio in draft_lines(c, arc, clips, facts, slot_index)] if drafted
                   else _normalize_lines(lines, clips))
-    return _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
-                     turns=turns, texture=bool(texture))
+    result = _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
+                       turns=turns, texture=bool(texture))
+    # Os tipos do rascunho desta cor (so o rascunho: fala editada ou da IA nao carrega tipo).
+    if drafted and slot_index >= 1:
+        result['closing_type'] = cta_types.label(closing_type(c, arc, slot_index, facts))
+        result['opening_type'] = 'Suspense e FOMO' if slot_index % 2 == 1 else ''
+    return result
 
 
-def write_lines_with_ai(c, arc, clips, settings):
+def write_lines_with_ai(c, arc, clips, settings, slot_index=0):
     """Falas da sequencia escritas pela IA, conferidas pela mesma regua do rascunho (clip_problems), e cada um
     dos 3 fatos citado. Devolve (falas, fatos, motivo_da_falha). So roda pelo botao proprio: gasta tokens."""
     from services import copywriter
@@ -707,6 +800,13 @@ def write_lines_with_ai(c, arc, clips, settings):
     fatos = [f['text'] for f in facts[:3]]
     roles = _ROLES[(arc, clips)]
     oferta = str(c.get('offer') or '').strip()
+    tipo = closing_type(c, arc, slot_index, facts)
+    tipos = [cta_types.rule_text()]
+    if tipo:
+        tipos.append(f'Neste vídeo o fechamento é do tipo "{cta_types.label(tipo)}": {cta_types.GUIDE[tipo]}.')
+    if slot_index % 2 == 1:
+        tipos.append('A abertura do clipe 1 é de suspense e FOMO: abre uma lacuna que o vídeo fecha ("o último motivo é o que '
+                     'quase todo mundo passa batido"), sem estoque, prazo ou preço e sem falar em carrinho.')
     system = '\n'.join([
         'Você escreve as falas de vídeos UGC do TikTok Shop em português do Brasil, em primeira pessoa, como uma '
         'cliente real' + (' gravando o próprio look no espelho com o celular na mão.' if espelho
@@ -727,6 +827,7 @@ def write_lines_with_ai(c, arc, clips, settings):
         else '- Não existe oferta: nada de urgência, "só hoje", "últimas peças" ou desconto.',
         '- Linguagem falada e natural, com as emendas de quem conversa ("e olha", "sério", "aí"). Nada de direção '
         'de câmera dentro da fala (câmera, close, enquadramento, "mostrando").',
+        *tipos,
         f'Responda só JSON: {{"clips": [["abertura", "meio", "fechamento"], ...]}} com exatamente {clips} clipes.',
     ])
     user = '\n'.join(x for x in (
