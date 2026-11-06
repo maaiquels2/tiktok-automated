@@ -41,6 +41,12 @@ class TypeRuleTests(unittest.TestCase):
             self.assertTrue(cta_types.label(kind), kind)
             self.assertTrue(cta_types.GUIDE.get(kind), kind)
 
+    def test_the_new_closings_fit_the_short_video_cta_budget(self):
+        # A IA imita a frase-base: molde com mais de 10 palavras estoura o orçamento e o app troca por um CTA neutro.
+        for kind in ('oportunidade', 'exclusividade'):
+            for mold in cta_types.MOLDS[kind]:
+                self.assertTrue(6 <= len(mold.split()) <= 10, mold)
+
     def test_types_depend_on_what_the_briefing_supports(self):
         sem = cta_types.available(cta_types.profile(False, '', {}, {}, {}, 'motivos'))
         self.assertEqual(sem, ['oportunidade', 'exclusividade', 'diferencial', 'experiencia', 'custo', 'comparar', 'decisao'])

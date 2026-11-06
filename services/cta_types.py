@@ -62,13 +62,13 @@ GUIDE = {
 MOLDS = {
     'oportunidade': (
         'Não deixa essa chance passar: confere no carrinho laranja.',
-        'Seria uma pena perder uma peça assim: confere no carrinho laranja.',
-        'Vai deixar essa oportunidade passar? O carrinho laranja tá aí.',
+        'Seria uma pena perder: confere no carrinho laranja.',
+        'Vai deixar essa chance passar? O carrinho laranja tá aí.',
     ),
     'exclusividade': (
-        'Eu não vi nada igual por aí: confere no carrinho laranja.',
+        'Não vi nada igual: confere no carrinho laranja.',
         'Tem cara de peça exclusiva: confere no carrinho laranja.',
-        'Peça assim não é todo dia que a gente acha: abre o carrinho laranja.',
+        'Peça assim não é todo dia: abre o carrinho laranja.',
     ),
     'objecao': (
         'Com receio de {pain}? Tira essa dúvida no carrinho laranja.',
