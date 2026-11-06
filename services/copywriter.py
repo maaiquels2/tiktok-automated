@@ -278,10 +278,14 @@ def _hook_type_line(campaign: dict) -> str:
     brief = hook_types.TYPE_BRIEF.get(kind, '')
     sem_medo = ('' if kind == 'dor' else ' NÃO fale de medo, receio, insegurança ou dúvida neste hook: a objeção do briefing '
                 'é de outra cor.')
-    cta_kind = _CTA_FLAVOR.get(kind, 'oportunidade')
+    cta_kind = campaign.get('batch_cta_kind') or _CTA_FLAVOR.get(kind, 'oportunidade')
+    molds = cta_types.MOLDS[cta_kind]
+    base = molds[int(campaign.get('batch_cta_mold') or 0) % len(molds)]
+    # Cada cor recebe uma frase-base diferente: se duas cores abrissem o CTA com as mesmas palavras, o app trocaria uma delas
+    # por um CTA neutro da categoria (distinct_ctas) e o pedido de exclusividade se perderia (reteste da #0052, 2026-11-06).
     cta_line = (f"TIPO DE CTA OBRIGATÓRIO: {cta_types.LABELS[cta_kind]}. O CTA desta cor NÃO é neutro (nada de \"confere os "
-                f"detalhes\" ou \"salva pra depois\"): {cta_types.GUIDE[cta_kind]}. Inspire-se, sem copiar: "
-                + ' | '.join(cta_types.MOLDS[cta_kind]))
+                f"detalhes\", \"vai lá ver de pertinho\" ou \"salva pra depois\"): {cta_types.GUIDE[cta_kind]}. "
+                f'Parta desta frase, com palavras suas, e NÃO comece como o CTA de outra cor: "{base}"')
     return (f"TIPO DE GANCHO OBRIGATÓRIO: {hook_types.LABELS.get(kind, kind)}. O hook desta cor segue esse tipo e abre "
             f'diferente dos hooks das outras cores: {brief}.{sem_medo}\n{cta_line}')
 
@@ -1125,7 +1129,9 @@ def write_scripts(campaigns: list[dict], settings: dict,
             return None, f'chave repetida no lote: {key}'
         axis_name,axis_direction=_batch_axis(index+index_offset,campaign)
         hook_kind,_hook_label=_batch_hook_type(index+index_offset,campaign)
-        campaign={**campaign,'batch_axis':axis_name,'batch_hook_type':hook_kind}
+        cta_flavors=('oportunidade','exclusividade')
+        campaign={**campaign,'batch_axis':axis_name,'batch_hook_type':hook_kind,
+                  'batch_cta_kind':cta_flavors[(index+index_offset)%2],'batch_cta_mold':(index+index_offset)//2}
         expected[key] = campaign
         briefs.append(
             f'### CHAVE: {key}\n'

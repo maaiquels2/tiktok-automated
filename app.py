@@ -2187,7 +2187,8 @@ def create_app(config=None):
         if len(campaigns)>1:
             eixos=[copywriter._batch_axis(i,item) for i,item in enumerate(campaigns)]
             campaigns=[{**item,'batch_axis':nome,'batch_axis_direction':direcao,
-                        'batch_hook_type':_copywriter_hook_type(i,item)}
+                        'batch_hook_type':_copywriter_hook_type(i,item),
+                        'batch_cta_kind':('oportunidade','exclusividade')[i%2],'batch_cta_mold':i//2}
                        for i,(item,(nome,direcao)) in enumerate(zip(campaigns,eixos))]
         with ThreadPoolExecutor(max_workers=min(8, len(campaigns))) as pool:
             # Cada cor leva o contexto da requisicao (registro de uso da IA).
@@ -3520,6 +3521,10 @@ def create_app(config=None):
             clips=int(data.get('clips') or 0)
         except (TypeError,ValueError):
             raise Invalid('Escolha 2 ou 3 clipes.')
+        try:
+            seconds=int(data.get('seconds') or 15)   # 10 = clipes de 10 s para o Flow (services/clip_seconds.py)
+        except (TypeError,ValueError):
+            raise Invalid('Escolha clipes de 15 s ou de 10 s.')
         def guardado(nome,chave):
             """Entrada guardada no checklist (lida do banco agora, nao da copia do inicio da requisicao)."""
             tabela=read_checklist(cid).get(nome)
@@ -3544,7 +3549,7 @@ def create_app(config=None):
             # Falas guardadas no checklist, por arco, clipes e cor: as que a IA escreveu (story_arc_ai) e as que o
             # operador editou (story_arc_manual, que vencem). Reabrir a etapa de video reaproveita sem gastar de novo,
             # e nada do briefing, da imagem ou do status muda.
-            chave=f'{arc}|{clips}|{color}'
+            chave=f'{arc}|{clips}|{color}'+('|10s' if seconds==10 else '')   # falas de 15 s e de 10 s nao se misturam
             if data.get('discard'):
                 guardar('story_arc_manual',chave,None)
             salvo_manual,salvo_ia=guardado('story_arc_manual',chave),guardado('story_arc_ai',chave)
@@ -3565,7 +3570,7 @@ def create_app(config=None):
                 settings=writer_settings_cached()
                 if not settings.get('enabled'):
                     raise Invalid('Ligue a escrita por IA em Identidade → Escrita das falas para a IA escrever as falas.',409)
-                falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings,slot_index=slot_index)
+                falas,fatos,motivo=write_lines_with_ai(c,arc,clips,settings,slot_index=slot_index,seconds=seconds)
                 if falas:
                     lines,extra_resposta=falas,{'written_by':'ai'}
                     guardar('story_arc_ai',chave,{'facts':fatos,'lines':falas,'extra_facts':extra})
@@ -3583,7 +3588,8 @@ def create_app(config=None):
             if clip_turns is not None and not isinstance(clip_turns,(list,str)):
                 raise Invalid('Giro por clipe inválido.')
             resposta={**build_story_arc(c,color,arc,clips,lines,base_image=base_image,clip_turns=clip_turns,
-                                        texture=data.get('texture') is True,slot_index=slot_index),**extra_resposta}
+                                        texture=data.get('texture') is True,slot_index=slot_index,seconds=seconds,
+                                        hook_visual=data.get('hook_visual') or ''),**extra_resposta}
             if data.get('lines') is not None and not data.get('ai'):
                 # Falas que o operador mandou (ja conferidas pelo montador): ficam guardadas.
                 editadas=[list(clip['lines']) for clip in resposta['clips']]
