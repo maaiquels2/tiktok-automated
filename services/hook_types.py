@@ -182,7 +182,7 @@ _FEAR_RE = re.compile(r'\b(?:medo|receio|insegur\w*|trav(?:o|a|ava|ando)|d[úu]v
 # O que o hook de cada tipo faz (vai no pedido da IA, na linha do tipo obrigatorio da cor).
 TYPE_BRIEF = {
     'curiosidade': 'abra com um fato confirmado do produto (um dos Detalhes) numa frase que fecha o suspense sozinha',
-    'fomo': 'abra uma lacuna de suspense ou de exclusividade/oportunidade perdida e feche com um fato confirmado do produto, como "Você não vai acreditar no que o bojo me mostrou", "Parece peça de loja cara, mas o bojo me conquistou" ou "Você pode estar perdendo a chance de ter esse top sem nem saber: olha o bojo" (sentimento e opinião em primeira pessoa; sem número, preço, estoque ou prazo)',
+    'fomo': 'o hook DEVE dar a sensação de exclusividade ou de chance perdida (não basta curiosidade): abra uma lacuna e feche com um fato confirmado do produto, como "Você não vai acreditar no que o bojo me mostrou", "Parece peça de loja cara, mas o bojo me conquistou" ou "Você pode estar perdendo a chance de ter esse top sem nem saber: olha o bojo" (sentimento e opinião em primeira pessoa; sem número, preço, estoque ou prazo)',
     'direto': 'chame a atenção para um detalhe confirmado do produto, sem rodeio, como "Para tudo e olha o bojo, eu quase passei batido"',
     'historia': 'conte a expectativa contra o que se vê agora, com um fato confirmado, como "Eu achava comum, até ver o bojo"',
     'autoridade': 'abra com a prova declarada no briefing (vendas, nota, altura, tamanho ou identidade do público)',

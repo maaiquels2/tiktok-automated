@@ -30,7 +30,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from services import formats, hook_types, persuasion, script_budget, speech_bank
+from services import cta_types, formats, hook_types, persuasion, script_budget, speech_bank
 
 # Uso da IA por requisicao: cada chamada ao provedor anota os tokens aqui e o
 # app grava por campanha (o que a OpenAI cobra).
@@ -278,8 +278,17 @@ def _hook_type_line(campaign: dict) -> str:
     brief = hook_types.TYPE_BRIEF.get(kind, '')
     sem_medo = ('' if kind == 'dor' else ' NÃO fale de medo, receio, insegurança ou dúvida neste hook: a objeção do briefing '
                 'é de outra cor.')
+    cta_kind = _CTA_FLAVOR.get(kind, 'oportunidade')
+    cta_line = (f"TIPO DE CTA OBRIGATÓRIO: {cta_types.LABELS[cta_kind]}. O CTA desta cor NÃO é neutro (nada de \"confere os "
+                f"detalhes\" ou \"salva pra depois\"): {cta_types.GUIDE[cta_kind]}. Inspire-se, sem copiar: "
+                + ' | '.join(cta_types.MOLDS[cta_kind]))
     return (f"TIPO DE GANCHO OBRIGATÓRIO: {hook_types.LABELS.get(kind, kind)}. O hook desta cor segue esse tipo e abre "
-            f'diferente dos hooks das outras cores: {brief}.{sem_medo}')
+            f'diferente dos hooks das outras cores: {brief}.{sem_medo}\n{cta_line}')
+
+
+# Sabor do CTA de cada cor (pedido do dono, 2026-11-06): todas as cores fecham com exclusividade ou oportunidade perdida.
+_CTA_FLAVOR = {'fomo': 'exclusividade', 'curiosidade': 'exclusividade', 'direto': 'oportunidade', 'historia': 'oportunidade',
+               'autoridade': 'oportunidade', 'dor': 'oportunidade'}
 
 
 # --------------------------------------------------------------------------- config
