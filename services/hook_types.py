@@ -76,6 +76,13 @@ MOLDS = {
         'Aqui está o segredo {de} {piece} que eu descobri: {det}.',
         'Eu precisava compartilhar isso: {det} {prep} {piece} me {v_pegou} de surpresa.',
         'Talvez este seja o vídeo que eu queria ter visto antes de escolher {dem} {piece}.',
+        # Exclusividade e oportunidade perdida (pedido do dono, 2026-11-06): sentimento e opiniao em primeira pessoa, nunca
+        # numero, preco, estoque ou prazo inventados.
+        'Parece peça de loja cara, mas {det} {prep} {piece} me {v_conquistou} de vez.',
+        'Quem passa direto {prep} {piece} perde {det}, eu quase fiz igual.',
+        'Eu procurei e não vi nada igual: {det} {prep} {piece} me {v_conquistou}.',
+        'Você pode estar deixando passar {dem} {piece} sem ver {det}, eu quase deixei.',
+        'Não deixa passar {det} {prep} {piece}, pra mim é o detalhe que faz diferença.',
     ),
     'autoridade': (),
 }
@@ -175,7 +182,7 @@ _FEAR_RE = re.compile(r'\b(?:medo|receio|insegur\w*|trav(?:o|a|ava|ando)|d[úu]v
 # O que o hook de cada tipo faz (vai no pedido da IA, na linha do tipo obrigatorio da cor).
 TYPE_BRIEF = {
     'curiosidade': 'abra com um fato confirmado do produto (um dos Detalhes) numa frase que fecha o suspense sozinha',
-    'fomo': 'abra uma lacuna de suspense e feche com um fato confirmado do produto, como "Você não vai acreditar no que o bojo me mostrou"',
+    'fomo': 'abra uma lacuna de suspense ou de exclusividade/oportunidade perdida e feche com um fato confirmado do produto, como "Você não vai acreditar no que o bojo me mostrou", "Parece peça de loja cara, mas o bojo me conquistou" ou "Você pode estar perdendo a chance de ter esse top sem nem saber: olha o bojo" (sentimento e opinião em primeira pessoa; sem número, preço, estoque ou prazo)',
     'direto': 'chame a atenção para um detalhe confirmado do produto, sem rodeio, como "Para tudo e olha o bojo, eu quase passei batido"',
     'historia': 'conte a expectativa contra o que se vê agora, com um fato confirmado, como "Eu achava comum, até ver o bojo"',
     'autoridade': 'abra com a prova declarada no briefing (vendas, nota, altura, tamanho ou identidade do público)',
@@ -201,7 +208,7 @@ def classify(hook: str) -> str:
     rules = (
         ('autoridade', r'já vendeu|tem nota|eu tenho \d|\bamigas\b|se você é\b'),
         ('dor', r'\bmedo\b|\bme travava\b|\bproblema\b|se você se identifica|evitando'),
-        ('fomo', r'não deveria te contar|não vai acreditar|você não acredita|^a maioria nem repara|provavelmente nunca|aqui está o segredo|eu precisava compartilhar|^talvez este seja'),
+        ('fomo', r'não deveria te contar|não vai acreditar|você não acredita|^a maioria nem repara|provavelmente nunca|aqui está o segredo|eu precisava compartilhar|^talvez este seja|peça de loja cara|quem passa direto|não vi nada igual|deixando passar|perdendo a chance|^não deixa passar'),
         ('historia', r'^eu (?:pensei|achava|nunca contei|duvidava)|^tudo mudou|^eu achei que|^esperava|^parece simples'),
         ('curiosidade', r'ninguém (?:te conta|percebe)|o que ninguém|que quase ninguém|^isso parece simples|você já percebeu|descobri'),
         ('direto', r'^para tudo|^eu vou ser diret|^presta atenção|^olha (?:isso|o|a|os|as) '),
@@ -222,7 +229,9 @@ def rule_text() -> str:
         'Direto = chama a atenção para o detalhe, sem enrolar ("Para tudo e olha o acabamento, eu quase passei batido."). '
         'História = a expectativa contra o que se vê agora ("Eu pensei que não ia me convencer, até ver a barra."). '
         'Autoridade = só com prova social, altura ou tamanho declarados no briefing. '
-        'Suspense e FOMO = abre uma lacuna e fecha dentro do hook ("Você não vai acreditar no que o bolso me mostrou."). '
+        'Suspense e FOMO = abre uma lacuna e fecha dentro do hook ("Você não vai acreditar no que o bolso me mostrou."), ou '
+        'dá a sensação de exclusividade e de oportunidade perdida em primeira pessoa ("Parece peça de loja cara, mas o bolso '
+        'me conquistou." / "Você pode estar perdendo a chance de ter essa peça sem nem saber."). '
         'PROIBIDO no hook: credencial ou história que ninguém pode verificar ("depois de testar por 2 anos", "trabalhando com '
         'X marcas", "o dia que tudo deu errado", "não cometa o mesmo erro que eu"), urgência de estoque, prazo ou preço sem oferta '
         'real, e pergunta vazia ("você sabia disso?"). Pergunta só se carregar o fato ou a dor.')

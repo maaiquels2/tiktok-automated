@@ -190,7 +190,7 @@ REGRAS INEGOCIÁVEIS
 4. Nunca leia o rótulo do atributo em voz alta. "sem transparência" é uma ficha técnica; a pessoa fala "dá pra agachar sem medo", "não aparece nada", "pode usar legging clarinha".
 5. Nada de saudação ("oi gente", "vem comigo") nem de "nesse vídeo eu vou te mostrar".
 6. Fale na primeira pessoa, com a naturalidade de quem está mostrando e recomendando o produto. Pode falar do momento que o vídeo mostra ("tô usando agora", "olha como ela fica no corpo", "fiquei com vontade de usar todo dia"). Não invente história que ninguém pode verificar ("uso há meses", "lavei vinte vezes", "comprei mês passado").
-7. "Corre", "aproveita", "agora" e "garante a tua" criam impulso e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "antes que esgote", "acaba hoje", "esse preço vai sumir", "50% off", "promoção relâmpago". Só use essas alegações quando a OFERTA REAL confirmar exatamente isso.
+7. "Corre", "aproveita", "agora" e "garante a tua" criam impulso e podem ser usados sempre. O que a regra 2 proíbe é afirmar FATO falso sobre estoque, prazo ou preço: "últimas peças", "antes que esgote", "acaba hoje", "esse preço vai sumir", "50% off", "promoção relâmpago". Só use essas alegações quando a OFERTA REAL confirmar exatamente isso. EXCLUSIVIDADE e OPORTUNIDADE PERDIDA são desejadas, sem oferta: "não vi nada igual", "tem cara de peça exclusiva", "não deixa essa chance passar", "você pode estar perdendo a chance de ter uma peça assim". Com oferta real declarada, mostre também a economia que ela confirma ("tá com 20%: perder isso é pagar mais"), sempre com os números exatos.
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
 9. ORALIDADE: escreva como se fala no Brasil, não como se escreve. Use "pra", "tá", "tô", "cê" quando soar natural; no máximo uma interjeição curta ("gente", "olha", "sério"); frases curtas ligadas por "e", "aí", "e o melhor". Hook, desenvolvimento e CTA são UM pensamento contínuo: o desenvolvimento continua o hook, não recomeça. Nunca empilhe ordens ("Repara... Olha... Veja..."), nunca liste atributos e nunca repita no desenvolvimento o atributo que o hook já disse.
 10. GATILHOS DE VENDA, SEMPRE COM FATO: curiosidade (o hook abre um "por quê" que o meio responde), especificidade (um detalhe concreto vale mais que três adjetivos), identificação com a dor, imaginação de uso ("imagina…"), prova social e escassez. Prova social (vendidos, nota, avaliações) só com PROVA SOCIAL DECLARADA; escassez (prazo, estoque, desconto, frete, cupom) só com os FATOS DE URGÊNCIA PERMITIDOS, com o número exato. Uma única ação no CTA.
@@ -458,7 +458,7 @@ def build_brief(c: dict) -> str:
     ]
     if dominant_motor(c) == 'escassez' and not offer:
         linhas.append("ESCASSEZ DE CONTEXTO (sem oferta real): use só descoberta honesta "
-                      "(\"achei e não esperava\", \"não sabia que tinha\"), nunca prazo, estoque ou desconto inventado.")
+                      "(\"achei e não esperava\", \"não sabia que tinha\") e a sensação de exclusividade e de chance perdida em primeira pessoa (\"não vi nada igual\", \"não deixa essa chance passar\"), nunca prazo, estoque ou desconto inventado.")
     if pain:
         linhas.append(f"OBJEÇÃO Nº 1 DO CLIENTE: {pain}")
     if check:

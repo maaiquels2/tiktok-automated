@@ -27,7 +27,9 @@ afirma o que o briefing sustenta, e só o último clipe pede a compra (sempre co
 | 9 | Relembrar o problema | **usado**: a dor do briefing, a dúvida do arco "Dúvida e resposta" ou o "nada parece certo" do arco "Problema e solução" | dor ou arco de dúvida/problema |
 | 10 | Deixar a decisão com o comprador | **usado**: "A decisão é sua: o carrinho laranja tá aí." | sempre |
 
-Ordem de rotação: oferta, objeção, prova, público, problema, diferencial, experiência, custo-benefício, comparar, decisão.
+Ordem de rotação (12 tipos desde 2026-11-06): oferta, **oportunidade perdida**, **exclusividade**, objeção, prova, público, problema, diferencial, experiência, custo-benefício, comparar, decisão.
+
+Os dois tipos novos (pedido do dono) valem sempre, sem briefing: "Não deixa essa chance passar…", "Tem cara de peça exclusiva…". São opinião em primeira pessoa; número, preço, estoque e prazo continuam só com oferta real. Os ganchos de Suspense e FOMO ganharam moldes de exclusividade e oportunidade pelo mesmo critério (`services/hook_types.py`).
 
 ## Suspense e FOMO na abertura (cores 2, 4, 6…)
 Abre uma lacuna que o próprio vídeo fecha: "Fica até o fim: o terceiro motivo pra essa calça é o que quase todo mundo passa

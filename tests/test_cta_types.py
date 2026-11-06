@@ -36,14 +36,14 @@ def falas_do_fim(r):
 
 class TypeRuleTests(unittest.TestCase):
     def test_every_type_has_a_label_a_guide_and_a_place_in_the_order(self):
-        self.assertEqual(len(cta_types.ORDER), 10)
+        self.assertEqual(len(cta_types.ORDER), 12)
         for kind in cta_types.ORDER:
             self.assertTrue(cta_types.label(kind), kind)
             self.assertTrue(cta_types.GUIDE.get(kind), kind)
 
     def test_types_depend_on_what_the_briefing_supports(self):
         sem = cta_types.available(cta_types.profile(False, '', {}, {}, {}, 'motivos'))
-        self.assertEqual(sem, ['diferencial', 'experiencia', 'custo', 'comparar', 'decisao'])
+        self.assertEqual(sem, ['oportunidade', 'exclusividade', 'diferencial', 'experiencia', 'custo', 'comparar', 'decisao'])
         # Dúvida e problema: os arcos que abrem numa dúvida ou num problema podem relembrá-lo.
         self.assertIn('problema', cta_types.available(cta_types.profile(False, '', {}, {}, {}, 'problema')))
         self.assertIn('problema', cta_types.available(cta_types.profile(False, '', {}, {}, {}, 'questionada')))
@@ -56,8 +56,8 @@ class TypeRuleTests(unittest.TestCase):
         has = cta_types.profile(False, '', {}, {}, {}, 'motivos')
         self.assertEqual(cta_types.type_for_slot(0, has), '')
         kinds = [cta_types.type_for_slot(i, has) for i in range(1, 7)]
-        self.assertEqual(kinds, ['diferencial', 'experiencia', 'custo', 'comparar', 'decisao', 'diferencial'])
-        self.assertEqual([cta_types.slot_in_type(i, has) for i in (1, 5, 6, 10, 11)], [0, 0, 1, 1, 2])
+        self.assertEqual(kinds, ['oportunidade', 'exclusividade', 'diferencial', 'experiencia', 'custo', 'comparar'])
+        self.assertEqual([cta_types.slot_in_type(i, has) for i in (1, 7, 8, 14, 15)], [0, 0, 1, 1, 2])
 
     def test_a_long_pain_does_not_go_into_the_closing(self):
         forms = piece_forms(campanha())
@@ -186,13 +186,15 @@ class ResponseAndAiTests(unittest.TestCase):
     def test_the_response_names_the_types_only_for_a_drafted_color_after_the_first(self):
         c = campanha('objecao')
         self.assertNotIn('closing_type', build_story_arc(c, c['color'], 'motivos', 3))
-        r = build_story_arc(c, c['color'], 'motivos', 3, slot_index=1)
+        r = build_story_arc(c, c['color'], 'motivos', 3, slot_index=3)
         self.assertEqual(r['closing_type'], 'Quebrar objeção')
+        self.assertEqual(build_story_arc(c, c['color'], 'motivos', 3, slot_index=1)['closing_type'], 'Oportunidade perdida')
+        self.assertEqual(build_story_arc(c, c['color'], 'motivos', 3, slot_index=2)['closing_type'], 'Exclusividade')
         self.assertEqual(r['opening_type'], 'Suspense e FOMO')
         editado = [['Gancho editado fora', 'Meio editado fora com lavagem clara, cintura alta e bolsos na frente', 'Fecho editado'],
                    ['Gancho dois editado', 'Meio dois editado fora mostrando a cintura alta e a lavagem clara', 'Fecho dois'],
                    ['Gancho três editado', 'Meio três editado fora com os bolsos na frente e a cintura alta', 'Fecho final tá no carrinho laranja']]
-        self.assertNotIn('closing_type', build_story_arc(c, c['color'], 'motivos', 3, lines=editado, slot_index=1))
+        self.assertNotIn('closing_type', build_story_arc(c, c['color'], 'motivos', 3, lines=editado, slot_index=3))
 
     def test_the_ai_prompt_carries_the_ten_types_and_the_type_of_the_color(self):
         capturado = {}
@@ -203,7 +205,7 @@ class ResponseAndAiTests(unittest.TestCase):
 
         c = campanha('objecao')
         with mock.patch.object(copywriter, 'ask_json', falso):
-            story_arcs.write_lines_with_ai(c, 'motivos', 3, {}, slot_index=1)
+            story_arcs.write_lines_with_ai(c, 'motivos', 3, {}, slot_index=3)
             um = capturado['system']
             story_arcs.write_lines_with_ai(c, 'motivos', 3, {}, slot_index=0)
             zero = capturado['system']

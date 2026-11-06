@@ -20,10 +20,13 @@ from __future__ import annotations
 from services import persuasion
 
 # O que o briefing declarou vem primeiro; depois os que sempre existem.
-ORDER = ('oferta', 'objecao', 'prova', 'publico', 'problema', 'diferencial', 'experiencia', 'custo', 'comparar', 'decisao')
+ORDER = ('oferta', 'oportunidade', 'exclusividade', 'objecao', 'prova', 'publico', 'problema', 'diferencial', 'experiencia',
+         'custo', 'comparar', 'decisao')
 
 LABELS = {
     'oferta': 'Urgência com oferta',
+    'oportunidade': 'Oportunidade perdida',
+    'exclusividade': 'Exclusividade',
     'objecao': 'Quebrar objeção',
     'prova': 'Prova real',
     'publico': 'Público específico',
@@ -40,6 +43,8 @@ NEEDS = {'oferta': 'offer', 'objecao': 'pain', 'prova': 'proof', 'publico': 'aud
 
 # Orientacao de cada tipo para a IA (uma frase, no fechamento do ultimo clipe).
 GUIDE = {
+    'oportunidade': 'faça a pessoa sentir que deixar passar é perder a chance de ter a peça (opinião em primeira pessoa, sem prazo, estoque nem preço inventados) e mande para o carrinho laranja',
+    'exclusividade': 'dê a sensação de peça exclusiva em primeira pessoa ("não vi nada igual", "tem cara de peça exclusiva"), sem número nem fato de mercado inventado, e mande para o carrinho laranja',
     'oferta': 'cite a oferta real do briefing com os números exatos e mande para o carrinho laranja',
     'objecao': 'responda à objeção do briefing em uma frase e mande para o carrinho laranja',
     'prova': 'cite só a prova real do briefing (vendas, nota, altura ou tamanho) e mande para o carrinho laranja',
@@ -55,6 +60,16 @@ GUIDE = {
 # Opcoes de fala de cada tipo, em ordem: a primeira que o briefing sustenta e que nao repete a abertura das cores
 # anteriores vale. {l1} fato, {pron} ele/ela, {pain}, {sold}, {rating}, {h} altura, {s} tamanho, {verb}/{plural} do publico.
 MOLDS = {
+    'oportunidade': (
+        'Não deixa essa chance passar: confere no carrinho laranja.',
+        'Seria uma pena perder uma peça assim: confere no carrinho laranja.',
+        'Vai deixar essa oportunidade passar? O carrinho laranja tá aí.',
+    ),
+    'exclusividade': (
+        'Eu não vi nada igual por aí: confere no carrinho laranja.',
+        'Tem cara de peça exclusiva: confere no carrinho laranja.',
+        'Peça assim não é todo dia que a gente acha: abre o carrinho laranja.',
+    ),
     'objecao': (
         'Com receio de {pain}? Tira essa dúvida no carrinho laranja.',
         'Quebra essa dúvida de vez: confere no carrinho laranja.',
@@ -206,7 +221,9 @@ def candidates(kind: str, arc: str, forms: dict, l1: str, pain: str, social: dic
 def rule_text() -> str:
     """Regra para o pedido da IA (fechamento do ultimo clipe de uma sequencia)."""
     itens = '; '.join(f'{LABELS[k]}' for k in ORDER)
-    return ('TIPO DE FECHAMENTO (regra): o último clipe fecha num destes tipos de CTA: ' + itens + '. Só os que o briefing '
+    return ('TIPO DE FECHAMENTO (regra): o último clipe fecha num destes tipos de CTA: ' + itens + '. Oportunidade perdida e '
+            'exclusividade são desejadas: faça a pessoa sentir que está deixando passar uma chance de ter uma peça diferente, '
+            'sempre como opinião em primeira pessoa. Só os que o briefing '
             'sustenta: urgência só com a oferta real; objeção só com objeção declarada; prova só com vendas, nota, altura ou '
             'tamanho declarados; público só com a identidade declarada. Nunca invente preço, história de uso, credencial '
             'nem fale mal de outro produto. O fechamento chama o carrinho laranja.')
