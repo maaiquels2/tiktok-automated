@@ -15,7 +15,8 @@ export const baseDrafts = clips => (clips || []).map(clipBase);
 
 // Os rascunhos nao aplicados sobrevivem a troca de cor (o componente remonta): ficam guardados por campanha, cor, arco e
 // numero de clipes, e voltam quando a mesma sequencia e montada de novo.
-export const draftKey = (campaignId, variantId, arc, clips) => `${campaignId}|${variantId || 'base'}|${arc}|${clips}`;
+export const draftKey = (campaignId, variantId, arc, clips, seconds) =>
+  `${campaignId}|${variantId || 'base'}|${arc}|${clips}${seconds === 10 ? '|10s' : ''}`;
 
 export const restoreDrafts = (clips, stashed) =>
   Array.isArray(stashed) && stashed.length === (clips || []).length ? stashed : baseDrafts(clips);

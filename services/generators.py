@@ -53,7 +53,10 @@ def flow_notices(campaign, what, clip_seconds=None, extend=False):
     if of(campaign) is not FLOW:
         return []
     out = []
-    if clip_seconds and clip_seconds > 8:
+    if clip_seconds == 10:
+        out.append(f'{what} usa clipes de 10 s no Flow: gere com o Gemini Omni Flash (10 s em 720p). O Veo 3.1 gera até '
+                   '8 s e cortaria o final da fala.')
+    elif clip_seconds and clip_seconds > 8:
         out.append(f'{what} pede clipes de {clip_seconds} s e esta campanha usa o Flow. Com o Veo 3.1 o Flow gera '
                    'clipes de até 8 s (o Gemini Omni Flash permite escolher o comprimento): confira o limite do '
                    'modelo que você usa no Flow antes de gerar, ou gere no Grok.')

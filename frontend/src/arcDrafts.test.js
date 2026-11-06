@@ -36,3 +36,12 @@ describe('falas editadas da sequencia que ainda nao viraram prompt', () => {
     expect(restoreDrafts(clips, undefined)).toEqual(baseDrafts(clips));
   });
 });
+
+describe('chave dos rascunhos em 10 s', () => {
+  it('as falas de 10 s e de 15 s nao se misturam', async () => {
+    const { draftKey: key } = await import('./arcDrafts');
+    expect(key(7, 12, 'motivos', 3)).toBe('7|12|motivos|3');
+    expect(key(7, 12, 'motivos', 3, 10)).toBe('7|12|motivos|3|10s');
+    expect(key(7, 12, 'dor', 3, 10)).not.toBe(key(7, 12, 'dor', 3));
+  });
+});

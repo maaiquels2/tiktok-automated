@@ -82,7 +82,7 @@ CATEGORIES = [
     },
     {
         'id': 'colete', 'label': 'Colete', 'piece': 'colete', 'gender': 'm',
-        'keywords': ['colete'],
+        'keywords': ['colete', 'coletinho'],
         'occasions': ['no dia a dia', 'no trabalho', 'pra sair à noite', 'com jeans'],
         'tone': 'Estiloso e despretensioso, de quem gosta de uma terceira peça no look.',
         'avoid': 'Só dizer couro legítimo se o briefing disser; sintético é outra coisa. Não prometer que "não descasca".',

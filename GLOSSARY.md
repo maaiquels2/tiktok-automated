@@ -30,6 +30,12 @@ Termos do domínio da Fábrica TikTok. Use estes nomes no código, nos testes e 
 
 **Clipe** — Trecho de até ~15 s gerado de uma vez no Grok ou no Flow. Tem limite de palavras; acima de 60 o app avisa que a fala fica corrida.
 
+**Clipe de 10 s** — Opção (`seconds=10`) da sequência para o Flow (Gemini Omni Flash, 720p): janelas 0–3, 3–8 e 8–10 s, falas de 33 a 40 palavras, nenhum prompt cita TikTok (o Flow desenhava o ícone) e o convite é "link aqui embaixo" (`clip_seconds`). Três clipes formam 30 s.
+
+**Dor e FOMO** — Arco só do clipe de 10 s (`ARCS_10S`, `dor`): o clipe 1 abre numa dor da cliente (não ter o que vestir, não se sentir valorizada, vergonha) e numa lacuna ("o último motivo quase ninguém repara") que o clipe 3 fecha. A dor muda com a posição da cor. Sem estoque, prazo nem preço.
+
+**Gancho de câmera** — Jogada de câmera nos primeiros 3 s do clipe 1 para prender o olhar (`HOOK_VISUALS`: espia pela borda, vem correndo, dedo na câmera; ainda não testados no Flow). O clipe abre num primeiro quadro próprio (`frame_prompt`) com a imagem aprovada de referência; as falas e os clipes 2 e 3 ficam iguais, para teste A/B. Só no espelho. "Tampa a câmera" e "aparece de surpresa" foram testados e descartados.
+
 **Imagem-base** — Primeiro quadro que ancora identidade, cenário e roupa de todos os clipes.
 
 **Espelho** — Modo de vídeo em que a modelo se grava em selfie no espelho, com o celular na mão.

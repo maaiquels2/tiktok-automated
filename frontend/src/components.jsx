@@ -10,7 +10,7 @@ import FORMAT_RULES from './formatRules.json';
 import { swatchFor } from './ui';
 import { warningsFor, downloadLastFrame } from './mediaChecks';
 import { isFewFacts, pointToFacts } from './sequenceText';
-import { CLIP_TURN_OPTIONS, arcOptions, resizeTurns } from './arcOptions';
+import { CLIP_TURN_OPTIONS, HOOK_VISUAL_OPTIONS, SECONDS_OPTIONS, arcFor, arcOptions, arcsFor, clipsFor, resizeTurns, windowsLabel } from './arcOptions';
 import { anyDirty, clipBase, dirtyClips, draftKey, restoreDrafts } from './arcDrafts';
 import { api, modelLibrary, uploadModelLibrary, uploadModelLibraryPhotoDirect, renameModelLibraryLabel, listModelLibraryModels, deleteModelLibraryPhoto, productivityQueue, setupStatus, characterSheet, openCharacterSheet, writerSettings, storySequence, homeReveal, storyArc, agentImages, persuasionPreview, savePromptToLibrary } from './api';
 import { Copy, Check, Download, Upload, X, ImagePlus, Film, ExternalLink, Pencil, Sparkles, Trash2, RefreshCw, BookOpen, BookmarkPlus } from 'lucide-react';
@@ -391,13 +391,16 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [facts,setFacts]=useState('');
   const [turns,setTurns]=useState([]);
   const [texture,setTexture]=useState(false);
+  const [seconds,setSeconds]=useState(15);
+  const [hookVisual,setHookVisual]=useState('');
+  const clipCount=clipsFor(arc,clips);   // o arco Dor e FOMO tem sempre 3 clipes de 10 s
   // ai=true so pelo botao proprio: gasta tokens. A montagem automatica ao abrir a etapa reaproveita as falas que
   // a IA ja escreveu (guardadas no servidor) e nunca chama a IA sozinha.
   async function build(lines,ai=false,discard=false){
     setLoading(ai?'ai':true);setMessage('');
-    const key=draftKey(campaignId,variantId,arc,clips);
+    const key=draftKey(campaignId,variantId,arc,clipCount,seconds);
     try{
-      const res=await storyArc(campaignId,{arc,clips,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined,discard:discard||undefined,...arcOptions(turns,clips,texture)});
+      const res=await storyArc(campaignId,{arc,clips:clipCount,variant:variantId||undefined,lines,facts:facts.trim()||undefined,ai:ai||undefined,discard:discard||undefined,...arcOptions(turns,clipCount,texture,seconds,hookVisual)});
       setData(res);
       // Falas aplicadas, escritas pela IA ou descartadas: a caixa mostra o que foi montado. Montagem comum (ao abrir ou
       // trocar de cor): volta o que o operador digitou e ainda nao aplicou.
@@ -412,10 +415,12 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   }
   const editDraft=(index,text)=>setDrafts(list=>{
     const next=list.map((old,i)=>i===index?text:old);
-    UNAPPLIED_DRAFTS.set(draftKey(campaignId,variantId,arc,clips),next);
+    UNAPPLIED_DRAFTS.set(draftKey(campaignId,variantId,arc,clipCount,seconds),next);
     return next;
   });
   const choose=(setter,value)=>{setter(value);setData(null);setMessage('')};
+  // Voltar para 15 s tira o arco de 10 s da lista (ele so existe em 10 s).
+  const chooseSeconds=value=>{setSeconds(value);setArc(a=>arcFor(value,a));setData(null);setMessage('')};
   const dirty=data?dirtyClips(data.clips,drafts):[];
   const pending=!!data&&anyDirty(data.clips,drafts);
   const pendingClips=dirty.map((d,i)=>d?i+1:0).filter(Boolean);
@@ -428,9 +433,18 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
     </button>
     {open&&<div className="story-sequence-body">
       <div className="option-field">
+        <span className="option-field-title" id="story-seconds-title">Duração de cada clipe</span>
+        <div className="generator-options" role="radiogroup" aria-labelledby="story-seconds-title">
+          {SECONDS_OPTIONS.map(([id,label,hint])=><label key={id} className={'generator-option '+(seconds===id?'selected':'')}>
+            <input type="radio" name="story-seconds" value={id} checked={seconds===id} onChange={()=>chooseSeconds(id)}/>
+            <span><strong>{label}</strong><small>{hint}</small></span>
+          </label>)}
+        </div>
+      </div>
+      <div className="option-field">
         <span className="option-field-title" id="story-arc-title">Arco</span>
         <div className="generator-options" role="radiogroup" aria-labelledby="story-arc-title">
-          {ARC_OPTIONS.map(([id,label,hint])=><label key={id} className={'generator-option '+(arc===id?'selected':'')}>
+          {arcsFor(seconds,ARC_OPTIONS).map(([id,label,hint])=><label key={id} className={'generator-option '+(arc===id?'selected':'')}>
             <input type="radio" name="story-arc" value={id} checked={arc===id} onChange={()=>choose(setArc,id)}/>
             <span><strong>{label}</strong><small>{hint}</small></span>
           </label>)}
@@ -439,12 +453,19 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
       <div className="option-field">
         <span className="option-field-title" id="story-clips-title">Quantos clipes</span>
         <div className="generator-options" role="radiogroup" aria-labelledby="story-clips-title">
-          {ARC_CLIPS.map(([id,label,hint])=><label key={id} className={'generator-option '+(clips===id?'selected':'')}>
-            <input type="radio" name="story-clips" value={id} checked={clips===id} onChange={()=>choose(setClips,id)}/>
-            <span><strong>{label}</strong><small>{hint}</small></span>
+          {ARC_CLIPS.filter(([id])=>arc!=='dor'||id===3).map(([id,label,hint])=><label key={id} className={'generator-option '+(clipCount===id?'selected':'')}>
+            <input type="radio" name="story-clips" value={id} checked={clipCount===id} onChange={()=>choose(setClips,id)}/>
+            <span><strong>{label}</strong><small>{seconds===10?'30 s (3 clipes de 10 s)':hint}</small></span>
           </label>)}
         </div>
       </div>
+      <label className="option-field story-arc-hook">
+        <span className="option-field-title">Gancho visual do clipe 1 <small>· para testar</small></span>
+        <select value={hookVisual} onChange={e=>choose(setHookVisual,e.target.value)}>
+          {HOOK_VISUAL_OPTIONS.map(([id,label])=><option key={id||'padrao'} value={id}>{label}</option>)}
+        </select>
+        <small className="help">Troca só o que ela faz nos primeiros segundos; as falas e os clipes 2 e 3 não mudam. Vale no formato “Celular no espelho”. Gere um clipe 1 por gancho e compare a retenção.</small>
+      </label>
       <fieldset className="option-field story-arc-turns">
         <legend className="option-field-title">Giro do corpo por clipe <small>· experimental</small></legend>
         <small className="help">Experimental: o giro do corpo no espelho nunca foi testado no Grok. Vale só para esta sequência (o briefing não muda); monte de novo depois de escolher.</small>
@@ -482,7 +503,7 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
           return <div key={clip.index} className="variant-prompt story-clip">
             <div className="section-title"><strong>Clipe {clip.index} · {clip.role} <small>{clip.start} · ~{clip.seconds}s{clip.turn?` · giro: ${clip.turn_label} (experimental)`:''}</small></strong></div>
             <label className="story-arc-lines">
-              <span className="help">Falas (uma linha por trecho: 0–4 s, 4–12 s e 12–15 s) · {words} palavras</span>
+              <span className="help">Falas (uma linha por trecho: {windowsLabel(data.seconds)}) · {words} palavras</span>
               <textarea autoComplete="off" rows={5} value={draft} onChange={e=>editDraft(index,e.target.value)}/>
             </label>
             {clip.problems.map(problem=><small key={problem} className="help story-arc-problem">⚠ {problem}</small>)}
@@ -491,9 +512,10 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
                 ?<button type="button" className="primary" disabled={!!loading} onClick={()=>build(drafts)}>Aplicar a fala editada e atualizar o prompt</button>
                 :<small className="help">Aplique a fala editada do clipe {pendingClips.join(', ')} para copiar.</small>}
             </div>:<div className="story-arc-copy">
+              {clip.frame_prompt&&<CopyButton text={clip.frame_prompt} label="Copiar prompt da imagem do primeiro quadro (gancho)"/>}
               <CopyButton text={clip.prompt} label={clip.prompt_image?'Copiar prompt enxuto (último quadro)':'Copiar prompt completo'}/>
               {clip.prompt_image&&<CopyButton text={clip.prompt_image} label="Copiar prompt completo (imagem aprovada)"/>}
-              <CopyButton text={clip.guide} label="Copiar Guia do Grok"/>
+              <CopyButton text={clip.guide} label={data.seconds===10?'Copiar prompt curto':'Copiar Guia do Grok'}/>
               {clip.extend&&<CopyButton text={clip.extend} label="Copiar Extend Video"/>}
             </div>}
             <p className="story-screen-text"><strong>Texto na tela (CapCut):</strong> {clip.screen_text}</p>

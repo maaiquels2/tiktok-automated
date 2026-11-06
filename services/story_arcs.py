@@ -30,7 +30,7 @@ So le a campanha: nada e gravado. As falas sao um RASCUNHO que o operador pode e
 import re
 import unicodedata
 
-from services import cta_types, generators, persuasion, script_budget, speech_bank
+from services import clip_seconds, cta_types, generators, persuasion, script_budget, speech_bank
 from services.copywriter import audit as honesty_audit
 from services.framing import mirror_cover, mirror_phone, mirror_scope
 from services.prompt_improve import build_compact_video_prompt
@@ -53,8 +53,42 @@ ARCS = {
     'mito': dict(label='Mito e verdade',
                  hint='"Dizem que é tudo igual": desfaz a ideia comum com 3 verdades, um fato por vez'),
 }
+# Arcos so do clipe de 10 s para o Flow (seconds=10, 3 clipes = 30 s). Ficam fora de ARCS de proposito: os testes e a
+# criacao da campanha percorrem ARCS e supoem 15 s e 2 ou 3 clipes.
+ARCS_10S = {
+    'dor': dict(label='Dor e FOMO',
+                hint='abre numa dor da cliente (não ter o que vestir, não se sentir valorizada, vergonha) e numa lacuna '
+                     '("o último motivo quase ninguém repara") que o último clipe fecha, com 3 fatos da peça'),
+}
 CLIP_COUNTS = (2, 3)
-MIN_FACTS = 3            # todos os arcos usam 3 motivos
+
+
+# Ganchos VISUAIS do clipe 1 (opt-in, so no espelho): jogadas de CAMERA nos primeiros segundos para prender o olhar (pedido do
+# dono; os dois primeiros testados no Flow, "tampa a camera" e "aparece de surpresa", foram descartados). Trocam o primeiro quadro
+# e a acao da abertura (linha 0-3 s); as falas, os fatos e os clipes 2 e 3 ficam iguais, para um teste A/B limpo.
+# ``frame`` descreve o PRIMEIRO QUADRO do gancho: o clipe abre nele (e nao na imagem aprovada), com a imagem aprovada anexada
+# so como referencia de identidade e roupa. Sem afirmar nada sobre a peca: so gesto, movimento e camera.
+HOOK_VISUALS = {
+    'espia': dict(label='Espia pela borda',
+                  frame='só metade do rosto e um ombro aparecem na borda do reflexo, olhando para o celular',
+                  action='espia pela borda do espelho, sorri e entra no quadro de frente, já falando'),
+    'corre': dict(label='Vem correndo até o espelho',
+                  frame='ela ao fundo do ambiente, longe do espelho, com o celular na mão, de frente',
+                  action='vem em passos rápidos do fundo do ambiente até bem perto do espelho e para de repente, '
+                         'sorrindo, já falando'),
+    'dedo': dict(label='Dedo na câmera',
+                 frame='a ponta do dedo indicador bem perto do espelho, grande no quadro, desfocada, com ela ao fundo',
+                 action='abre com o dedo indicador bem perto do espelho, aponta para a peça e recua a mão, mostrando '
+                        'a peça inteira, já falando'),
+}
+
+
+def arc_info(arc):
+    """Rotulo e dica do arco (ARCS, ou ARCS_10S no clipe de 10 s)."""
+    return ARCS.get(arc) or ARCS_10S[arc]
+
+
+MIN_FACTS = 3           # todos os arcos usam 3 motivos
 MAX_FACTS = 4
 WORD_FLOOR, WORD_CEILING = script_budget.FILL[0], script_budget.CEILING   # abaixo sobra silencio no fim; acima a fala fica corrida
 GROK_LIMIT = generators.GROK.prompt_target   # o Grok corta sem avisar; folga para o nome e a cor
@@ -135,11 +169,11 @@ FILLERS = (
 )
 
 
-def _pad(trio):
+def _pad(trio, floor=WORD_FLOOR):
     """Leva o clipe ao piso de palavras acrescentando enchimento ao trecho do meio."""
     first, middle, last = trio
     for filler in FILLERS:
-        if sum(_count_words(part) for part in (first, middle, last)) >= WORD_FLOOR:
+        if sum(_count_words(part) for part in (first, middle, last)) >= floor:
             break
         if filler not in middle:
             middle = f'{middle} {filler}'
@@ -153,12 +187,12 @@ _OPTIONAL_SENTENCE = re.compile(
     r'Quando faltar ideia|Tem peça que só parece)\b', re.I)
 
 
-def _cut_optional(trio):
+def _cut_optional(trio, fill=None):
     """Rascunho acima do teto de palavras (o clipe fica corrido, como o proprio app avisa): tira so as frases opcionais do
     meio, uma por vez, a que deixa o total mais perto do alvo sem ficar abaixo do piso (se nenhuma serve, a que mais corta).
     Os motivos (fatos) e as pontas nunca saem; so vale para o rascunho, nunca para falas que o operador editou."""
     first, middle, last = trio
-    alvo, piso = script_budget.FILL[1], script_budget.FILL[0]
+    piso, alvo = fill or script_budget.FILL   # (piso, alvo) em palavras; o clipe de 10 s traz a sua faixa
 
     def total(frases):
         return sum(_count_words(parte) for parte in (first, ' '.join(frases), last))
@@ -476,9 +510,56 @@ def draft_lines(c, arc, clips, facts, variation=0):
     ]
 
 
+# Dor de cada cor no arco "Dor e FOMO" (10 s): cada cor abre numa dor diferente (a posicao da cor escolhe), sempre uma
+# situacao comum e em primeira pessoa, nunca um defeito de outra peca. Lugar por nicho, para a dor nao ficar generica.
+_PAIN_PLACE = {'praia': 'ir à praia', 'academia': 'ir treinar', 'fantasia': 'ir à festa'}
+
+
+def draft_lines_dor(c, facts, variation=0):
+    """Rascunho do arco "Dor e FOMO" para o clipe de 10 s (3 clipes, 33 a 40 palavras cada). O clipe 1 abre na dor e numa
+    lacuna ("o último motivo quase ninguém conta") que o clipe 3 fecha; o 2 mostra os motivos 1 e 2; só o 3 convida para o
+    link (sem "carrinho laranja": no Flow o carrinho falado virava ícone na tela). A dor muda com a posição da cor."""
+    f1, f2 = _cap(facts[0]['text']), _cap(facts[1]['text'])
+    l3 = _low(facts[2]['text'])
+    forms, occasions, _combos = _style(c)
+    dem, piece, pron = forms['dem'], forms['piece'], forms['pron']
+    v = max(0, int(variation or 0))
+    lugar = _PAIN_PLACE.get((c.get('niche') or '').strip(), 'sair de casa')
+    kind = v % 3
+    if kind == 0:
+        dor = f'Eu já deixei de {lugar} porque não tinha o que vestir.'
+        virada = f'Agora eu sempre tenho o que vestir, e {pron} resolve.'
+    elif kind == 1:
+        dor = f'Eu tinha medo de vestir {piece} e não me sentir valorizada.'
+        virada = 'Me senti confiante e elegante, como eu queria.'
+    else:
+        dor = f'Eu tinha vergonha de me vestir pra {lugar}.'
+        virada = f'Com {pron} eu me sinto confiante, sem aquela vergonha.'
+    fomo = (f'Se acontece contigo também, olha {dem} {piece} e fica até o fim, que o último motivo quase ninguém conta.',
+            f'Fica até o fim: olha {dem} {piece}, porque o último motivo eu quase deixei passar.',
+            f'Se é o teu caso, olha {dem} {piece}, que o último motivo pra amar {pron} quase ninguém conta.')[kind]
+    verbo = 'imagino' if (v // 2) % 2 == 0 else 'vejo'
+    ocasiao = occasions[0] if len(occasions[0].split()) <= 4 else 'no dia a dia'   # uma só e curta: 10 s não comportam mais
+    imagino = f'Eu já me {verbo} com {pron} {ocasiao}.'
+    cta = _typed_cta(c, forms, facts, 'motivos', v) if v >= 1 else _cta_for_slot(c, forms, v)
+    ultimo = (f'O último, que quase ninguém repara: {l3}.', f'{virada} {imagino}', clip_seconds.link_cta(cta))
+    if sum(_count_words(t) for t in ultimo) > clip_seconds.word_window(10)[1]:
+        ultimo = (ultimo[0], virada, ultimo[2])   # fechamento longo: o "eu me imagino" sai e o clipe volta para a faixa
+    abertura = (dor, fomo, 'Já já eu te mostro o primeiro.')
+    return [
+        abertura,
+        (f'O primeiro motivo? {f1}, olha só.',
+         f'O segundo? {f2}. Repara nesse detalhe de pertinho, é um toque que faz diferença.',
+         'E o terceiro quase ninguém repara.'),
+        ultimo,
+    ]
+
+
 def _clip_facts(arc, clips, index, facts):
     """Quais fatos a modelo demonstra (com gesto) em cada clipe."""
     f = facts[:3]
+    if arc == 'dor':
+        return [[], f[:2], f[2:3]][index]
     if arc in ('motivos', 'problema', 'mito'):
         layout = {2: [f[:2], f[2:3]], 3: [f[:1], f[1:3], []]}
     else:
@@ -495,12 +576,15 @@ _ROLES = {
     ('problema', 3): ('O problema + a peça + motivo 1', 'Motivos 2 e 3', 'O problema resolvido + fechamento (CTA)'),
     ('mito', 2): ('O mito + verdades 1 e 2', 'Verdade 3 + o mito desfeito + fechamento (CTA)'),
     ('mito', 3): ('O mito + verdade 1', 'Verdades 2 e 3', 'O mito desfeito + fechamento (CTA)'),
+    ('dor', 3): ('A dor + a lacuna do FOMO (o último motivo)', 'Motivos 1 e 2, lacuna ainda aberta',
+                 'Motivo 3 fecha a lacuna e a dor + fechamento (CTA)'),
 }
 _SCREEN = {
     'motivos': ('3 motivos pra ter essa peça', 'O 2º e o 3º motivo', 'Qual é o seu motivo?'),
     'questionada': ('Vale a pena?', 'Tirando a dúvida', 'Qual peça é a sua?'),
     'problema': ('Nada pra vestir?', 'A solução em 3 motivos', 'Qual é o seu look?'),
     'mito': ('Mito ou verdade?', 'As 3 verdades', 'Ainda parece tudo igual?'),
+    'dor': ('Você também já passou por isso?', 'Os motivos 1 e 2', 'Qual é o seu motivo?'),
 }
 
 
@@ -612,12 +696,12 @@ def _trim(text, limit):
     return text
 
 
-def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, w=None, extra=''):
+def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, w=None, extra='', visual='', frame=''):
     w = w or _wording(True)
     final = n == total
     pack = generate(source, script=dict(hook=lines[0], development=lines[1], cta=lines[2]), base_image=base_image)
     text = pack['video']
-    opening = opening or _opening_of(text, w)
+    opening = visual or opening or _opening_of(text, w)
     if n == 1:
         # o clipe 1 abre como o app ja abre o gancho do espelho e segue pelos gestos dos fatos
         abertura, meio = opening, _moves(clip_facts)
@@ -651,6 +735,17 @@ def _full_prompt(source, n, total, lines, clip_facts, base_image, opening=None, 
                      lambda m: f'{m.group(1)}–15s FIM DO TRECHO (a venda NÃO fecha aqui): sem apontar para baixo e '
                                'sem pose de fechamento; segue o gesto e a fala'
                                + (f'; {LAST_WORD}' if n > 1 else '') + '. Fala (PT-BR):', text)
+    if visual and n == 1:
+        # Gancho visual: troca o que o app manda fazer nos primeiros segundos (a fala do trecho continua a mesma).
+        text = _sub1(r'0–(\d+)s HOOK: [^\n]*?Fala \(PT-BR\):',
+                     lambda m: f'0–{m.group(1)}s HOOK: {"" if frame else w["olhar"] + ", "}{visual}. Fala (PT-BR):', text)
+        if frame:
+            # O clipe abre no primeiro quadro DO GANCHO; a imagem aprovada fica como referencia de identidade e roupa.
+            text = _sub1(r'ANEXE a IMAGEM APROVADA da cor (.*?) como primeiro quadro e referência contínua\.',
+                         lambda m: f'ANEXE a IMAGEM DO PRIMEIRO QUADRO deste gancho ({frame}) como primeiro quadro e '
+                                   f'referência contínua, e a IMAGEM APROVADA da cor {m.group(1)} como referência de '
+                                   'identidade e roupa (rosto, cabelo, corpo e peça iguais a ela em todos os quadros).',
+                         text)
     if n > 1:
         text = _sub1(r'0–(\d+)s HOOK: [^\n]*?Fala \(PT-BR\):',
                      lambda m: f'0–{m.group(1)}s CONTINUAÇÃO (não é um hook novo: não recomeçar, não reapresentar '
@@ -762,67 +857,103 @@ def _normalize_lines(clips_lines, clips):
     return out
 
 
-def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_turns=None, texture=False, slot_index=0):
+def check_arc_options(arc, clips, seconds):
+    """Valida arco, clipes e duracao. O arco de 10 s (ARCS_10S) so existe com 3 clipes de 10 s."""
+    if not clip_seconds.valid(seconds):
+        raise ArcError('Escolha clipes de 15 s ou de 10 s.', 400)
+    if arc not in ARCS and not (seconds == 10 and arc in ARCS_10S):
+        raise ArcError('Escolha um dos arcos da sequência.', 400)
+    if arc in ARCS_10S and clips != 3:
+        raise ArcError('O arco Dor e FOMO tem 3 clipes de 10 s (30 s).', 400)
+    if clips not in CLIP_COUNTS:
+        raise ArcError('Escolha 2 ou 3 clipes.', 400)
+
+
+def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_turns=None, texture=False, slot_index=0,
+                    seconds=15, hook_visual=''):
     """Monta a sequencia: falas (rascunho ou editadas), prompt completo, Guia do Grok e Extend Video por clipe,
     mais o passo a passo do CapCut. `c` e a campanha (como detail()); `color` a cor da variacao.
     Opt-in (experimental, so neste pedido, nada gravado): ``clip_turns`` (giro do corpo de cada clipe, chaves de
     CLIP_TURNS) e ``texture`` (close de textura nos motivos que sao material ou detalhe confirmado). Desligados, a
-    saida e a de sempre. ``slot_index`` (posicao da cor) so muda o rascunho: ver draft_lines."""
-    if arc not in ARCS:
-        raise ArcError('Escolha um dos arcos da sequência.', 400)
-    if clips not in CLIP_COUNTS:
-        raise ArcError('Escolha 2 ou 3 clipes.', 400)
+    saida e a de sempre. ``slot_index`` (posicao da cor) so muda o rascunho: ver draft_lines.
+    ``seconds=10`` (opt-in, Flow): clipes de 10 s (janelas 0-3, 3-8 e 8-10 s), texto sem TikTok e convite em "link aqui
+    embaixo" (services/clip_seconds.py), falas de 33 a 40 palavras; o arco ``dor`` so existe nesse modo."""
+    check_arc_options(arc, clips, seconds)
+    hook_visual = str(hook_visual or '').strip()
+    if hook_visual and hook_visual not in HOOK_VISUALS:
+        raise ArcError('Gancho visual inválido: escolha ' + ', '.join(v['label'] for v in HOOK_VISUALS.values()) + '.',
+                       400)
     turns = _clip_turn_list(clip_turns, clips)
     espelho, facts = check_campaign(c)
+    if hook_visual and not espelho:
+        raise ArcError('O gancho visual vale no formato "Celular no espelho".', 400)
     w = _frame_wording(_wording(espelho), c, espelho)
     drafted = lines is None
-    clip_lines = ([_cut_optional(_pad(trio)) for trio in draft_lines(c, arc, clips, facts, slot_index)] if drafted
-                  else _normalize_lines(lines, clips))
+    if not drafted:
+        clip_lines = _normalize_lines(lines, clips)
+    elif seconds == 10:
+        fill = clip_seconds.word_window(seconds)
+        rascunho = (draft_lines_dor(c, facts, slot_index) if arc == 'dor'
+                    else draft_lines(c, arc, clips, facts, slot_index))
+        clip_lines = [_cut_optional(_pad(tuple(clip_seconds.link_cta(t) for t in trio), fill[0]), fill)
+                      for trio in rascunho]
+    else:
+        clip_lines = [_cut_optional(_pad(trio)) for trio in draft_lines(c, arc, clips, facts, slot_index)]
     result = _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
-                       turns=turns, texture=bool(texture))
+                       turns=turns, texture=bool(texture), seconds=seconds, hook_visual=hook_visual)
+    if hook_visual:
+        result['hook_visual'] = hook_visual
+        result['hook_visual_label'] = HOOK_VISUALS[hook_visual]['label']
     # Os tipos do rascunho desta cor (so o rascunho: fala editada ou da IA nao carrega tipo).
-    if drafted and slot_index >= 1:
+    if drafted and arc in ARCS_10S:
+        result['opening_type'] = 'Dor e FOMO'
+        if slot_index >= 1:
+            result['closing_type'] = cta_types.label(closing_type(c, 'motivos', slot_index, facts))
+    elif drafted and slot_index >= 1:
         result['closing_type'] = cta_types.label(closing_type(c, arc, slot_index, facts))
         result['opening_type'] = 'Suspense e FOMO' if slot_index % 2 == 1 else ''
     return result
 
 
-def write_lines_with_ai(c, arc, clips, settings, slot_index=0):
+def write_lines_with_ai(c, arc, clips, settings, slot_index=0, seconds=15):
     """Falas da sequencia escritas pela IA, conferidas pela mesma regua do rascunho (clip_problems), e cada um
     dos 3 fatos citado. Devolve (falas, fatos, motivo_da_falha). So roda pelo botao proprio: gasta tokens."""
     from services import copywriter
-    if arc not in ARCS:
-        raise ArcError('Escolha um dos arcos da sequência.', 400)
-    if clips not in CLIP_COUNTS:
-        raise ArcError('Escolha 2 ou 3 clipes.', 400)
+    check_arc_options(arc, clips, seconds)
     espelho, facts = check_campaign(c)
     source = {**c, 'video_mode': 'espelho' if espelho else ''}
     fatos = [f['text'] for f in facts[:3]]
     roles = _ROLES[(arc, clips)]
+    floor, ceiling = clip_seconds.word_window(seconds) or (WORD_FLOOR, WORD_CEILING)
     oferta = str(c.get('offer') or '').strip()
-    tipo = closing_type(c, arc, slot_index, facts)
+    dez = seconds == 10
+    tipo = closing_type(c, 'motivos' if arc in ARCS_10S else arc, slot_index, facts)
     tipos = [cta_types.rule_text()]
     if tipo:
         tipos.append(f'Neste vídeo o fechamento é do tipo "{cta_types.label(tipo)}": {cta_types.GUIDE[tipo]}.')
-    if slot_index % 2 == 1:
+    if slot_index % 2 == 1 or arc in ARCS_10S:
         tipos.append('A abertura do clipe 1 é de suspense e FOMO: abre uma lacuna que o vídeo fecha ("o último motivo é o que '
                      'quase todo mundo passa batido"), sem estoque, prazo ou preço e sem falar em carrinho.')
     system = '\n'.join([
         'Você escreve as falas de vídeos UGC do TikTok Shop em português do Brasil, em primeira pessoa, como uma '
         'cliente real' + (' gravando o próprio look no espelho com o celular na mão.' if espelho
                           else ' falando de frente para a câmera.'),
-        f'É uma SEQUÊNCIA de {clips} clipes de 15 segundos, emendados no CapCut. Arco: {ARCS[arc]["hint"]}.',
+        f'É uma SEQUÊNCIA de {clips} clipes de {seconds} segundos, emendados no CapCut. Arco: {arc_info(arc)["hint"]}.',
         'Regras:',
-        '- Cada clipe tem 3 trechos: abertura (0-4 s), meio (4-12 s) e fechamento (12-15 s).',
-        f'- Cada clipe soma de {WORD_FLOOR} a {WORD_CEILING - 1} palavras: quem vende fala o clipe inteiro, e fala '
-        'curta deixa silêncio no fim. Nunca passe de ' + str(WORD_CEILING) + ' palavras por clipe.',
+        ('- Cada clipe tem 3 trechos: abertura (0-3 s), meio (3-8 s) e fechamento (8-10 s).' if dez else
+         '- Cada clipe tem 3 trechos: abertura (0-4 s), meio (4-12 s) e fechamento (12-15 s).'),
+        f'- Cada clipe soma de {floor} a {ceiling - 1} palavras: quem vende fala o clipe inteiro, e fala '
+        'curta deixa silêncio no fim. Nunca passe de ' + str(ceiling) + ' palavras por clipe.',
         '- Os motivos são SÓ estes fatos da peça, nesta ordem, citados com estas palavras: '
         + '; '.join(f'{n}) {t}' for n, t in enumerate(fatos, 1)) + '.',
         '- Não invente nada fora do briefing: tecido, conforto, caimento, tamanho, transparência, durabilidade, preço, '
         'desconto, estoque ou prazo. Opinião pessoal pode ("fiquei me sentindo linda"); desempenho, não.',
         '- Papel de cada clipe: ' + '; '.join(f'clipe {n}: {r}' for n, r in enumerate(roles, 1)) + '.',
-        '- Só o último clipe pede a compra, com "carrinho laranja". Os outros terminam deixando gancho para o '
-        'próximo clipe, sem falar em carrinho, comprar ou garantir.',
+        ('- Só o último clipe pede a compra, com "link aqui embaixo" (nunca "carrinho": no Flow o carrinho falado vira '
+         'ícone na tela). Os outros terminam deixando gancho para o próximo clipe, sem falar em link, comprar ou garantir.'
+         if dez else
+         '- Só o último clipe pede a compra, com "carrinho laranja". Os outros terminam deixando gancho para o '
+         'próximo clipe, sem falar em carrinho, comprar ou garantir.'),
         ('- Oferta real que pode ser citada no último clipe, com os números exatos: ' + oferta) if oferta
         else '- Não existe oferta: nada de urgência, "só hoje", "últimas peças" ou desconto.',
         '- Linguagem falada e natural, com as emendas de quem conversa ("e olha", "sério", "aí"). Nada de direção '
@@ -850,8 +981,8 @@ def write_lines_with_ai(c, arc, clips, settings, slot_index=0):
             if (not isinstance(trio, list) or len(trio) != 3
                     or not all(isinstance(t, str) and t.strip() for t in trio)):
                 return None, [f'o clipe {i} precisa ter 3 trechos de texto']
-            trio = [' '.join(t.split()) for t in trio]
-            problemas += [f'clipe {i}: {p}' for p in clip_problems(trio, i, clips, source)]
+            trio = [clip_seconds.link_cta(' '.join(t.split())) if dez else ' '.join(t.split()) for t in trio]
+            problemas += [f'clipe {i}: {p}' for p in clip_problems(trio, i, clips, source, seconds)]
             falas.append(trio)
         juntos = ' '.join(' '.join(t) for t in falas).casefold()
         problemas += [f'o fato "{t}" não foi citado' for t in fatos if t.casefold() not in juntos]
@@ -895,17 +1026,18 @@ def check_campaign(c):
     return espelho, facts
 
 
-def clip_problems(trio, index, clips, source):
+def clip_problems(trio, index, clips, source, seconds=15):
     """A regua de cada clipe, igual para o rascunho e para as falas da IA: honestidade (nada fora do briefing,
-    urgencia so com oferta real), so o ultimo clipe pede a compra e a fala ocupa os 15 s sem correr."""
+    urgencia so com oferta real), so o ultimo clipe pede a compra e a fala ocupa os 15 s (ou os 10 s) sem correr."""
     words = sum(_count_words(part) for part in trio)
+    floor, ceiling = clip_seconds.word_window(seconds) or (WORD_FLOOR, WORD_CEILING)
     problems = list(honesty_audit(dict(hook=trio[0], development=trio[1], cta=trio[2]), source,
                                   require_caption=False, strict_style=False))
-    if index < clips and re.search(r'carrinho|corre pro|garante', ' '.join(trio), re.I):
+    if index < clips and re.search(r'carrinho|corre pro|garante|corre no link', ' '.join(trio), re.I):
         problems.append('só o último clipe pode pedir a compra')
-    if words < WORD_FLOOR:
+    if words < floor:
         problems.append(f'fala curta ({words} palavras): pode sobrar silêncio no fim do clipe')
-    elif words > WORD_CEILING:
+    elif words > ceiling:
         problems.append(f'fala longa ({words} palavras): pode ficar corrida')
     return problems
 
@@ -985,7 +1117,19 @@ def agent_pack(c, source, espelho, clips):
                        'repita só a ÂNCORA, não o prompt inteiro.'])
 
 
-def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w, turns=None, texture=False):
+def _hook_face_exception(text):
+    """Os ganchos de camera (mao na frente do quadro, entrada de surpresa) quebram por 1 ou 2 s a regra "rosto sempre inteiro
+    no reflexo": sem a excecao escrita, o prompt se contradiz e o gerador ignora o gancho."""
+    text = text.replace('O rosto fica sempre inteiro no reflexo enquanto ela fala',
+                        'Depois da abertura do gancho (os primeiros 2 s), o rosto fica sempre inteiro no reflexo '
+                        'enquanto ela fala')
+    text = text.replace('sempre inteiro na imagem enquanto ela fala',
+                        'inteiro na imagem enquanto ela fala, exceto na abertura do gancho (os primeiros 2 s)')
+    return text.replace('sem cobrir o rosto nem a peça', 'sem cobrir o rosto nem a peça (exceto na abertura do gancho)')
+
+
+def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w, turns=None, texture=False,
+              seconds=15, hook_visual=''):
     """Prompts de cada clipe, montagem no CapCut e o texto para copiar."""
     # De frente, a sequencia traz falas proprias: o formato da campanha (teste, comentario...) nao entra nos
     # clipes, so a base de camera de frente.
@@ -1009,9 +1153,11 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
             textured += [f['text'] for f in facts_here if f.get('texture') and f['text'] not in textured]
         else:
             facts_here = _clip_facts(arc, clips, i - 1, facts)
-        full, opening, acoes = _full_prompt(clip_source, i, clips, trio, facts_here, base_image, opening, w, extra)
+        full, opening, acoes = _full_prompt(clip_source, i, clips, trio, facts_here, base_image, opening, w, extra,
+                                            visual=HOOK_VISUALS[hook_visual]['action'] if hook_visual and i == 1 else '',
+                                            frame=HOOK_VISUALS[hook_visual]['frame'] if hook_visual and i == 1 else '')
         words = sum(_count_words(part) for part in trio)
-        problems = clip_problems(trio, i, clips, source)
+        problems = clip_problems(trio, i, clips, source, seconds)
         image_prompt, lean_ok = '', True
         if i > 1 and generators.of(c) is generators.GROK:
             # O Grok pediu que o clipe 2 em diante parta do ultimo quadro do clipe anterior: prompt enxuto. O completo
@@ -1026,13 +1172,31 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         if generators.of(c) is generators.GROK and len(full) > GROK_LIMIT:  # o Flow nao tem limite de prompt
             problems.append(f'o prompt tem {len(full)} caracteres e o Grok corta em '
                             f'{generators.GROK.max_prompt_chars:,}'.replace(',', '.'))
+        guide = _guide(clip_source, i, clips, trio, acoes, w)
+        extend = _extend(i, clips, trio, acoes, w) if i > 1 else ''
+        if hook_visual and i == 1:
+            full, guide = _hook_face_exception(full), _hook_face_exception(guide)
+        if seconds == 10:
+            # Clipe de 10 s para o Flow: janelas, resolucao e texto sem TikTok (services/clip_seconds.py). Aviso, nunca erro.
+            full, image_prompt, guide, extend = (clip_seconds.flow_safe(clip_seconds.retime(t, seconds))
+                                                 for t in (full, image_prompt, guide, extend))
+            problems += [p for t in (full, guide) for p in clip_seconds.timing_problems(t, seconds)]
         clip = dict(
-            index=i, role=role, final=i == clips, seconds=SECONDS_PER_CLIP, lines=list(trio), words=words,
+            index=i, role=role, final=i == clips, seconds=seconds, lines=list(trio), words=words,
             spoken=' '.join(trio), screen_text=screen, problems=problems,
-            prompt=full, prompt_image=image_prompt, guide=_guide(clip_source, i, clips, trio, acoes, w),
-            extend=_extend(i, clips, trio, acoes, w) if i > 1 else '',
+            prompt=full, prompt_image=image_prompt, guide=guide,
+            extend=extend,
             start='imagem aprovada' if i == 1 else (f'último quadro do clipe {i - 1}' if image_prompt
                                                     else 'a mesma imagem aprovada do clipe 1'))
+        if hook_visual and i == 1:
+            # Prompt de imagem do PRIMEIRO QUADRO do gancho (o clipe abre nele, nao na imagem aprovada).
+            frame = HOOK_VISUALS[hook_visual]['frame']
+            image = generate(clip_source, script=dict(hook=trio[0], development=trio[1], cta=trio[2]),
+                             base_image=base_image)['image']
+            frame_prompt = (f'{image} PRIMEIRO QUADRO DESTE GANCHO (obrigatório, vale sobre o que está dito acima): {frame}. '
+                            'Cenário, luz, roupa e cor iguais aos da imagem aprovada. Apenas uma imagem estática.')
+            clip['frame_prompt'] = clip_seconds.flow_safe(frame_prompt) if seconds == 10 else frame_prompt
+            clip['start'] = 'primeiro quadro do gancho'
         if turns:
             clip['turn'] = turn
             clip['turn_label'] = CLIP_TURNS[turn]['label']
@@ -1068,6 +1232,14 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
         'Se preferir uma emenda invisível, use o prompt de Extend Video do clipe 2 no vídeo do clipe 1.',
     ]
     notes = ['As falas são um rascunho: leia, ajuste ao seu jeito de falar e confira se cada motivo é verdade.']
+    if seconds == 10:
+        notes.append('Clipes de 10 s para o Flow (Gemini Omni Flash, 720p). Nenhum prompt cita TikTok e o convite é "link '
+                     'aqui embaixo": no Flow o carrinho falado e a palavra TikTok viraram ícone e marca de água na tela. '
+                     'Se o Flow recusar um clipe, gere o seguinte e me avise qual foi.')
+    if arc == 'dor':
+        notes.append('A dor é uma situação comum em primeira pessoa (não ter o que vestir, não se sentir valorizada, '
+                     'vergonha), nunca um defeito de outra peça nem promessa de resultado. O FOMO é uma lacuna que o '
+                     'vídeo fecha, sem estoque, prazo nem preço.')
     if not espelho:
         notes.append('Com a modelo de frente, esta sequência ainda não foi testada no Grok (a validada é a do '
                      'espelho): gere o clipe 1 primeiro e confira antes de seguir. O formato da campanha (teste, '
@@ -1091,12 +1263,12 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
                      'cetim, malha, botões...), então os prompts não mudaram.')
     total_seconds = sum(clip['seconds'] for clip in result)
     text = '\n\n'.join(
-        [f'SEQUÊNCIA STORYTELLING · {ARCS[arc]["label"]} · {clips} clipes · cerca de {total_seconds}s']
+        [f'SEQUÊNCIA STORYTELLING · {arc_info(arc)["label"]} · {clips} clipes · cerca de {total_seconds}s']
         + [f'CLIPE {clip["index"]}/{clips} · {clip["role"]}\nFalas:\n' + '\n'.join(clip['lines'])
            + f'\nTexto na tela (CapCut): {clip["screen_text"]}\n\nPROMPT COMPLETO\n{clip["prompt"]}'
            for clip in result]
         + ['MONTAGEM NO CAPCUT\n' + '\n'.join(f'{i}. {step}' for i, step in enumerate(capcut, 1))])
-    return dict(arc=arc, label=ARCS[arc]['label'], clips_count=clips, color=color, drafted=drafted,
+    return dict(arc=arc, label=arc_info(arc)['label'], clips_count=clips, color=color, drafted=drafted,
                 total_seconds=total_seconds, facts=[f['text'] for f in facts[:3]], clips=result, tips=tips,
-                capcut=capcut, notes=notes, notices=generators.flow_notices(c, 'Esta sequência', SECONDS_PER_CLIP),
-                agent=agent_pack(c, source, espelho, result), text=text)
+                capcut=capcut, notes=notes, notices=generators.flow_notices(c, 'Esta sequência', seconds),
+                agent=agent_pack(c, source, espelho, result) if seconds == 15 else None, text=text, seconds=seconds)
