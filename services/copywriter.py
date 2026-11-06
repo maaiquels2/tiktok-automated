@@ -30,7 +30,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from services import formats, persuasion, script_budget, speech_bank
+from services import formats, hook_types, persuasion, script_budget, speech_bank
 
 # Uso da IA por requisicao: cada chamada ao provedor anota os tokens aqui e o
 # app grava por campanha (o que a OpenAI cobra).
@@ -172,7 +172,7 @@ OBJETIVO CRIATIVO
 - A direção de câmera e os movimentos acontecem na imagem. A pessoa NÃO fala "aproximo a câmera", "mostrando o caimento", "faço um giro", "close" ou qualquer instrução de produção.
 
 ESTRUTURA (obrigatória)
-- hook (abertura, de @HOOK@ palavras): uma confissão, receio, contraste ou descoberta específica. Abre tensão sem usar perguntas genéricas como "quer ver?", "como fica?", "você usaria?" ou "será que parece bonita?".
+- hook (abertura, de @HOOK@ palavras): uma confissão, receio, contraste ou descoberta específica, e fecha a própria tensão com o fato dentro do hook (o desenvolvimento não paga um "..."). Pergunta só se carregar o fato ou a dor; nunca perguntas genéricas ou vazias como "quer ver?", "como fica?", "você usaria?", "você sabia disso?" ou "será que parece bonita?".
 - development (meio, de @DEVELOPMENT@ palavras): linguagem falada em primeira pessoa, com as pausas e emendas de quem conversa ("e olha", "sério", "aí"). Traz uma prova concreta, resolve a objeção e conecta a peça a uma ocasião real. Descreva a experiência, nunca a câmera.
 - cta (fechamento, de @CTA@ palavras): fechamento assertivo com UMA ação concreta e imediata. Use "carrinho laranja" e verbos como "corre", "abre", "toca", "escolhe", "garante" ou "aproveita". Exemplos sem oferta real: "Corre pro carrinho laranja e confere os detalhes agora." / "Abre o carrinho laranja e escolhe a sua versão." Exemplos com OFERTA REAL confirmada: "Aproveita a oferta e corre pro carrinho laranja agora." Nunca comece com "se gostou", "se fez sentido", "quer levar", "gosta de" ou outro pedido de permissão. Nunca diga "produto marcado".
 - TOTAL das três falas: de @TOTAL@ palavras. O vídeo tem 15 segundos e quem vende fala o tempo todo: fala curta
@@ -194,6 +194,7 @@ REGRAS INEGOCIÁVEIS
 8. As três opções devem usar ângulos narrativos e palavras diferentes. Não entregue paráfrases da mesma ideia.
 9. ORALIDADE: escreva como se fala no Brasil, não como se escreve. Use "pra", "tá", "tô", "cê" quando soar natural; no máximo uma interjeição curta ("gente", "olha", "sério"); frases curtas ligadas por "e", "aí", "e o melhor". Hook, desenvolvimento e CTA são UM pensamento contínuo: o desenvolvimento continua o hook, não recomeça. Nunca empilhe ordens ("Repara... Olha... Veja..."), nunca liste atributos e nunca repita no desenvolvimento o atributo que o hook já disse.
 10. GATILHOS DE VENDA, SEMPRE COM FATO: curiosidade (o hook abre um "por quê" que o meio responde), especificidade (um detalhe concreto vale mais que três adjetivos), identificação com a dor, imaginação de uso ("imagina…"), prova social e escassez. Prova social (vendidos, nota, avaliações) só com PROVA SOCIAL DECLARADA; escassez (prazo, estoque, desconto, frete, cupom) só com os FATOS DE URGÊNCIA PERMITIDOS, com o número exato. Uma única ação no CTA.
+11. @HOOK_TYPES@
 
 Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 {"options": [{"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}, {"hook": "...", "development": "...", "cta": "...", "caption": "..."}]}"""
@@ -204,6 +205,7 @@ Responda SOMENTE com um objeto JSON válido, sem markdown, sem comentário:
 for _marca, (_low, _high) in {**{k.upper(): v for k, v in script_budget.TARGET.items()},
                               'TOTAL': script_budget.FILL}.items():
     SYSTEM_PROMPT = SYSTEM_PROMPT.replace(f'@{_marca}@', f'{_low} a {_high}')
+SYSTEM_PROMPT = SYSTEM_PROMPT.replace('@HOOK_TYPES@', hook_types.rule_text())
 
 # Reaproveita todas as regras editoriais acima, trocando apenas o contrato de
 # resposta. Assim uma campanha com cinco cores custa uma solicitacao ao
@@ -259,6 +261,22 @@ def _batch_axis(index: int, campaign: dict) -> tuple[str, str]:
     if offer_text(campaign):
         axes.insert(5,('economia real', 'use somente a oferta confirmada para explicar o valor da escolha'))
     return axes[index % len(axes)]
+
+
+def _batch_hook_type(index: int, campaign: dict) -> tuple[str, str]:
+    """Tipo de gancho da cor `index` (services/hook_types.py): so os tipos que o briefing sustenta."""
+    has_proof = bool(persuasion.social_facts(campaign.get('social_proof')) or persuasion.size_facts(campaign.get('size_proof'))
+                     or persuasion.audience_identity(campaign.get('audience')))
+    kind = hook_types.type_for_color(index, bool(objection_parts(campaign)[0]), has_proof)
+    return kind, hook_types.LABELS[kind]
+
+
+def _hook_type_line(campaign: dict) -> str:
+    kind = campaign.get('batch_hook_type')
+    if not kind:
+        return ''
+    return (f"TIPO DE GANCHO OBRIGATÓRIO: {hook_types.LABELS.get(kind, kind)}. O hook desta cor segue esse tipo e abre "
+            'diferente dos hooks das outras cores.')
 
 
 # --------------------------------------------------------------------------- config
@@ -578,6 +596,9 @@ def audit(pack: dict, c: dict, require_caption: bool = True,
         if achado:
             problemas.append(f'"{achado.group(0)}" é direção de cena e não pode ser pronunciada')
             break
+
+    # Regra de gancho (services/hook_types.py): credencial ou historia inventada e pergunta vazia reprovam sempre.
+    problemas.extend(hook_types.problems(pack.get('hook')))
 
     if strict_style:
         for padrao in GENERIC_HOOK_PATTERNS:
@@ -974,6 +995,8 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
         user += (f"\n\nEIXO NARRATIVO OBRIGATÓRIO: {c['batch_axis']} — {c.get('batch_axis_direction') or ''}.\n"
                  'Outras cores desta campanha são escritas em paralelo com outros eixos: não use a estrutura de '
                  'hook padrão nem a mesma sequência de desenvolvimento que uma cor qualquer teria.')
+        if _hook_type_line(c):
+            user += '\n' + _hook_type_line(c)
     ultimo = ''
     comeco = time.monotonic()
     for tentativa in range(max(1, attempts)):
@@ -1088,12 +1111,14 @@ def write_scripts(campaigns: list[dict], settings: dict,
         if key in expected:
             return None, f'chave repetida no lote: {key}'
         axis_name,axis_direction=_batch_axis(index+index_offset,campaign)
-        campaign={**campaign,'batch_axis':axis_name}
+        hook_kind,_hook_label=_batch_hook_type(index+index_offset,campaign)
+        campaign={**campaign,'batch_axis':axis_name,'batch_hook_type':hook_kind}
         expected[key] = campaign
         briefs.append(
             f'### CHAVE: {key}\n'
             f'EIXO NARRATIVO OBRIGATÓRIO: {axis_name} — {axis_direction}.\n'
             f'PROIBIDO reutilizar este eixo, a estrutura do hook ou a sequência do desenvolvimento em outra chave.\n'
+            f'{_hook_type_line(campaign)}\n'
             f'{build_brief(campaign)}')
     base_user = ('Gere os roteiros de TODAS as chaves abaixo. Cada bloco é um '
                  'vídeo separado; nunca combine cores no mesmo roteiro.\n\n'

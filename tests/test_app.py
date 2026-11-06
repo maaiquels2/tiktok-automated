@@ -253,7 +253,7 @@ class WorkflowTests(unittest.TestCase):
         for key in ('image','development','cta'):
             self.assertEqual(updated['prompts'][key],before['prompts'][key])
         self.assertIn(updated['prompts']['hook'].rstrip('.'),updated['prompts']['video'])
-        self.assertIn('0–4s HOOK:',updated['prompts']['video'])
+        self.assertRegex(updated['prompts']['video'],r'0–\d+s HOOK:')
         self.assertFalse(any(a['kind']=='video' for a in updated['assets']))
         self.assertTrue(next(a for a in updated['assets'] if a['kind']=='image')['approved_at'])
         again=self.post('/prompts/refresh',{'fields':['hook','development','cta','caption']})

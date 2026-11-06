@@ -3,7 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from services import formats, generators, persuasion, piece, script_budget, speech_bank
+from services import formats, generators, hook_types, persuasion, piece, script_budget, speech_bank
 from services.framing import (mirror_cover, mirror_image_rules, mirror_phone, mirror_scope, mood, push_target,
                               speech_framing)
 from services.framing import framing as _frame_shot
@@ -1614,7 +1614,20 @@ def _hook_pool(c, detail, forms):
         for item in group:
             if item and item not in pool:
                 pool.append(item)
+    # Moldes dos cinco tipos de gancho (services/hook_types.py), depois dos que ja existiam.
+    # Sem detalhe real do briefing o texto de reserva ("o caimento e os detalhes visiveis") nao carrega um gancho de tipo.
+    for item in hook_types.typed_hooks(forms, '' if det == _fallback_detail(c) else det, pain):
+        if item not in pool:
+            pool.append(item)
     return pool
+
+
+def hook_type_for(c, index):
+    """Tipo de gancho da cor `index` (services/hook_types.py): so usa o que o briefing sustenta."""
+    has_proof = bool(persuasion.social_facts(c.get('social_proof')) or persuasion.size_facts(c.get('size_proof'))
+                     or persuasion.audience_identity(c.get('audience')))
+    return (hook_types.type_for_color(index, bool(objection_parts(c)[0]), has_proof),
+            hook_types.slot_in_type(index, bool(objection_parts(c)[0]), has_proof))
 
 
 # Prova falada de cada objecao: primeira pessoa, presente, sobre o que o
@@ -2070,8 +2083,15 @@ def _script_variation(c, color, index=0, filler=True):
     detail = with_article(focus if focus else _fallback_short(c))
     i = int(index or 0)
 
-    selected_hook = pick_in_budget(apparel_free(c, _hook_pool(c, hook_detail, forms)), i, *script_budget.LOCAL_PICK['hook'],
-                                    _used_keys(c, 'hook'))
+    hook_pool = apparel_free(c, _hook_pool(c, hook_detail, forms))
+    hook_index = i
+    if not offer_text(c) and not chosen_motor(c) and hook_detail != _fallback_detail(c):
+        # Regra de gancho: cada cor um tipo (curiosidade, dor, direto, historia, autoridade). Com oferta real o gancho de
+        # escassez continua na frente; motor escolhido a mao no formulario tambem manda; sem detalhe real do briefing
+        # a voz da categoria vem antes (os moldes de tipo precisam do detalhe).
+        kind, hook_index = hook_type_for(c, i)
+        hook_pool = hook_types.restrict(hook_pool, kind)
+    selected_hook = pick_in_budget(hook_pool, hook_index, *script_budget.LOCAL_PICK['hook'], _used_keys(c, 'hook'))
     selected_development = _development_line(c, detail, features, forms, i,
                                              _used_keys(c, 'development'), hook=selected_hook)
     selected_cta = pick_in_budget(cta_pool(c, forms), i, *script_budget.LOCAL_PICK['cta'],

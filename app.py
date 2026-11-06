@@ -2182,10 +2182,13 @@ def create_app(config=None):
         comeco=time.monotonic()
         # Uma chamada por cor, mas cada uma com o seu eixo narrativo (o mesmo do lote): sem isso as chamadas, que nao
         # se enxergam, caiam no mesmo molde de fala.
+        def _copywriter_hook_type(i,item):
+            return copywriter._batch_hook_type(i,item)[0]
         if len(campaigns)>1:
             eixos=[copywriter._batch_axis(i,item) for i,item in enumerate(campaigns)]
-            campaigns=[{**item,'batch_axis':nome,'batch_axis_direction':direcao}
-                       for item,(nome,direcao) in zip(campaigns,eixos)]
+            campaigns=[{**item,'batch_axis':nome,'batch_axis_direction':direcao,
+                        'batch_hook_type':_copywriter_hook_type(i,item)}
+                       for i,(item,(nome,direcao)) in enumerate(zip(campaigns,eixos))]
         with ThreadPoolExecutor(max_workers=min(8, len(campaigns))) as pool:
             # Cada cor leva o contexto da requisicao (registro de uso da IA).
             tarefas=[pool.submit(contextvars.copy_context().run, copywriter.write_script, item, settings)
