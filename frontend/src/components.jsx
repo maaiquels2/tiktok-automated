@@ -379,11 +379,14 @@ export function AgentImages({campaignId,colorCount,onError}){
 }
 
 const UNAPPLIED_DRAFTS=new Map();
-export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=0,autoBuild=false}){
+export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=0,autoBuild=false,generator='flow'}){
   // Escolhida na criacao da campanha: ja abre com o arco e os clipes marcados e monta sozinha.
   const [open,setOpen]=useState(autoBuild);
-  const [arc,setArc]=useState(initialArc||'motivos');
-  const [clips,setClips]=useState(Number(initialClips)||3);
+  // Padrao por gerador (regra dos lotes de 2026-11-06): no Flow, 3 clipes de 10 s com o arco Dor e FOMO; no Grok, 2 clipes de
+  // 15 s (30 s). Uma sequencia escolhida na criacao da campanha mantem o arco e os clipes que a pessoa escolheu la.
+  const flowDefault=!initialClips&&generator!=='grok';
+  const [arc,setArc]=useState(initialArc||(flowDefault?'dor':'motivos'));
+  const [clips,setClips]=useState(Number(initialClips)||(generator==='grok'?2:3));
   const [data,setData]=useState(null);
   const [drafts,setDrafts]=useState([]);
   const [loading,setLoading]=useState(false);
@@ -391,7 +394,7 @@ export function StoryArcs({campaignId,variantId=null,initialArc='',initialClips=
   const [facts,setFacts]=useState('');
   const [turns,setTurns]=useState([]);
   const [texture,setTexture]=useState(false);
-  const [seconds,setSeconds]=useState(15);
+  const [seconds,setSeconds]=useState(flowDefault?10:15);
   const [hookVisual,setHookVisual]=useState('');
   const clipCount=clipsFor(arc,clips);   // o arco Dor e FOMO tem sempre 3 clipes de 10 s
   // ai=true so pelo botao proprio: gasta tokens. A montagem automatica ao abrir a etapa reaproveita as falas que
@@ -645,7 +648,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
     <div className="rd-wb-main">
       {campaign?.id&&campaign.sequence_clips&&ARC_FORMATS.includes(campaign.video_mode||'')&&<div className="rd-story rd-story-top">
         <StoryArcs key={`arcs-top-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}
-          initialArc={campaign.sequence_arc} initialClips={campaign.sequence_clips} autoBuild/></div>}
+          initialArc={campaign.sequence_arc} initialClips={campaign.sequence_clips} autoBuild generator={campaign.generator}/></div>}
       <section className="rd-card" aria-label="Prompt de vídeo">
         <div className="rd-card-head"><h3>Prompt de vídeo{color?` · ${color}`:''}</h3><PromptScore text={p.video} maxChars={videoPromptLimit}/></div>
         <div className="rd-segments">
@@ -697,7 +700,7 @@ export function VideoWorkbench({campaign,prompts,color,variantId=null,image,vide
         </section>
         {campaign?.id&&p.hook&&p.development&&p.cta&&<div className="rd-story"><StorySequence key={[p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>
           {campaign.video_mode!=='mesa'&&<HomeReveal key={['casa',variantId||'base',p.hook,p.development,p.cta].join('|')} campaignId={campaign.id} variantId={variantId} onError={onError}/>}
-          {ARC_FORMATS.includes(campaign.video_mode||'')&&!campaign.sequence_clips&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId}/>}</div>}
+          {ARC_FORMATS.includes(campaign.video_mode||'')&&!campaign.sequence_clips&&<StoryArcs key={`arcs-${variantId||'base'}`} campaignId={campaign.id} variantId={variantId} generator={campaign.generator}/>}</div>}
       </div>
 
       <section className="rd-drop" ref={dropRef} aria-label={`Vídeo de ${name}`}>

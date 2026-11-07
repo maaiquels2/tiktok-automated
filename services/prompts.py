@@ -3,7 +3,7 @@ import difflib
 import re
 import unicodedata
 
-from services import formats, generators, hook_types, persuasion, piece, script_budget, speech_bank
+from services import clip_seconds, formats, generators, hook_types, persuasion, piece, script_budget, speech_bank
 from services.framing import (mirror_cover, mirror_image_rules, mirror_phone, mirror_scope, mood, push_target,
                               speech_framing)
 from services.framing import framing as _frame_shot
@@ -3369,7 +3369,10 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     benefit = _phrase(c['benefit'])
     movements = _phrase(c.get('movements')) or 'movimentos sutis e naturais que mostrem o caimento da peça'
     color = _phrase(c.get('color'))
+    flow = generators.of(c) is generators.FLOW
     hook, development, cta = _script_variation(c, color, variant_index)
+    if flow:   # regra do Flow (lotes de 2026-11-06): o carrinho falado virava icone na tela; so a fala gerada muda
+        hook, development, cta = (clip_seconds.link_cta(t) for t in (hook, development, cta))
     if script:
         hook = _spoken_line(script.get('hook'), hook)
         development = _spoken_line(script.get('development'), development)
@@ -3467,6 +3470,8 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     limite = _limite_video(c)
     if limite and len(video) > limite and not script:
         sem = _script_variation(c, color, variant_index, filler=False)
+        if flow:
+            sem = tuple(clip_seconds.link_cta(t) for t in sem)
         if sem != (hook, development, cta):
             video_sem = montar(*sem)
             if len(video_sem) < len(video):
@@ -3486,6 +3491,8 @@ def generate(c, script=None, variant_index=0, base_image=False, audit=None, atte
     if _line_key(screen_text) == _line_key(cover_text):
         screen_text = _screen_text(c, forms_txt, detail_txt, variant_index + 2)
     screen_text = formats.screen_text(c, forms_txt, objection_parts(c)[0]) or screen_text
+    if flow:   # sem a palavra TikTok (o Flow desenhava o icone), sem logotipo de app e com clima casual
+        image, video = clip_seconds.flow_safe(image), clip_seconds.flow_safe(video)
     return dict(image=image, video=video, hook=hook, development=development, cta=cta,
                 caption=caption, cover_text=cover_text, screen_text=screen_text,
                 variation_index=variant_index)

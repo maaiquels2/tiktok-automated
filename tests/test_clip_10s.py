@@ -9,6 +9,8 @@ from pathlib import Path
 
 from app import create_app
 from services import clip_seconds
+from services.prompt_improve import build_compact_video_prompt
+from services.prompts import generate
 from services.story_arcs import ARCS, ARCS_10S, HOOK_VISUALS, ArcError, build_story_arc
 
 PRODUCTS = {
@@ -163,6 +165,50 @@ class TenSecondsEngineTests(unittest.TestCase):
         linhas[0][1] += ' ' + 'E tem mais um motivo que eu preciso te contar agora mesmo, presta atenção.'
         longo = build_story_arc(c, c['color'], 'dor', 3, lines=linhas, seconds=10)
         self.assertIn('fala longa', ' '.join(longo['clips'][0]['problems']))
+
+
+class FlowRuleTests(unittest.TestCase):
+    """A regra do Flow vale para TODO prompt de Flow, tambem o de 15 s e o clipe unico (Grok nao muda)."""
+
+    def test_every_flow_prompt_is_clean_at_fifteen_seconds(self):
+        for name in PRODUCTS:
+            for modo in ('', 'espelho'):
+                c = campaign(name, video_mode=modo)
+                pacote = generate(c)
+                self.assertNotIn('TikTok', pacote['video'], (name, modo))
+                self.assertNotIn('TikTok', pacote['image'], (name, modo))
+                self.assertIn("marca d'água de qualquer aplicativo", pacote['video'], (name, modo))
+                self.assertIn('15 segundos', pacote['video'])          # a duracao continua a de sempre
+                self.assertNotIn('carrinho laranja', pacote['cta'], (name, modo))
+                self.assertNotIn('TikTok', build_compact_video_prompt(c, pacote, c['color']), (name, modo))
+
+    def test_grok_prompts_are_unchanged(self):
+        for name in PRODUCTS:
+            pacote = generate(campaign(name, generator='grok', video_mode='espelho'))
+            self.assertIn('TikTok', pacote['video'], name)
+            self.assertNotIn("marca d'água de qualquer aplicativo", pacote['video'], name)
+            self.assertIn('carrinho laranja', pacote['cta'], name)
+
+    def test_a_cta_typed_by_the_operator_is_never_rewritten(self):
+        c = campaign('jeans')
+        pacote = generate(c, script=dict(hook='Olha essa calça', development='Tem bolso fundo',
+                                         cta='Corre pro carrinho laranja agora'))
+        self.assertIn('carrinho laranja', pacote['cta'])
+
+    def test_flow_sequences_at_fifteen_seconds_follow_the_rule_too(self):
+        for name in PRODUCTS:
+            c = campaign(name)
+            for arc in ARCS:
+                r = build_story_arc(c, c['color'], arc, 2)
+                for clip in r['clips']:
+                    self.assertNotIn('TikTok', clip['prompt'], (name, arc))
+                    self.assertNotIn('carrinho', ' '.join(clip['lines']).lower(), (name, arc))
+                self.assertIn('link aqui embaixo', r['clips'][-1]['lines'][2], (name, arc))
+                self.assertEqual(r['clips'][0]['seconds'], 15)
+
+    def test_flow_keeps_the_sit_and_walk_context_at_fifteen_seconds(self):
+        c = campaign('jeans', video_mode='')
+        self.assertIn('CONTEXTO VISUAL OPCIONAL', generate(c)['video'])
 
 
 class HookVisualTests(unittest.TestCase):

@@ -71,7 +71,7 @@ def retime(text, seconds):
     return t
 
 
-def flow_safe(text):
+def flow_safe(text, strip_context=False):
     """Texto sem o que fez o Flow desenhar o ícone do TikTok e sem o tom que levou a recusa: ver o topo do módulo."""
     if not text:
         return text
@@ -83,7 +83,8 @@ def flow_safe(text):
     t = re.sub(r'\bTikTok Shop\b', 'a loja', t)
     t = re.sub(r'\bTikTok\b', 'as redes', t)
     # "Sentar, levantar e caminhar para revelar o caimento" contradiz o espelho fixo do clipe de 10 s (e os ganchos).
-    t = re.sub(r' CONTEXTO VISUAL OPCIONAL \(não é fato do produto; não inventar\): [^.]*\.', '', t)
+    if strip_context:
+        t = re.sub(r' CONTEXTO VISUAL OPCIONAL \(não é fato do produto; não inventar\): [^.]*\.', '', t)
     t = t.replace('EVITAR: textos, ícones, carrinho,', f'EVITAR: {NO_LOGO}, textos, ícones, carrinho,')
     t = t.replace('sem texto, ícone, carrinho,', f'sem {NO_LOGO}, sem texto, ícone, carrinho,')
     return t

@@ -817,7 +817,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('transparente',prompts['hook'].lower())
         self.assertIn('contra a luz',prompts['development'].lower())
         self.assertIn('por isso',prompts['development'].lower())
-        self.assertRegex(prompts['cta'].lower(),r'carrinho|link t[áa] (aqui )?embaixo')
+        self.assertRegex(prompts['cta'].lower(),r'carrinho|link (t[áa] )?(aqui )?embaixo')
 
     def test_offer_is_the_only_source_of_urgency(self):
         base=dict(model_name='Micaela',product='legging cintura alta',outfit='legging',color='preto',
@@ -3067,6 +3067,7 @@ class WorkflowTests(unittest.TestCase):
                   ["O segundo motivo é o zíper frontal, e olha como ele deixa tudo mais arrumadinho quando eu fecho.",
                    "E o terceiro são os bolsos laterais, onde eu coloco a mão assim e pronto, virou meu casaco preferido.",
                    "Corre pro carrinho laranja e garante o teu antes de esfriar."]]
+    ARC_AI_FLOW=[[__import__('services.clip_seconds',fromlist=['x']).link_cta(t) for t in trio] for trio in ARC_AI_LINES]   # Flow: o carrinho falado vira link
 
     def puffer_campaign(self):
         puffer=dict(product='Casaco Puffer',outfit='Casaco Puffer',color='preto',niche='casual',
@@ -3085,7 +3086,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(r.status_code,200,r.json)
         self.assertEqual(chamada.call_count,1)
         self.assertEqual(r.json['written_by'],'ai')
-        self.assertEqual([c['lines'] for c in r.json['clips']],self.ARC_AI_LINES)
+        self.assertEqual([c['lines'] for c in r.json['clips']],self.ARC_AI_FLOW)
         self.assertEqual([c['problems'] for c in r.json['clips']],[[],[]])
         sistema=chamada.call_args.args[2]
         self.assertIn('1) capuz; 2) zíper frontal; 3) bolsos laterais',sistema)
@@ -3097,7 +3098,7 @@ class WorkflowTests(unittest.TestCase):
             de_novo=self.post('/story-arc',dict(arc='motivos',clips=2))
         chamada.assert_not_called()
         self.assertEqual(de_novo.json['written_by'],'ai_saved')
-        self.assertEqual([c['lines'] for c in de_novo.json['clips']],self.ARC_AI_LINES)
+        self.assertEqual([c['lines'] for c in de_novo.json['clips']],self.ARC_AI_FLOW)
         # Com outros fatos (so para esta sequencia), as falas guardadas nao valem.
         outro=self.post('/story-arc',dict(arc='motivos',clips=2,facts='forro de pelúcia, punho canelado, gola alta'))
         self.assertNotIn('written_by',outro.json)

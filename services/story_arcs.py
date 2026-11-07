@@ -899,6 +899,8 @@ def build_story_arc(c, color, arc, clips, lines=None, base_image=False, clip_tur
                       for trio in rascunho]
     else:
         clip_lines = [_cut_optional(_pad(trio)) for trio in draft_lines(c, arc, clips, facts, slot_index)]
+        if generators.of(c) is generators.FLOW:   # regra do Flow: o carrinho falado virava icone na tela
+            clip_lines = [tuple(clip_seconds.link_cta(t) for t in trio) for trio in clip_lines]
     result = _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espelho, w,
                        turns=turns, texture=bool(texture), seconds=seconds, hook_visual=hook_visual)
     if hook_visual:
@@ -927,6 +929,7 @@ def write_lines_with_ai(c, arc, clips, settings, slot_index=0, seconds=15):
     floor, ceiling = clip_seconds.word_window(seconds) or (WORD_FLOOR, WORD_CEILING)
     oferta = str(c.get('offer') or '').strip()
     dez = seconds == 10
+    link = dez or generators.of(c) is generators.FLOW   # no Flow o convite e o link, nunca o carrinho
     tipo = closing_type(c, 'motivos' if arc in ARCS_10S else arc, slot_index, facts)
     tipos = [cta_types.rule_text()]
     if tipo:
@@ -951,7 +954,7 @@ def write_lines_with_ai(c, arc, clips, settings, slot_index=0, seconds=15):
         '- Papel de cada clipe: ' + '; '.join(f'clipe {n}: {r}' for n, r in enumerate(roles, 1)) + '.',
         ('- Só o último clipe pede a compra, com "link aqui embaixo" (nunca "carrinho": no Flow o carrinho falado vira '
          'ícone na tela). Os outros terminam deixando gancho para o próximo clipe, sem falar em link, comprar ou garantir.'
-         if dez else
+         if link else
          '- Só o último clipe pede a compra, com "carrinho laranja". Os outros terminam deixando gancho para o '
          'próximo clipe, sem falar em carrinho, comprar ou garantir.'),
         ('- Oferta real que pode ser citada no último clipe, com os números exatos: ' + oferta) if oferta
@@ -981,7 +984,7 @@ def write_lines_with_ai(c, arc, clips, settings, slot_index=0, seconds=15):
             if (not isinstance(trio, list) or len(trio) != 3
                     or not all(isinstance(t, str) and t.strip() for t in trio)):
                 return None, [f'o clipe {i} precisa ter 3 trechos de texto']
-            trio = [clip_seconds.link_cta(' '.join(t.split())) if dez else ' '.join(t.split()) for t in trio]
+            trio = [clip_seconds.link_cta(' '.join(t.split())) if link else ' '.join(t.split()) for t in trio]
             problemas += [f'clipe {i}: {p}' for p in clip_problems(trio, i, clips, source, seconds)]
             falas.append(trio)
         juntos = ' '.join(' '.join(t) for t in falas).casefold()
@@ -1178,7 +1181,7 @@ def _assemble(c, color, arc, clips, facts, clip_lines, drafted, base_image, espe
             full, guide = _hook_face_exception(full), _hook_face_exception(guide)
         if seconds == 10:
             # Clipe de 10 s para o Flow: janelas, resolucao e texto sem TikTok (services/clip_seconds.py). Aviso, nunca erro.
-            full, image_prompt, guide, extend = (clip_seconds.flow_safe(clip_seconds.retime(t, seconds))
+            full, image_prompt, guide, extend = (clip_seconds.flow_safe(clip_seconds.retime(t, seconds), strip_context=True)
                                                  for t in (full, image_prompt, guide, extend))
             problems += [p for t in (full, guide) for p in clip_seconds.timing_problems(t, seconds)]
         clip = dict(

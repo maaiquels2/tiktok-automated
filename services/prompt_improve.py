@@ -22,7 +22,7 @@ caracteres.
 import re
 import unicodedata
 
-from services import formats, generators, persuasion
+from services import clip_seconds, formats, generators, persuasion
 from services.framing import (framing, mirror_cover, mirror_phone, mirror_scope, mood, push_target,  # noqa: F401
                               speech_framing)  # (story_sequence usa daqui)
 from services.formats import video_mode as _video_mode
@@ -316,6 +316,11 @@ def compact_mesa(c: dict, model: str, piece: str, res: str, fala: str, keeps: st
 
 
 def build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
+    text = _build_compact_video_prompt(c, prompts, color)
+    return clip_seconds.flow_safe(text) if generators.of(c) is generators.FLOW else text   # regra do Flow
+
+
+def _build_compact_video_prompt(c: dict, prompts: dict, color: str) -> str:
     model = clean(c.get('model_name')) or 'a modelo'
     product = clean(c.get('product')) or clean(c.get('outfit')) or 'a peça'
     color = clean(color) or clean(c.get('color'))
