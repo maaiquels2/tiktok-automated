@@ -30,7 +30,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from services import cta_types, formats, hook_types, persuasion, script_budget, speech_bank
+from services import clip_seconds, cta_types, formats, generators, hook_types, persuasion, script_budget, speech_bank
 
 # Uso da IA por requisicao: cada chamada ao provedor anota os tokens aqui e o
 # app grava por campanha (o que a OpenAI cobra).
@@ -992,6 +992,14 @@ def _parse(raw: str) -> dict:
     return parse_candidates(raw)[0]
 
 
+def _flow_pack(c: dict, pack: dict) -> dict:
+    """Regra do Flow: a fala escrita pela IA fecha com "link aqui embaixo", nunca com "carrinho laranja" (no Flow o carrinho
+    falado virava icone na tela). Roda DEPOIS da auditoria, que continua a mesma; no Grok devolve o pacote como veio."""
+    if generators.of(c) is not generators.FLOW or not isinstance(pack, dict):
+        return pack
+    return {**pack, **{k: clip_seconds.link_cta(pack[k]) for k in ('hook', 'development', 'cta') if isinstance(pack.get(k), str)}}
+
+
 def write_script(c: dict, settings: dict, attempts: int = 2,
                  orcamento_s: float = BUDGET_SECONDS) -> tuple[dict | None, str]:
     """Escreve as falas com o modelo. Devolve (pacote, motivo_da_falha).
@@ -1050,7 +1058,7 @@ def write_script(c: dict, settings: dict, attempts: int = 2,
             else:
                 approved.append(pack)
         if approved:
-            return max(approved, key=lambda item: creative_score(item, c)), ''
+            return _flow_pack(c, max(approved, key=lambda item: creative_score(item, c))), ''
         # Mantem a lista curta para nao gastar a segunda tentativa repetindo
         # dezenas de avisos equivalentes vindos de tres opcoes.
         unique = []
@@ -1219,7 +1227,7 @@ def write_scripts(campaigns: list[dict], settings: dict,
                 diversity=batch_diversity_issues([
                     (expected[key].get('color') or key,pack) for key,pack in selected.items()])
                 if not diversity:
-                    return selected, ''
+                    return {key: _flow_pack(expected[key], pack) for key, pack in selected.items()}, ''
                 rejected.extend(diversity)
 
         unique = []

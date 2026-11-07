@@ -4508,8 +4508,8 @@ class WorkflowTests(unittest.TestCase):
                 campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'},attempts=1)
         self.assertEqual(reason,'')
         for field in ('hook','development','cta'):
-            self.assertEqual(result['azul'][field],azul[field])
-            self.assertEqual(result['branco'][field],branco[field])
+            self.assertEqual(result['azul'][field],__import__('services.clip_seconds',fromlist=['x']).link_cta(azul[field]))   # Flow: o carrinho vira link
+            self.assertEqual(result['branco'][field],__import__('services.clip_seconds',fromlist=['x']).link_cta(branco[field]))
         caller.assert_called_once()
 
     def test_batch_copywriter_strengthens_weak_ctas_without_another_api_call(self):
@@ -4539,8 +4539,8 @@ class WorkflowTests(unittest.TestCase):
             result,reason=cw.write_scripts(
                 campaigns,{'provider':'openai','api_key':'sk-x','model':'modelo'},attempts=1)
         self.assertEqual(reason,'')
-        self.assertIn('carrinho laranja',result['preto']['cta'].lower())
-        self.assertIn('carrinho laranja',result['branco']['cta'].lower())
+        self.assertIn('link aqui embaixo',result['preto']['cta'].lower())
+        self.assertIn('link aqui embaixo',result['branco']['cta'].lower())
         self.assertFalse(result['preto']['cta'].lower().startswith('se '))
         self.assertFalse(result['branco']['cta'].lower().startswith('quer '))
         self.assertNotEqual(result['preto']['cta'],result['branco']['cta'])

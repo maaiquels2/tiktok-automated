@@ -206,6 +206,17 @@ class FlowRuleTests(unittest.TestCase):
                 self.assertIn('link aqui embaixo', r['clips'][-1]['lines'][2], (name, arc))
                 self.assertEqual(r['clips'][0]['seconds'], 15)
 
+    def test_ai_written_lines_close_with_a_link_in_flow_and_stay_the_same_in_grok(self):
+        from services import copywriter
+        pacote = dict(hook='Eu tinha medo de ficar transparente.', development='Mas o tecido não é transparente.',
+                      cta='Corre pro carrinho laranja e garante a tua.', caption='Legenda #moda')
+        flow = copywriter._flow_pack(campaign('jeans'), pacote)
+        self.assertEqual(flow['cta'], 'Corre no link aqui embaixo e garante a tua.')
+        self.assertEqual(flow['hook'], pacote['hook'])
+        self.assertEqual(flow['caption'], 'Legenda #moda')                  # a legenda e do post, nao do video
+        self.assertEqual(copywriter._flow_pack(campaign('jeans', generator='grok'), pacote), pacote)
+        self.assertEqual(copywriter._flow_pack(campaign('jeans'), None), None)
+
     def test_flow_keeps_the_sit_and_walk_context_at_fifteen_seconds(self):
         c = campaign('jeans', video_mode='')
         self.assertIn('CONTEXTO VISUAL OPCIONAL', generate(c)['video'])
